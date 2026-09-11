@@ -1,0 +1,114 @@
+openapi: 3.1.0
+info:
+  title: P2 Fraud Detection Service API (surface support)
+  version: 1.0.0
+  description: >-
+    Screening is asynchronous (Kafka). This REST API serves human review
+    (SUPPORT role) and case introspection.
+servers:
+  - url: https://api.p2.demo.example.com
+security:
+  - oidc: [fraud:review]
+
+paths:
+  /v1/fraud/cases:
+    get:
+      operationId: listCases
+      summary: Fraud cases
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [OPEN, APPROVED, DENIED, ESCALATED], default: OPEN } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: page of cases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/FraudCase' } }
+                  nextCursor: { type: string, nullable: true }
+
+  /v1/fraud/cases/{caseId}:
+    get:
+      operationId: getCase
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: case, content: { application/json: { schema: { $ref: '#/components/schemas/FraudCaseDetail' } } } }
+        '404': { description: not found }
+
+  /v1/fraud/cases/{caseId}/decision:
+    post:
+      operationId: decideCase
+      summary: Review decision (approve = let through, deny = block/cancel)
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, DENY] }
+                note: { type: string }
+      responses:
+        '200':
+          description: >-
+            Decision recorded. APPROVE -> emits TransferCleared (saga resumes).
+            DENY -> emits TransferFlagged/def + ReversePosting if already posted.
+          content: { application/json: { schema: { $ref: '#/components/schemas/FraudCase' } } }
+        '409': { description: case already decided (idempotent) }
+
+  /v1/fraud/rules:
+    get:
+      operationId: listRules
+      summary: Active rules and weights
+      responses:
+        '200':
+          description: rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string, examples: [VELOCITY_1H, NEW_RECIPIENT, ROUND_TRIP, AMOUNT_ROUND] }
+                    weight: { type: number }
+                    threshold: { type: number }
+                    enabled: { type: boolean }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+  schemas:
+    FraudCase:
+      type: object
+      properties:
+        caseId: { type: string }
+        transferId: { type: string }
+        senderId: { type: string }
+        amount: { type: object, properties: { currency: { type: string }, amount: { type: string } } }
+        score: { type: number }
+        reasons: { type: array, items: { type: string } }
+        status: { type: string, enum: [OPEN, APPROVED, DENIED, ESCALATED] }
+        openedAt: { type: string, format: date-time }
+        decidedAt: { type: string, format: date-time, nullable: true }
+    FraudCaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/FraudCase'
+        - type: object
+          properties:
+            velocitySnapshot:
+              type: object
+              properties:
+                count1m: { type: integer }
+                count1h: { type: integer }
+                sum24h: { type: string }
+            recentRecipients: { type: array, items: { type: string } }

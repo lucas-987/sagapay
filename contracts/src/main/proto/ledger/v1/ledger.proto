@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package sagapay.ledger.v1;
+
+import "common/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "dev.treyer.sagapay.ledger.v1";
+option java_outer_classname = "LedgerProto";
+
+// The ledger owns the money. Every RPC is one local transaction and is
+// idempotent on (transfer_id, operation).
+service LedgerService {
+  rpc CheckAndReserve(CheckAndReserveRequest) returns (CheckAndReserveResponse);
+  rpc PostTransfer(PostTransferRequest) returns (PostTransferResponse);
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (sagapay.common.v1.Empty);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
+
+message CheckAndReserveRequest {
+  string transfer_id = 1;
+  string from_account_id = 2;
+  sagapay.common.v1.Money amount = 3;
+}
+message CheckAndReserveResponse {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    OK = 1;
+    INSUFFICIENT_FUNDS = 2;
+  }
+  Status status = 1;
+  string reservation_id = 2;
+}
+
+message PostTransferRequest {
+  string transfer_id = 1;
+  string from_account_id = 2;
+  string to_account_id = 3;
+  sagapay.common.v1.Money amount = 4;
+}
+message PostTransferResponse {
+  bool posted = 1;
+}
+
+message ReleaseReservationRequest {
+  string transfer_id = 1;
+  string reservation_id = 2;
+}
+
+message GetBalanceRequest {
+  string account_id = 1;
+}
+message GetBalanceResponse {
+  sagapay.common.v1.Money balance = 1;
+}

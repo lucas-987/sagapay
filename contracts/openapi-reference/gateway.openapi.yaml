@@ -1,0 +1,57 @@
+openapi: 3.1.0
+info:
+  title: P2 API Gateway (aggregated public surface)
+  version: 1.0.0
+  description: >-
+    Spring Cloud Gateway behind an ALB Ingress. Routes `/v1/**` to the
+    services (see their specs) + SSE + Idempotency-Key cache. Bearer JWT
+    (Keycloak), Redis rate-limit (key = userId).
+servers:
+  - url: https://api.p2.demo.example.com
+security:
+  - bearer: []
+
+paths:
+  /stream/activity:
+    get:
+      operationId: streamActivity
+      summary: SSE stream of the user's activity and alerts
+      description: >-
+        `text/event-stream`. Events: `transfer.posted`, `transfer.failed`,
+        `transfer.reversed`, `wallet.updated`, `security.alert`. The gateway
+        consumes Kafka `payments.transfers` / `payments.fraud.results` and filters
+        by `userId` (sender AND recipient). Resumable via `Last-Event-ID`.
+      parameters:
+        - { name: Last-Event-ID, in: header, schema: { type: string } }
+      responses:
+        '200':
+          description: stream open
+          content:
+            text/event-stream: { schema: { type: string } }
+
+  /v1/{proxy}:
+    parameters:
+      - { name: proxy, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: proxyGet
+      summary: Transparent routing
+      description: >-
+        `/v1/transfers*`, `/v1/requests*` -> transfer-orchestrator ;
+        `/v1/wallet*` -> ledger-accounts-service ;
+        `/v1/users*` -> user-profile-service ;
+        `/v1/fraud*` -> fraud-detection-service ;
+        `/v1/notifications*` -> notification-service.
+        POST /v1/transfers goes through the Idempotency-Key cache (Redis) before
+        reaching the orchestrator.
+      responses:
+        '200': { description: upstream response }
+        '401': { description: JWT missing / invalid }
+        '429': { description: rate-limit (Retry-After) }
+        '503': { description: circuit breaker open }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

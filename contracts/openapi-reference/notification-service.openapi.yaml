@@ -1,0 +1,69 @@
+openapi: 3.1.0
+info:
+  title: P2 Notification Service API
+  version: 1.0.0
+  description: Notification preferences + history. Sending is event-driven + RabbitMQ.
+servers:
+  - url: https://api.p2.demo.example.com
+security:
+  - oidc: [profile:read]
+
+paths:
+  /v1/notifications:
+    get:
+      operationId: listNotifications
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [ALL, RECEIPT, SECURITY, REQUEST], default: ALL } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        type: { type: string }
+                        title: { type: string }
+                        body: { type: string }
+                        createdAt: { type: string, format: date-time }
+                        read: { type: boolean }
+                  nextCursor: { type: string, nullable: true }
+
+  /v1/notifications/preferences:
+    get:
+      operationId: getPreferences
+      responses:
+        '200': { description: preferences, content: { application/json: { schema: { $ref: '#/components/schemas/Preferences' } } } }
+    put:
+      operationId: updatePreferences
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Preferences' } } }
+      responses:
+        '200': { description: updated, content: { application/json: { schema: { $ref: '#/components/schemas/Preferences' } } } }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+  schemas:
+    Preferences:
+      type: object
+      properties:
+        email:
+          type: object
+          properties: { receipts: { type: boolean }, security: { type: boolean }, requests: { type: boolean } }
+        sms:
+          type: object
+          properties: { security: { type: boolean } }
+        push:
+          type: object
+          properties: { all: { type: boolean } }

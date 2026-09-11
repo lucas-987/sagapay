@@ -1,0 +1,122 @@
+openapi: 3.1.0
+info:
+  title: P2 User Profile Service API
+  version: 1.0.0
+  description: Application identity, contacts, recipient lookup, devices, KYC-lite.
+servers:
+  - url: https://api.p2.demo.example.com
+security:
+  - oidc: [profile:read]
+
+paths:
+  /v1/users/me:
+    get:
+      operationId: getMe
+      responses:
+        '200': { description: profile, content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+    put:
+      operationId: updateMe
+      security: [ { oidc: [contacts:write] } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ProfileUpdate' } } }
+      responses:
+        '200': { description: updated, content: { application/json: { schema: { $ref: '#/components/schemas/Profile' } } } }
+
+  /v1/users/lookup:
+    get:
+      operationId: lookupRecipient
+      summary: Resolve a handle / email / phone number to a recipient
+      description: >-
+        Heavily rate-limited (anti-enumeration). Returns the minimal info needed
+        for the visual confirmation of a transfer.
+      parameters:
+        - { name: handle, in: query, required: true, schema: { type: string }, description: "@alice | alice@ex.com | +33..." }
+      responses:
+        '200':
+          description: recipient resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId: { type: string }
+                  displayName: { type: string }
+                  avatarUrl: { type: string, nullable: true }
+                  knownContact: { type: boolean }
+                  timesPaidBefore: { type: integer }
+        '404': { description: no user found }
+        '429': { description: too many searches (Retry-After) }
+
+  /v1/users/me/contacts:
+    get:
+      operationId: listContacts
+      responses:
+        '200':
+          description: contacts
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Contact' } }
+    post:
+      operationId: addContact
+      security: [ { oidc: [contacts:write] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [handle], properties: { handle: { type: string }, alias: { type: string } } }
+      responses:
+        '201': { description: added, content: { application/json: { schema: { $ref: '#/components/schemas/Contact' } } } }
+
+  /v1/users/me/devices:
+    get:
+      operationId: listDevices
+      responses:
+        '200':
+          description: devices
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Device' } }
+  /v1/users/me/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      security: [ { oidc: [contacts:write] } ]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: revoked }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+  schemas:
+    Profile:
+      type: object
+      properties:
+        userId: { type: string }
+        displayName: { type: string }
+        handle: { type: string, examples: ["@alice"] }
+        baseCurrency: { type: string, default: EUR }
+        kycStatus: { type: string, enum: [NONE, LITE, FULL] }
+        createdAt: { type: string, format: date-time }
+    ProfileUpdate:
+      type: object
+      properties:
+        displayName: { type: string }
+        handle: { type: string }
+    Contact:
+      type: object
+      properties:
+        userId: { type: string }
+        alias: { type: string }
+        displayName: { type: string }
+        timesPaid: { type: integer }
+    Device:
+      type: object
+      properties:
+        deviceId: { type: string }
+        label: { type: string }
+        lastSeenAt: { type: string, format: date-time }
+        trusted: { type: boolean }

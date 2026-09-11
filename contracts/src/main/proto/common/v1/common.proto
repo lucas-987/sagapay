@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package sagapay.common.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.treyer.sagapay.common.v1";
+
+// Monetary amount — value is ALWAYS a decimal string, never a double.
+message Money {
+  string currency = 1;   // ISO-4217, e.g. "EUR"
+  string amount   = 2;   // signed decimal, e.g. "80.0000"
+}
+
+message Empty {}
+
+// Application error codes (carried via google.rpc.Status details).
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED   = 0;
+  INSUFFICIENT_FUNDS       = 1;
+  ACCOUNT_NOT_FOUND        = 2;
+  RESERVATION_NOT_FOUND    = 3;
+  DUPLICATE_OPERATION      = 4;   // idempotent: treated as success
+  ACCOUNT_FROZEN           = 5;
+}

@@ -1,0 +1,71 @@
+openapi: 3.1.0
+info:
+  title: P2 Ledger / Accounts API (read-only REST surface)
+  version: 1.0.0
+  description: >-
+    Wallet reads (balance, available, postings). Money mutations go
+    EXCLUSIVELY through gRPC (ledger.proto), never REST.
+servers:
+  - url: https://api.p2.demo.example.com
+security:
+  - oidc: [wallet:read]
+
+paths:
+  /v1/wallet:
+    get:
+      operationId: getWallet
+      summary: My balance
+      responses:
+        '200':
+          description: balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountId: { type: string }
+                  currency: { type: string }
+                  balance: { $ref: '#/components/schemas/Money' }
+                  available: { $ref: '#/components/schemas/Money' }
+                  held: { $ref: '#/components/schemas/Money' }
+
+  /v1/wallet/postings:
+    get:
+      operationId: listPostings
+      summary: My ledger postings (append-only, cursor pagination)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+      responses:
+        '200':
+          description: page of postings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Posting' }
+                  nextCursor: { type: string, nullable: true }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+  schemas:
+    Money:
+      type: object
+      properties: { currency: { type: string }, amount: { type: string } }
+    Posting:
+      type: object
+      properties:
+        id: { type: string }
+        entryGroup: { type: string }
+        leg: { type: string, enum: [DEBIT, CREDIT] }
+        reason: { type: string, examples: [RESERVE_HOLD, RELEASE_HOLD, TRANSFER_SETTLE, TRANSFER_REVERSE] }
+        amount: { $ref: '#/components/schemas/Money' }
+        refTransferId: { type: string }
+        createdAt: { type: string, format: date-time }

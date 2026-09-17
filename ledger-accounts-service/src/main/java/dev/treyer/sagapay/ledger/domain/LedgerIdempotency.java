@@ -1,0 +1,50 @@
+package dev.treyer.sagapay.ledger.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+
+import java.time.Instant;
+import java.util.Objects;
+
+/** INSERT-only — never UPDATE or DELETE: the DB role {@code ledger_app} only has
+ * SELECT/INSERT grants on this table, enforced at the database level, not just by
+ * convention. */
+@Entity
+@Table(name = "ledger_idempotency")
+public class LedgerIdempotency {
+
+    @EmbeddedId
+    private LedgerIdempotencyId id;
+
+    @Column(name = "result_json", nullable = false, updatable = false, columnDefinition = "TEXT")
+    private String resultJson;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    /** Required by JPA (field access) — never called by business code. */
+    protected LedgerIdempotency() {}
+
+    public LedgerIdempotency(String transferId, LedgerOperation operation, String resultJson) {
+        this.id = new LedgerIdempotencyId(transferId, operation);
+        this.resultJson = Objects.requireNonNull(resultJson, "resultJson");
+        this.createdAt = Instant.now();
+    }
+
+    public LedgerIdempotencyId getId() {
+        return id;
+    }
+
+    public String getResultJson() {
+        return resultJson;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    // No setResultJson(): written once via INSERT ... ON CONFLICT DO NOTHING, with
+    // the result already computed — never updated afterwards.
+}

@@ -15,6 +15,16 @@ paths:
     get:
       operationId: getWallet
       summary: My balance
+      description: >-
+        accountId is TEMPORARY: OIDC isn't wired on REST yet (deferred to M4),
+        so the caller identifies the account explicitly instead of it coming
+        from the JWT. Drop this parameter once M4 lands and read the account
+        from the authenticated principal instead.
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: balance
@@ -33,10 +43,17 @@ paths:
     get:
       operationId: listPostings
       summary: My ledger postings (append-only, cursor pagination)
+      description: >-
+        accountId is TEMPORARY, same reason and same removal plan as on GET
+        /v1/wallet (see its description).
       parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: cursor, in: query, schema: { type: string } }
-        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 500 } }
       responses:
         '200':
           description: page of postings
@@ -49,6 +66,35 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/Posting' }
                   nextCursor: { type: string, nullable: true }
+
+  /v1/users/lookup:
+    get:
+      operationId: lookupAccount
+      summary: Resolve a handle to an account (recipient preview before a transfer)
+      description: >-
+        Simplified MVP subset of user-profile-service's lookupRecipient (see
+        contracts/openapi-reference/user-profile-service.openapi.yaml) — folded into
+        ledger-accounts-service because `accounts` already carries handle/display_name
+        (mvp-implementation-plan.md: user-profile-service itself is post-MVP). No
+        email/phone resolution (accounts only have a handle), no rate-limiting
+        (api-gateway's job, out of M1 scope), no avatarUrl — exact handle match only,
+        and deliberately never returns balance/currency (this is a "who is this"
+        lookup, not a wallet read).
+      parameters:
+        - name: handle
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: account resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountId: { type: string }
+                  displayName: { type: string }
 
 components:
   securitySchemes:

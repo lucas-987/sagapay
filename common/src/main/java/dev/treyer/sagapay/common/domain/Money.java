@@ -57,6 +57,11 @@ public record Money(BigDecimal amount, Currency currency) {
         return amount.toPlainString();
     }
 
+    /** For callers holding just a currency code (e.g. an account), not a full {@link Money}. */
+    public boolean hasCurrencyCode(String currencyCode) {
+        return currency.getCurrencyCode().equals(currencyCode);
+    }
+
     private void requireSameCurrency(Money other) {
         if (!currency.equals(other.currency)) {
             throw new IllegalArgumentException(

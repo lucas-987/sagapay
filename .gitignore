@@ -8,3 +8,7 @@ target/
 
 # OS
 .DS_Store
+
+# local secrets — never committed
+.env
+*.env

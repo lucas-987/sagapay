@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      POSTGRES_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      POSTGRES_DB: ledger_svc
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$POSTGRES_USER: the container's own variable (escaped so Compose doesn't
+      # substitute it itself while reading the file) — stays correct whatever the
+      # actually configured name is, no need to duplicate the value here.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d ledger_svc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ledger-accounts-service:
+    build:
+      context: ..
+      dockerfile: ledger-accounts-service/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      # Same DB as the postgres service above, addressed by its network hostname.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc
+      SPRING_DATASOURCE_USERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
+      SPRING_DATASOURCE_PASSWORD: ${LEDGER_APP_PASSWORD}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/ledger_svc
+      SPRING_FLYWAY_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      SPRING_FLYWAY_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
+      SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD: ${LEDGER_APP_PASSWORD}
+
+volumes:
+  pgdata:

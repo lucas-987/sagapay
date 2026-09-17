@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- logback-spring.xml, not logback.xml: only this name is processed after the Spring
+     context starts, which <springProperty> below needs. -->
+<configuration>
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name"/>
+    <include resource="logback/sagapay-base.xml"/>
+</configuration>

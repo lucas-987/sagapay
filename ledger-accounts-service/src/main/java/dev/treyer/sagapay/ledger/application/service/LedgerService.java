@@ -92,10 +92,6 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         BigDecimal held = heldAmount(fromAccountId);
         BigDecimal available = account.getBalance().subtract(held);
 
-        // Reused for both the returned result and the persisted row below — not two
-        // independent UUID.randomUUID() calls. A prior bug generated them
-        // separately, so the id returned to the caller never matched the persisted
-        // reservation and releaseReservation never released anything.
         UUID reservationId = UUID.randomUUID();
         CheckAndReserveResult result = available.compareTo(requestedAmount) >= 0
                 ? new CheckAndReserveResult.Ok(reservationId)
@@ -156,9 +152,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
                 toAccount = locked;
             }
         }
-        // Both accounts, not just the source: otherwise an EUR->USD transfer would
-        // pass the guard on the source side (the amount is indeed EUR) then
-        // silently credit the raw EUR amount onto a USD account.
+
         requireSameCurrency(fromAccount, amount);
         requireSameCurrency(toAccount, amount);
 
@@ -169,10 +163,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
             return memoized.get();
         }
 
-        // Without this, debitIfSufficientFunds below only looks at the account's
-        // raw balance, never at reservations: an unreserved transfer could still
-        // debit as long as the raw balance covered it, drawing on funds already
-        // committed to another currently-active transfer.
+        // Check that a valid reservation exists for the transfer before updating accounts
         int consumed = reservations.consumeIfMatching(transferId, fromAccountId, requestedAmount,
                 ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
         if (consumed == 0) {
@@ -182,9 +173,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         boolean posted = accounts.debitIfSufficientFunds(fromAccountId, requestedAmount) > 0;
         if (!posted) {
             // Should never happen: checkAndReserve already guaranteed the balance
-            // covered this reservation, and the account has stayed locked since.
-            // If it happens anyway, fail the whole transaction (undoing the
-            // reservation consumption above too) rather than memoize
+            // covered this reservation. If it happens anyway, fail the whole transaction
+            // (undoing the reservation consumption above too) rather than memoize
             // "posted=false" when the reservation was just marked consumed.
             throw new IllegalStateException(
                     "reservation consumed but debit failed for transferId " + transferId

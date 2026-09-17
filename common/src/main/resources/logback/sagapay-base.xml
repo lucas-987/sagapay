@@ -1,0 +1,18 @@
+<!-- Lives in `common` rather than being duplicated per service, so one place fixes the
+     log format for the whole project. <included>, not <configuration>: this file is
+     never loaded on its own, only via <include>. -->
+<included>
+    <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <!-- Constant fields, not MDC: "service"/"tenant" never vary per request here
+                 (single tenant, "demo"). traceId/spanId need no such entry — Micrometer
+                 Tracing populates them into MDC itself, which LogstashEncoder flattens
+                 into top-level keys by default. -->
+            <customFields>{"service":"${SERVICE_NAME:-unknown}","tenant":"demo"}</customFields>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT_JSON"/>
+    </root>
+</included>

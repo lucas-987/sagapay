@@ -42,7 +42,7 @@ class SagaServiceTest {
 
     private Transfer initiate(UUID idempotencyKey) {
         return sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
-                amount, idempotencyKey, null);
+                amount, idempotencyKey, null).transfer();
     }
 
     private List<String> eventTypesFor(UUID transferId) {
@@ -90,11 +90,15 @@ class SagaServiceTest {
     void sameIdempotencyKeyTwiceReturnsTheExistingTransfer() {
         UUID idempotencyKey = UUID.randomUUID();
 
-        Transfer first = initiate(idempotencyKey);
-        Transfer second = initiate(idempotencyKey);
+        var first = sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
+                amount, idempotencyKey, null);
+        var second = sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
+                amount, idempotencyKey, null);
 
-        assertThat(second.getId()).isEqualTo(first.getId());
-        assertThat(eventTypesFor(first.getId())).containsExactly("TransferInitiated"); // not written twice
+        assertThat(first.created()).isTrue();
+        assertThat(second.created()).isFalse();
+        assertThat(second.transfer().getId()).isEqualTo(first.transfer().getId());
+        assertThat(eventTypesFor(first.transfer().getId())).containsExactly("TransferInitiated"); // not written twice
     }
 
     @Test

@@ -2,6 +2,7 @@ package dev.treyer.sagapay.orchestrator.adapter.out.persistence;
 
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -21,6 +22,28 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
      * path never finished -- {@code updatedAt} doubles as "since when has this
      * been RESERVED" because nothing else touches a RESERVED row's timestamp. */
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
+
+    /** Keyset pagination (createdAt, id), same reasoning as the ledger's {@code
+     * PostingCursor}/{@code PostingRepository.findPage}: an OFFSET shifts under
+     * concurrent writes, a real position doesn't. {@code cast(... as ...) is
+     * null or ...} for the optional filters: a bare {@code ? is null} leaves
+     * Postgres unable to infer the parameter's type (same fix as ADR 0004 needed
+     * for the ledger's own {@code findPage}). {@code includeSent}/{@code
+     * includeReceived} rather than binding a {@code Direction} enum into JPQL:
+     * booleans compare directly, no enum-literal-in-query-string needed. */
+    @Query("select t from Transfer t where "
+            + "((:includeSent = true and t.senderId = :userId) or (:includeReceived = true and t.recipientId = :userId)) "
+            + "and (cast(:status as string) is null or t.status = :status) "
+            + "and (cast(:afterCreatedAt as timestamp) is null or t.createdAt < :afterCreatedAt "
+            + "     or (t.createdAt = :afterCreatedAt and t.id < :afterId)) "
+            + "order by t.createdAt desc, t.id desc")
+    List<Transfer> findPageForUser(@Param("userId") UUID userId,
+                                    @Param("includeSent") boolean includeSent,
+                                    @Param("includeReceived") boolean includeReceived,
+                                    @Param("status") TransferStatus status,
+                                    @Param("afterCreatedAt") Instant afterCreatedAt,
+                                    @Param("afterId") UUID afterId,
+                                    Pageable pageable);
 
     /** 1 row inserted = this call is first, its own outbox write is the one to
      * make. 0 rows = a concurrent replay (or the client's own retry) already won

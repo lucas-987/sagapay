@@ -13,5 +13,5 @@ RUN mvn -q -pl ledger-accounts-service -am package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /workspace/ledger-accounts-service/target/ledger-accounts-service-*.jar app.jar
-EXPOSE 8081
+EXPOSE 8081 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]

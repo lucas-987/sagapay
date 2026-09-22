@@ -27,6 +27,7 @@ services:
         condition: service_healthy
     ports:
       - "8081:8081"
+      - "9091:9091"
     environment:
       # Same DB as the postgres service above, addressed by its network hostname.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc

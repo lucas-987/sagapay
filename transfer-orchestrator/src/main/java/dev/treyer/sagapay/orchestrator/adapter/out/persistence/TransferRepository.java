@@ -8,12 +8,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
     Optional<Transfer> findBySenderIdAndIdempotencyKey(UUID senderId, UUID idempotencyKey);
+
+    /** Used by {@code SagaReprisePoller} (§7) to find transfers the eager direct
+     * path never finished -- {@code updatedAt} doubles as "since when has this
+     * been RESERVED" because nothing else touches a RESERVED row's timestamp. */
+    List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
     /** 1 row inserted = this call is first, its own outbox write is the one to
      * make. 0 rows = a concurrent replay (or the client's own retry) already won

@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 import java.util.UUID;
@@ -109,11 +110,13 @@ class SagaServiceTest {
 
     @TestConfiguration
     static class FakeLedgerPortConfig {
-        // FakeLedgerPort's own type also satisfies SagaService's LedgerPort
-        // dependency (it implements the interface) -- no real adapter exists yet
-        // (LedgerGrpcClientAdapter is §5), and shouldn't be needed to test the
-        // saga's own chaining logic in isolation.
+        // @Primary: the real LedgerGrpcClientAdapter (§5) is also on the
+        // classpath and satisfies LedgerPort too -- without this, the context
+        // fails to start with 2 candidate beans. This fake is what SagaService
+        // should actually get here, to test the saga's own chaining logic in
+        // isolation from a real network call.
         @Bean
+        @Primary
         FakeLedgerPort fakeLedgerPort() {
             return new FakeLedgerPort();
         }

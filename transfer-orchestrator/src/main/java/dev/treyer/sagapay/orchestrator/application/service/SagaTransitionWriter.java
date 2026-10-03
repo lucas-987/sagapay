@@ -73,13 +73,14 @@ class SagaTransitionWriter {
 
     @Transactional
     boolean applyInsufficientFunds(UUID transferId, Transfer transfer) {
+        String failureReason = "INSUFFICIENT_FUNDS";
         int updated = transfers.transitionToFailed(
-                transferId, TransferStatus.INITIATED, TransferStatus.FAILED, "INSUFFICIENT_FUNDS");
+                transferId, TransferStatus.INITIATED, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, "RESERVE", "FAILED", null));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferFailed"));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
         return true;
     }
 
@@ -97,7 +98,7 @@ class SagaTransitionWriter {
         detail.put("ledgerStatus", rejection.ledgerStatus());
         detail.put("message", rejection.getMessage());
         sagaSteps.save(new SagaStep(transferId, step, "FAILED", jsonMapper.writeValueAsString(detail)));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferFailed"));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
         return true;
     }
 }

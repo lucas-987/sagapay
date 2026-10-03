@@ -19,6 +19,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +41,8 @@ class SagaServiceTest {
     private SagaStepRepository sagaStepRepository;
     @Autowired
     private FakeLedgerPort fakeLedgerPort;
+    @Autowired
+    private JsonMapper jsonMapper;
 
     @BeforeEach
     void resetFakeLedger() {
@@ -55,6 +58,16 @@ class SagaServiceTest {
     private Transfer initiate(UUID idempotencyKey) {
         return sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
                 amount, idempotencyKey, null).transfer();
+    }
+
+    /** Parsed rather than matched as a string: the payload column is jsonb, so
+     * Postgres hands it back re-serialized in its own format. */
+    private String failedEventReasonFor(UUID transferId) {
+        String payload = outboxRepository.findByAggregateIdOrderByCreatedAt(transferId).stream()
+                .filter(row -> row.getEventType().equals("TransferFailed"))
+                .map(OutboxRow::getPayload)
+                .findFirst().orElseThrow();
+        return jsonMapper.readTree(payload).get("reason").asString();
     }
 
     private List<String> eventTypesFor(UUID transferId) {
@@ -96,6 +109,7 @@ class SagaServiceTest {
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
                 .isEqualTo(TransferStatus.FAILED);
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("INSUFFICIENT_FUNDS");
     }
 
     @Test
@@ -135,6 +149,7 @@ class SagaServiceTest {
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
         assertThat(after.getFailureReason()).isEqualTo("RESERVE_REJECTED");
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "TransferFailed");
+        assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("RESERVE_REJECTED");
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
     }
 
@@ -151,6 +166,7 @@ class SagaServiceTest {
         assertThat(after.getFailureReason()).isEqualTo("POST_REJECTED");
         assertThat(eventTypesFor(transfer.getId()))
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+        assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("POST_REJECTED");
         assertThat(sagaStepRepository.findByTransferIdOrderByAtAsc(transfer.getId()))
                 .last()
                 .satisfies(step -> {

@@ -20,6 +20,16 @@ final class OutboxEvents {
      * the saga, so the originally-loaded entity is reused for every event, no
      * matter which step is being recorded. */
     static OutboxRow forTransfer(JsonMapper jsonMapper, Transfer transfer, String eventType) {
+        return forTransfer(jsonMapper, transfer, eventType, null);
+    }
+
+    /** Carries the same code as {@code transfers.failure_reason}, so consumers
+     * can tell why without calling back the orchestrator. */
+    static OutboxRow forFailedTransfer(JsonMapper jsonMapper, Transfer transfer, String reason) {
+        return forTransfer(jsonMapper, transfer, "TransferFailed", reason);
+    }
+
+    private static OutboxRow forTransfer(JsonMapper jsonMapper, Transfer transfer, String eventType, String reason) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("transferId", transfer.getId().toString());
         payload.put("senderId", transfer.getSenderId().toString());
@@ -27,6 +37,9 @@ final class OutboxEvents {
         payload.put("amount", transfer.getAmount().toPlainString());
         payload.put("currency", transfer.getCurrency());
         payload.put("eventType", eventType);
+        if (reason != null) {
+            payload.put("reason", reason);
+        }
         return new OutboxRow(UUID.randomUUID(), "Transfer", transfer.getId(), eventType,
                 jsonMapper.writeValueAsString(payload), null);
     }

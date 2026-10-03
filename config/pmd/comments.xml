@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="comments"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <description>
+        Comments explain a non-obvious why in a few lines, and describe the code as it
+        is, not how it came to be.
+    </description>
+
+    <rule ref="category/java/documentation.xml/CommentSize">
+        <properties>
+            <property name="maxLines" value="6"/>
+            <property name="maxLineLength" value="100"/>
+        </properties>
+    </rule>
+
+    <rule ref="category/java/documentation.xml/CommentContent"
+          message="History or process wording in a comment: it belongs in the commit message">
+        <properties>
+            <property name="forbiddenRegex"
+                      value="(?i)\b(previously|no longer|used to|originally|discovered|turned out|surfaced (while|when)|caught by|verified (by|against|empirically)|before switching|we found|was (changed|fixed|added|removed|renamed))\b"/>
+        </properties>
+    </rule>
+</ruleset>

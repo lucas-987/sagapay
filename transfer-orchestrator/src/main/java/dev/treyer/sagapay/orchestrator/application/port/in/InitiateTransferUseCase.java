@@ -12,6 +12,12 @@ public interface InitiateTransferUseCase {
     record Result(Transfer transfer, boolean created) {}
 
     /** Idempotent on {@code (senderId, idempotencyKey)}. */
-    Result initiateTransfer(UUID senderId, UUID senderAccountId, UUID recipientId, UUID recipientAccountId,
-                             Money amount, UUID idempotencyKey, String note);
+    Result initiateTransfer(
+            UUID senderId,
+            UUID senderAccountId,
+            UUID recipientId,
+            UUID recipientAccountId,
+            Money amount,
+            UUID idempotencyKey,
+            String note);
 }

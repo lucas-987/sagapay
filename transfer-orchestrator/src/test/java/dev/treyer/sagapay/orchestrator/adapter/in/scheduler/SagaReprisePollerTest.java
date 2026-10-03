@@ -35,10 +35,13 @@ class SagaReprisePollerTest {
 
     @Autowired
     private SagaReprisePoller reprisePoller;
+
     @Autowired
     private TransferRepository transferRepository;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
     @Autowired
     private FakeLedgerPort fakeLedgerPort;
 
@@ -55,13 +58,22 @@ class SagaReprisePollerTest {
         UUID senderAccountId = UUID.randomUUID();
         UUID recipientAccountId = UUID.randomUUID();
         UUID reservationId = status == TransferStatus.RESERVED ? UUID.randomUUID() : null;
-        jdbcTemplate.update("""
+        jdbcTemplate.update(
+                """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, status, reservation_id)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?::transfer_status, ?)
                 """,
-                id, UUID.randomUUID(), UUID.randomUUID(), senderAccountId, UUID.randomUUID(), recipientAccountId,
-                new BigDecimal("25.0000"), "EUR", status.name(), reservationId);
+                id,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                senderAccountId,
+                UUID.randomUUID(),
+                recipientAccountId,
+                new BigDecimal("25.0000"),
+                "EUR",
+                status.name(),
+                reservationId);
         return id;
     }
 

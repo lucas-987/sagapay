@@ -25,22 +25,30 @@ class ReservationRepositoryTest {
 
     @Autowired
     private ReservationRepository reservations;
+
     @Autowired
     private AccountRepository accounts;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
     @Autowired
     private TestEntityManager entityManager;
 
     private UUID newAccount() {
-        return accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("1000.0000"))).getId();
+        return accounts.saveAndFlush(
+                        new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("1000.0000")))
+                .getId();
     }
 
     // Flushed so raw SQL updates in the tests can see the row.
     private Reservation newReservation(UUID accountId, String transferId, String amount) {
-        return reservations.saveAndFlush(new Reservation(UUID.randomUUID(), accountId, transferId,
-                new BigDecimal(amount), Instant.now().plus(5, ChronoUnit.MINUTES)));
+        return reservations.saveAndFlush(new Reservation(
+                UUID.randomUUID(),
+                accountId,
+                transferId,
+                new BigDecimal(amount),
+                Instant.now().plus(5, ChronoUnit.MINUTES)));
     }
 
     @Test
@@ -66,8 +74,8 @@ class ReservationRepositoryTest {
         newReservation(accountId, UUID.randomUUID().toString(), "10.0000");
         newReservation(accountId, UUID.randomUUID().toString(), "5.0000");
         Reservation released = newReservation(accountId, UUID.randomUUID().toString(), "100.0000");
-        reservations.updateStatusByReservationId(released.getTransferId(), released.getId(),
-                ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
+        reservations.updateStatusByReservationId(
+                released.getTransferId(), released.getId(), ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
 
         BigDecimal held = reservations.sumAmountByAccountIdAndStatus(accountId, ReservationStatus.ACTIVE);
 
@@ -130,8 +138,8 @@ class ReservationRepositoryTest {
         UUID accountId = newAccount();
         Reservation expired = newReservation(accountId, UUID.randomUUID().toString(), "10.0000");
         Reservation fresh = newReservation(accountId, UUID.randomUUID().toString(), "20.0000");
-        jdbcTemplate.update("UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE id = ?",
-                expired.getId());
+        jdbcTemplate.update(
+                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE id = ?", expired.getId());
 
         int updated = reservations.expireOverdue(ReservationStatus.ACTIVE, ReservationStatus.EXPIRED);
 
@@ -148,10 +156,10 @@ class ReservationRepositoryTest {
     void expireOverdueDoesNotTouchAlreadyReleasedReservations() {
         UUID accountId = newAccount();
         Reservation reservation = newReservation(accountId, UUID.randomUUID().toString(), "10.0000");
-        reservations.updateStatusByReservationId(reservation.getTransferId(), reservation.getId(),
-                ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
-        jdbcTemplate.update("UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE id = ?",
-                reservation.getId());
+        reservations.updateStatusByReservationId(
+                reservation.getTransferId(), reservation.getId(), ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
+        jdbcTemplate.update(
+                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE id = ?", reservation.getId());
 
         int updated = reservations.expireOverdue(ReservationStatus.ACTIVE, ReservationStatus.EXPIRED);
 

@@ -8,8 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 public class LedgerAccountsServiceApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(LedgerAccountsServiceApplication.class, args);
-	}
-
+    public static void main(String[] args) {
+        SpringApplication.run(LedgerAccountsServiceApplication.class, args);
+    }
 }

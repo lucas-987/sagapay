@@ -30,13 +30,14 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             + "and (cast(:afterCreatedAt as timestamp) is null or t.createdAt < :afterCreatedAt "
             + "     or (t.createdAt = :afterCreatedAt and t.id < :afterId)) "
             + "order by t.createdAt desc, t.id desc")
-    List<Transfer> findPageForUser(@Param("userId") UUID userId,
-                                    @Param("includeSent") boolean includeSent,
-                                    @Param("includeReceived") boolean includeReceived,
-                                    @Param("status") TransferStatus status,
-                                    @Param("afterCreatedAt") Instant afterCreatedAt,
-                                    @Param("afterId") UUID afterId,
-                                    Pageable pageable);
+    List<Transfer> findPageForUser(
+            @Param("userId") UUID userId,
+            @Param("includeSent") boolean includeSent,
+            @Param("includeReceived") boolean includeReceived,
+            @Param("status") TransferStatus status,
+            @Param("afterCreatedAt") Instant afterCreatedAt,
+            @Param("afterId") UUID afterId,
+            Pageable pageable);
 
     /** @return 0 when a replay already created the transfer. Unlike a caught
      * constraint violation, {@code ON CONFLICT DO NOTHING} leaves the transaction
@@ -49,27 +50,42 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
                 :amount, :currency, :note, 'INITIATED'::transfer_status, now(), now())
             on conflict (sender_id, idempotency_key) do nothing
             """)
-    int insertIfAbsent(@Param("id") UUID id, @Param("idempotencyKey") UUID idempotencyKey,
-                        @Param("senderId") UUID senderId, @Param("senderAccountId") UUID senderAccountId,
-                        @Param("recipientId") UUID recipientId, @Param("recipientAccountId") UUID recipientAccountId,
-                        @Param("amount") BigDecimal amount, @Param("currency") String currency,
-                        @Param("note") String note);
+    int insertIfAbsent(
+            @Param("id") UUID id,
+            @Param("idempotencyKey") UUID idempotencyKey,
+            @Param("senderId") UUID senderId,
+            @Param("senderAccountId") UUID senderAccountId,
+            @Param("recipientId") UUID recipientId,
+            @Param("recipientAccountId") UUID recipientAccountId,
+            @Param("amount") BigDecimal amount,
+            @Param("currency") String currency,
+            @Param("note") String note);
 
     @Modifying
-    @Query("update Transfer t set t.status = :toStatus, t.reservationId = :reservationId, t.updatedAt = CURRENT_TIMESTAMP "
-            + "where t.id = :id and t.status = :fromStatus")
-    int transitionWithReservation(@Param("id") UUID id, @Param("fromStatus") TransferStatus fromStatus,
-                                   @Param("toStatus") TransferStatus toStatus, @Param("reservationId") UUID reservationId);
+    @Query(
+            "update Transfer t set t.status = :toStatus, t.reservationId = :reservationId, t.updatedAt = CURRENT_TIMESTAMP "
+                    + "where t.id = :id and t.status = :fromStatus")
+    int transitionWithReservation(
+            @Param("id") UUID id,
+            @Param("fromStatus") TransferStatus fromStatus,
+            @Param("toStatus") TransferStatus toStatus,
+            @Param("reservationId") UUID reservationId);
 
     @Modifying
     @Query("update Transfer t set t.status = :toStatus, t.updatedAt = CURRENT_TIMESTAMP "
             + "where t.id = :id and t.status = :fromStatus")
-    int transitionStatus(@Param("id") UUID id, @Param("fromStatus") TransferStatus fromStatus,
-                          @Param("toStatus") TransferStatus toStatus);
+    int transitionStatus(
+            @Param("id") UUID id,
+            @Param("fromStatus") TransferStatus fromStatus,
+            @Param("toStatus") TransferStatus toStatus);
 
     @Modifying
-    @Query("update Transfer t set t.status = :toStatus, t.failureReason = :failureReason, t.updatedAt = CURRENT_TIMESTAMP "
-            + "where t.id = :id and t.status = :fromStatus")
-    int transitionToFailed(@Param("id") UUID id, @Param("fromStatus") TransferStatus fromStatus,
-                            @Param("toStatus") TransferStatus toStatus, @Param("failureReason") String failureReason);
+    @Query(
+            "update Transfer t set t.status = :toStatus, t.failureReason = :failureReason, t.updatedAt = CURRENT_TIMESTAMP "
+                    + "where t.id = :id and t.status = :fromStatus")
+    int transitionToFailed(
+            @Param("id") UUID id,
+            @Param("fromStatus") TransferStatus fromStatus,
+            @Param("toStatus") TransferStatus toStatus,
+            @Param("failureReason") String failureReason);
 }

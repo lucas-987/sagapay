@@ -24,8 +24,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     /** @return 0 when the balance is insufficient. */
     @Modifying
-    @Query("update Account a set a.balance = a.balance - :amount "
-            + "where a.id = :id and a.balance - :amount >= 0")
+    @Query("update Account a set a.balance = a.balance - :amount " + "where a.id = :id and a.balance - :amount >= 0")
     int debitIfSufficientFunds(@Param("id") UUID id, @Param("amount") BigDecimal amount);
 
     @Modifying

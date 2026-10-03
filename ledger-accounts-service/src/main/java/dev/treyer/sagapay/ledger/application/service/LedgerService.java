@@ -19,6 +19,7 @@ import dev.treyer.sagapay.ledger.domain.CheckAndReserveResult;
 import dev.treyer.sagapay.ledger.domain.CurrencyMismatchException;
 import dev.treyer.sagapay.ledger.domain.IdempotencyConflictException;
 import dev.treyer.sagapay.ledger.domain.InvalidAmountException;
+import dev.treyer.sagapay.ledger.domain.LedgerIdempotencyId;
 import dev.treyer.sagapay.ledger.domain.LedgerOperation;
 import dev.treyer.sagapay.ledger.domain.NoMatchingReservationException;
 import dev.treyer.sagapay.ledger.domain.Posting;
@@ -27,7 +28,6 @@ import dev.treyer.sagapay.ledger.domain.PostingLeg;
 import dev.treyer.sagapay.ledger.domain.PostingPage;
 import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
-import dev.treyer.sagapay.ledger.domain.LedgerIdempotencyId;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
 import org.springframework.stereotype.Service;
@@ -43,9 +43,15 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 @Service
-public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCase,
-        ReleaseReservationUseCase, GetBalanceUseCase, GetWalletUseCase, ListPostingsUseCase,
-        LookupAccountUseCase, ExpireReservationsUseCase {
+public class LedgerService
+        implements CheckAndReserveUseCase,
+                PostTransferUseCase,
+                ReleaseReservationUseCase,
+                GetBalanceUseCase,
+                GetWalletUseCase,
+                ListPostingsUseCase,
+                LookupAccountUseCase,
+                ExpireReservationsUseCase {
 
     private static final long RESERVATION_TTL_MINUTES = 5;
 
@@ -55,9 +61,12 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
     private final LedgerIdempotencyPort idempotency;
     private final JsonMapper jsonMapper;
 
-    public LedgerService(AccountPort accounts, ReservationPort reservations,
-                          PostingPort postings, LedgerIdempotencyPort idempotency,
-                          JsonMapper jsonMapper) {
+    public LedgerService(
+            AccountPort accounts,
+            ReservationPort reservations,
+            PostingPort postings,
+            LedgerIdempotencyPort idempotency,
+            JsonMapper jsonMapper) {
         this.accounts = accounts;
         this.reservations = reservations;
         this.postings = postings;
@@ -89,23 +98,30 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
                 ? new CheckAndReserveResult.Ok(reservationId)
                 : new CheckAndReserveResult.InsufficientFunds();
 
-        int inserted = idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(),
-                toResultJson(result, fromAccountId, requestedAmount));
+        int inserted = idempotency.insertIfAbsent(
+                transferId, LedgerOperation.RESERVE.name(), toResultJson(result, fromAccountId, requestedAmount));
         if (inserted == 0) {
             // Safety net behind the lock: a concurrent replay stored its result
             // first. Return it only if it was the same call.
-            ResultJson previous = jsonMapper.readValue(idempotency
-                    .findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE))
-                    .orElseThrow(() -> new IllegalStateException("idempotency row vanished for " + transferId))
-                    .getResultJson(), ResultJson.class);
-            if (!previous.fromAccountId().equals(fromAccountId) || previous.amount().compareTo(requestedAmount) != 0) {
+            ResultJson previous = jsonMapper.readValue(
+                    idempotency
+                            .findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE))
+                            .orElseThrow(() -> new IllegalStateException("idempotency row vanished for " + transferId))
+                            .getResultJson(),
+                    ResultJson.class);
+            if (!previous.fromAccountId().equals(fromAccountId)
+                    || previous.amount().compareTo(requestedAmount) != 0) {
                 throw new IdempotencyConflictException(transferId, fromAccountId, requestedAmount);
             }
             return toCheckAndReserveResult(previous);
         }
 
         if (result instanceof CheckAndReserveResult.Ok) {
-            reservations.save(new Reservation(reservationId, fromAccountId, transferId, requestedAmount,
+            reservations.save(new Reservation(
+                    reservationId,
+                    fromAccountId,
+                    transferId,
+                    requestedAmount,
                     Instant.now().plus(RESERVATION_TTL_MINUTES, ChronoUnit.MINUTES)));
         }
         return result;
@@ -146,8 +162,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
             return memoized.get();
         }
 
-        int consumed = reservations.consumeIfMatching(transferId, fromAccountId, requestedAmount,
-                ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
+        int consumed = reservations.consumeIfMatching(
+                transferId, fromAccountId, requestedAmount, ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
         if (consumed == 0) {
             throw new NoMatchingReservationException(transferId, fromAccountId, requestedAmount);
         }
@@ -156,15 +172,16 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         if (!posted) {
             // The reservation guaranteed the funds. Failing the transaction also
             // undoes the reservation consumption above.
-            throw new IllegalStateException(
-                    "reservation consumed but debit failed for transferId " + transferId
-                            + " on account " + fromAccountId);
+            throw new IllegalStateException("reservation consumed but debit failed for transferId " + transferId
+                    + " on account " + fromAccountId);
         }
         accounts.credit(toAccountId, requestedAmount);
         UUID entryGroup = UUID.randomUUID();
         postings.save(new Posting(entryGroup, fromAccountId, transferId, PostingLeg.DEBIT, requestedAmount));
         postings.save(new Posting(entryGroup, toAccountId, transferId, PostingLeg.CREDIT, requestedAmount));
-        idempotency.insertIfAbsent(transferId, LedgerOperation.POST.name(),
+        idempotency.insertIfAbsent(
+                transferId,
+                LedgerOperation.POST.name(),
                 toPostResultJson(posted, fromAccountId, toAccountId, requestedAmount));
         return posted;
     }
@@ -172,8 +189,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
     @Override
     @Transactional
     public void releaseReservation(String transferId, UUID reservationId) {
-        reservations.updateStatusByReservationId(transferId, reservationId,
-                ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
+        reservations.updateStatusByReservationId(
+                transferId, reservationId, ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
     }
 
     @Override
@@ -198,9 +215,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         BigDecimal available = account.getBalance().subtract(held);
         String currency = account.getCurrency();
         return new WalletSnapshot(
-                Money.of(account.getBalance(), currency),
-                Money.of(available, currency),
-                Money.of(held, currency));
+                Money.of(account.getBalance(), currency), Money.of(available, currency), Money.of(held, currency));
     }
 
     // Fetches limit + 1 rows: the extra one only signals a next page.
@@ -223,8 +238,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
     @Override
     @Transactional(readOnly = true)
     public AccountLookup lookupByHandle(String handle) {
-        Account account = accounts.findByHandle(handle)
-                .orElseThrow(() -> new UnknownHandleException(handle));
+        Account account = accounts.findByHandle(handle).orElseThrow(() -> new UnknownHandleException(handle));
         return new AccountLookup(account.getId(), account.getDisplayName());
     }
 
@@ -239,13 +253,13 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
 
     private static void requireSameCurrency(Account account, Money amount) {
         if (!amount.hasCurrencyCode(account.getCurrency())) {
-            throw new CurrencyMismatchException("currency mismatch: account " + account.getId()
-                    + " is " + account.getCurrency() + ", amount is " + amount.currency().getCurrencyCode());
+            throw new CurrencyMismatchException("currency mismatch: account " + account.getId() + " is "
+                    + account.getCurrency() + ", amount is " + amount.currency().getCurrencyCode());
         }
     }
 
-    private Optional<Boolean> existingPostResult(String transferId, UUID fromAccountId, UUID toAccountId,
-                                                  BigDecimal amount) {
+    private Optional<Boolean> existingPostResult(
+            String transferId, UUID fromAccountId, UUID toAccountId, BigDecimal amount) {
         Optional<PostResultJson> previous = idempotency
                 .findById(new LedgerIdempotencyId(transferId, LedgerOperation.POST))
                 .map(row -> jsonMapper.readValue(row.getResultJson(), PostResultJson.class));
@@ -253,7 +267,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
             return Optional.empty();
         }
         PostResultJson dto = previous.get();
-        if (!dto.fromAccountId().equals(fromAccountId) || !dto.toAccountId().equals(toAccountId)
+        if (!dto.fromAccountId().equals(fromAccountId)
+                || !dto.toAccountId().equals(toAccountId)
                 || dto.amount().compareTo(amount) != 0) {
             throw new IdempotencyConflictException(transferId, fromAccountId, amount);
         }
@@ -271,7 +286,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         ResultJson dto = switch (result) {
             case CheckAndReserveResult.Ok ok -> new ResultJson("OK", ok.reservationId(), fromAccountId, amount);
             case CheckAndReserveResult.InsufficientFunds ignored ->
-                    new ResultJson("INSUFFICIENT_FUNDS", null, fromAccountId, amount);
+                new ResultJson("INSUFFICIENT_FUNDS", null, fromAccountId, amount);
         };
         return jsonMapper.writeValueAsString(dto);
     }

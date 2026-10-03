@@ -28,8 +28,7 @@ class SagaTransitionWriter {
     private final OutboxPort outbox;
     private final JsonMapper jsonMapper;
 
-    SagaTransitionWriter(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox,
-                          JsonMapper jsonMapper) {
+    SagaTransitionWriter(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox, JsonMapper jsonMapper) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
@@ -76,8 +75,13 @@ class SagaTransitionWriter {
     /** {@code failureReason} names the refused step; the ledger's answer goes into
      * the step detail. */
     @Transactional
-    boolean applyRejected(UUID transferId, Transfer transfer, TransferStatus fromStatus, String step,
-                          String failureReason, LedgerRejectedException rejection) {
+    boolean applyRejected(
+            UUID transferId,
+            Transfer transfer,
+            TransferStatus fromStatus,
+            String step,
+            String failureReason,
+            LedgerRejectedException rejection) {
         int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;

@@ -17,7 +17,8 @@ public interface LedgerIdempotencyRepository extends JpaRepository<LedgerIdempot
             values (:transferId, :operation, :resultJson, now())
             on conflict (transfer_id, operation) do nothing
             """)
-    int insertIfAbsent(@Param("transferId") String transferId,
-                        @Param("operation") String operation,
-                        @Param("resultJson") String resultJson);
+    int insertIfAbsent(
+            @Param("transferId") String transferId,
+            @Param("operation") String operation,
+            @Param("resultJson") String resultJson);
 }

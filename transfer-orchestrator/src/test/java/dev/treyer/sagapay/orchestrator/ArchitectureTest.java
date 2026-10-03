@@ -13,19 +13,35 @@ class ArchitectureTest {
 
     @ArchTest
     static final ArchRule domainDependsOnNoOtherLayer = noClasses()
-            .that().resideInAPackage("..orchestrator.domain..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "..orchestrator.application..", "..orchestrator.adapter..", "..orchestrator.config..", "org.springframework..");
+            .that()
+            .resideInAPackage("..orchestrator.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "..orchestrator.application..",
+                    "..orchestrator.adapter..",
+                    "..orchestrator.config..",
+                    "org.springframework..");
 
     @ArchTest
     static final ArchRule applicationDependsOnPortsNotAdapters = noClasses()
-            .that().resideInAPackage("..orchestrator.application..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "..orchestrator.adapter..", "..orchestrator.config..",
-                    "org.springframework.data..", "org.springframework.web..", "io.grpc..", "jakarta.servlet..");
+            .that()
+            .resideInAPackage("..orchestrator.application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "..orchestrator.adapter..",
+                    "..orchestrator.config..",
+                    "org.springframework.data..",
+                    "org.springframework.web..",
+                    "io.grpc..",
+                    "jakarta.servlet..");
 
     @ArchTest
     static final ArchRule inboundAdaptersDoNotCallOutboundAdapters = noClasses()
-            .that().resideInAPackage("..orchestrator.adapter.in..")
-            .should().dependOnClassesThat().resideInAPackage("..orchestrator.adapter.out..");
+            .that()
+            .resideInAPackage("..orchestrator.adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..orchestrator.adapter.out..");
 }

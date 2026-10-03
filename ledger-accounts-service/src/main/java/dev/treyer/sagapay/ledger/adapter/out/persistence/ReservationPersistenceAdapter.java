@@ -28,14 +28,18 @@ class ReservationPersistenceAdapter implements ReservationPort {
     }
 
     @Override
-    public int updateStatusByReservationId(String transferId, UUID reservationId,
-                                            ReservationStatus fromStatus, ReservationStatus toStatus) {
+    public int updateStatusByReservationId(
+            String transferId, UUID reservationId, ReservationStatus fromStatus, ReservationStatus toStatus) {
         return repository.updateStatusByReservationId(transferId, reservationId, fromStatus, toStatus);
     }
 
     @Override
-    public int consumeIfMatching(String transferId, UUID accountId, BigDecimal amount,
-                                  ReservationStatus fromStatus, ReservationStatus toStatus) {
+    public int consumeIfMatching(
+            String transferId,
+            UUID accountId,
+            BigDecimal amount,
+            ReservationStatus fromStatus,
+            ReservationStatus toStatus) {
         return repository.consumeIfMatching(transferId, accountId, amount, fromStatus, toStatus);
     }
 

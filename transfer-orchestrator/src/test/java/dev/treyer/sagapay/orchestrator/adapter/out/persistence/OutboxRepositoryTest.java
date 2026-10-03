@@ -22,12 +22,18 @@ class OutboxRepositoryTest {
 
     @Autowired
     private OutboxRepository outbox;
+
     @Autowired
     private TestEntityManager entityManager;
 
     private OutboxRow save(UUID aggregateId, String eventType) {
-        return outbox.saveAndFlush(new OutboxRow(UUID.randomUUID(), "Transfer", aggregateId, eventType,
-                JSON.writeValueAsString(java.util.Map.of("transferId", aggregateId.toString())), null));
+        return outbox.saveAndFlush(new OutboxRow(
+                UUID.randomUUID(),
+                "Transfer",
+                aggregateId,
+                eventType,
+                JSON.writeValueAsString(java.util.Map.of("transferId", aggregateId.toString())),
+                null));
     }
 
     @Test
@@ -38,7 +44,8 @@ class OutboxRepositoryTest {
 
         OutboxRow found = outbox.findById(saved.getId()).orElseThrow();
 
-        assertThat(JSON.readTree(found.getPayload()).get("transferId").asString()).isEqualTo(aggregateId.toString());
+        assertThat(JSON.readTree(found.getPayload()).get("transferId").asString())
+                .isEqualTo(aggregateId.toString());
         assertThat(JSON.readTree(found.getHeaders())).isEqualTo(JSON.readTree("{}"));
         assertThat(found.getPublishedAt()).isNull();
     }

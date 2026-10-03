@@ -41,5 +41,4 @@ public class LedgerIdempotency {
     public Instant getCreatedAt() {
         return createdAt;
     }
-
 }

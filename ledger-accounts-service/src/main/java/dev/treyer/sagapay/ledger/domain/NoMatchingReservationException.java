@@ -7,7 +7,7 @@ import java.util.UUID;
  * spend funds held for another transfer. */
 public class NoMatchingReservationException extends RuntimeException {
     public NoMatchingReservationException(String transferId, UUID accountId, BigDecimal amount) {
-        super("no ACTIVE reservation for transferId " + transferId + " matching account " + accountId
-                + " and amount " + amount);
+        super("no ACTIVE reservation for transferId " + transferId + " matching account " + accountId + " and amount "
+                + amount);
     }
 }

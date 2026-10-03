@@ -23,8 +23,10 @@ class GrpcDenyByDefaultInterceptor implements ServerInterceptor {
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
-        call.close(Status.UNAUTHENTICATED.withDescription(
-                "gRPC requires the local-noauth profile until real authentication is wired"), new Metadata());
+        call.close(
+                Status.UNAUTHENTICATED.withDescription(
+                        "gRPC requires the local-noauth profile until real authentication is wired"),
+                new Metadata());
         return new ServerCall.Listener<>() {};
     }
 }

@@ -67,8 +67,16 @@ public class Transfer {
 
     protected Transfer() {}
 
-    public Transfer(UUID id, UUID idempotencyKey, UUID senderId, UUID senderAccountId,
-                     UUID recipientId, UUID recipientAccountId, BigDecimal amount, String currency, String note) {
+    public Transfer(
+            UUID id,
+            UUID idempotencyKey,
+            UUID senderId,
+            UUID senderAccountId,
+            UUID recipientId,
+            UUID recipientAccountId,
+            BigDecimal amount,
+            String currency,
+            String note) {
         this.id = Objects.requireNonNull(id, "id");
         this.idempotencyKey = Objects.requireNonNull(idempotencyKey, "idempotencyKey");
         this.senderId = Objects.requireNonNull(senderId, "senderId");

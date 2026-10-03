@@ -58,8 +58,8 @@ class LedgerCircuitBreakerTest {
 
     @Container
     private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-            .withFileFromPath(".", repoRoot())
-            .withDockerfilePath("ledger-accounts-service/Dockerfile"))
+                    .withFileFromPath(".", repoRoot())
+                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)
@@ -72,8 +72,7 @@ class LedgerCircuitBreakerTest {
                     "SPRING_FLYWAY_USER", "sagapay",
                     "SPRING_FLYWAY_PASSWORD", "sagapay-test",
                     "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"
-            ))
+                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
 
     private static UUID bobAccountId;
@@ -84,19 +83,22 @@ class LedgerCircuitBreakerTest {
 
     @DynamicPropertySource
     static void ledgerGrpcTarget(DynamicPropertyRegistry registry) {
-        registry.add("spring.grpc.client.channel.ledger.target",
+        registry.add(
+                "spring.grpc.client.channel.ledger.target",
                 () -> "static://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(9091));
     }
 
     @BeforeAll
     static void resolveBobAccountId() {
-        String lookupUrl = "http://%s:%d/v1/users/lookup?handle=bob".formatted(LEDGER.getHost(), LEDGER.getMappedPort(8081));
+        String lookupUrl =
+                "http://%s:%d/v1/users/lookup?handle=bob".formatted(LEDGER.getHost(), LEDGER.getMappedPort(8081));
         Map<?, ?> response = RestClient.create().get().uri(lookupUrl).retrieve().body(Map.class);
         bobAccountId = UUID.fromString((String) response.get("accountId"));
     }
 
     @Autowired
     private LedgerPort ledgerPort;
+
     @Autowired
     private CircuitBreakerRegistry circuitBreakerRegistry;
 
@@ -107,7 +109,7 @@ class LedgerCircuitBreakerTest {
         // More than the breaker's minimum number of calls.
         for (int i = 0; i < 6; i++) {
             assertThatThrownBy(() -> ledgerPort.postTransfer(
-                    UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
+                            UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
                     .isInstanceOf(LedgerRejectedException.class);
         }
 
@@ -118,8 +120,8 @@ class LedgerCircuitBreakerTest {
     @Test
     @Order(2)
     void killingTheLedgerContainerOpensTheCircuitAndFallsBackToLedgerUnavailable() {
-        ReservationResult before = ledgerPort.checkAndReserve(
-                UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
+        ReservationResult before =
+                ledgerPort.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
         assertThat(before).isInstanceOf(ReservationResult.Ok.class);
 
         LEDGER.stop();
@@ -127,13 +129,13 @@ class LedgerCircuitBreakerTest {
         CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("ledger");
         for (int i = 0; i < 5 && circuitBreaker.getState() != CircuitBreaker.State.OPEN; i++) {
             assertThatThrownBy(() -> ledgerPort.checkAndReserve(
-                    UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
+                            UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
                     .isInstanceOf(LedgerUnavailableException.class);
         }
 
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
-        assertThatThrownBy(() -> ledgerPort.checkAndReserve(
-                UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
+        assertThatThrownBy(() ->
+                        ledgerPort.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
                 .isInstanceOf(LedgerUnavailableException.class);
     }
 }

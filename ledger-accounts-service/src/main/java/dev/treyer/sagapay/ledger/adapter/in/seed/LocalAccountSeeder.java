@@ -44,8 +44,7 @@ class LocalAccountSeeder implements CommandLineRunner {
             new SeedAccount("quentin", "Quentin Roy", "USD", "27500.00"),
             new SeedAccount("rosa", "Rosa Alvarez", "USD", "0.00"),
             new SeedAccount("krzysztof", "Krzysztof Wiśniewski", "GBP", "1800.00"),
-            new SeedAccount("tara", "Tara Wilson", "GBP", "64200.00")
-    );
+            new SeedAccount("tara", "Tara Wilson", "GBP", "64200.00"));
 
     private final AccountPort accounts;
 
@@ -63,11 +62,15 @@ class LocalAccountSeeder implements CommandLineRunner {
                 log.info("  {} already seeded, skipping", seed.handle());
                 continue;
             }
-            Account account = accounts.create(new Account(
-                    seed.handle(), seed.displayName(), seed.currency(), new BigDecimal(seed.balance())));
-            log.info("  {} ({}) — {} {} — accountId={}",
-                    account.getHandle(), account.getDisplayName(),
-                    account.getBalance(), account.getCurrency(), account.getId());
+            Account account = accounts.create(
+                    new Account(seed.handle(), seed.displayName(), seed.currency(), new BigDecimal(seed.balance())));
+            log.info(
+                    "  {} ({}) — {} {} — accountId={}",
+                    account.getHandle(),
+                    account.getDisplayName(),
+                    account.getBalance(),
+                    account.getCurrency(),
+                    account.getId());
         }
     }
 

@@ -40,16 +40,18 @@ class LedgerRestAdapterTest {
 
     @MockitoBean
     private GetWalletUseCase getWalletUseCase;
+
     @MockitoBean
     private ListPostingsUseCase listPostingsUseCase;
+
     @MockitoBean
     private LookupAccountUseCase lookupAccountUseCase;
 
     @Test
     void getWalletReturnsWalletSnapshot() throws Exception {
         UUID accountId = UUID.randomUUID();
-        WalletSnapshot snapshot = new WalletSnapshot(
-                Money.of("100.00", "EUR"), Money.of("80.00", "EUR"), Money.of("20.00", "EUR"));
+        WalletSnapshot snapshot =
+                new WalletSnapshot(Money.of("100.00", "EUR"), Money.of("80.00", "EUR"), Money.of("20.00", "EUR"));
         when(getWalletUseCase.getWallet(accountId)).thenReturn(snapshot);
 
         mockMvc.perform(get("/v1/wallet").param("accountId", accountId.toString()))
@@ -61,8 +63,7 @@ class LedgerRestAdapterTest {
 
     @Test
     void getWalletWithoutAccountIdReturns400() throws Exception {
-        mockMvc.perform(get("/v1/wallet"))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/v1/wallet")).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -79,8 +80,8 @@ class LedgerRestAdapterTest {
     @Test
     void listPostingsReturnsItemsAndNextCursor() throws Exception {
         UUID accountId = UUID.randomUUID();
-        Posting posting = new Posting(
-                UUID.randomUUID(), accountId, "transfer-1", PostingLeg.DEBIT, new BigDecimal("5.0000"));
+        Posting posting =
+                new Posting(UUID.randomUUID(), accountId, "transfer-1", PostingLeg.DEBIT, new BigDecimal("5.0000"));
         PostingPage page = new PostingPage(List.of(posting), "EUR", null);
         when(listPostingsUseCase.listPostings(eq(accountId), isNull(), isNull(), anyInt()))
                 .thenReturn(page);

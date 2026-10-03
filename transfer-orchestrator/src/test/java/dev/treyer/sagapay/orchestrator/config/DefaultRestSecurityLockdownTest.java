@@ -24,11 +24,13 @@ class DefaultRestSecurityLockdownTest {
 
     @Test
     void restEndpointRequiresAuthenticationByDefault() throws Exception {
-        HttpResponse<Void> response = HttpClient.newHttpClient().send(
-                HttpRequest.newBuilder(URI.create(
-                                "http://localhost:" + port + "/v1/transfers/" + UUID.randomUUID()))
-                        .GET().build(),
-                HttpResponse.BodyHandlers.discarding());
+        HttpResponse<Void> response = HttpClient.newHttpClient()
+                .send(
+                        HttpRequest.newBuilder(
+                                        URI.create("http://localhost:" + port + "/v1/transfers/" + UUID.randomUUID()))
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.discarding());
 
         assertThat(response.statusCode()).isEqualTo(401);
     }

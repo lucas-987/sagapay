@@ -8,8 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 public class TransferOrchestratorApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(TransferOrchestratorApplication.class, args);
-	}
-
+    public static void main(String[] args) {
+        SpringApplication.run(TransferOrchestratorApplication.class, args);
+    }
 }

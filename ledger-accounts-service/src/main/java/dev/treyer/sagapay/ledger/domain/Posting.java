@@ -1,8 +1,8 @@
 package dev.treyer.sagapay.ledger.domain;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.EnumType;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -80,5 +80,4 @@ public class Posting {
     public Instant getCreatedAt() {
         return createdAt;
     }
-
 }

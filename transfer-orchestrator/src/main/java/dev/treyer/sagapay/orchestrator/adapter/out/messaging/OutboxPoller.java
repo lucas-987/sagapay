@@ -33,8 +33,11 @@ public class OutboxPoller {
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
 
-    public OutboxPoller(OutboxRepository outbox, KafkaTemplate<String, String> kafkaTemplate, JsonMapper jsonMapper,
-                         Tracer tracer) {
+    public OutboxPoller(
+            OutboxRepository outbox,
+            KafkaTemplate<String, String> kafkaTemplate,
+            JsonMapper jsonMapper,
+            Tracer tracer) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
@@ -54,8 +57,8 @@ public class OutboxPoller {
     private void publish(OutboxRow row) {
         JsonNode payload = jsonMapper.readTree(row.getPayload());
         String key = payload.get("senderId").asString();
-        CloudEvent<JsonNode> event = CloudEvent.now(SOURCE, row.getEventType() + ".v1",
-                row.getAggregateId().toString(), payload);
+        CloudEvent<JsonNode> event = CloudEvent.now(
+                SOURCE, row.getEventType() + ".v1", row.getAggregateId().toString(), payload);
 
         // A new span per publish: the scheduler thread has no trace to inherit.
         // The W3C header is built by hand because the auto-configured Propagator
@@ -66,7 +69,8 @@ public class OutboxPoller {
             String flags = Boolean.TRUE.equals(context.sampled()) ? "01" : "00";
             String traceparent = TRACEPARENT_VERSION + "-" + context.traceId() + "-" + context.spanId() + "-" + flags;
 
-            ProducerRecord<String, String> record = new ProducerRecord<>(TOPIC, key, jsonMapper.writeValueAsString(event));
+            ProducerRecord<String, String> record =
+                    new ProducerRecord<>(TOPIC, key, jsonMapper.writeValueAsString(event));
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
         } finally {

@@ -20,9 +20,10 @@ public interface PostingRepository extends JpaRepository<Posting, UUID> {
             + "     or p.createdAt > :afterCreatedAt "
             + "     or (p.createdAt = :afterCreatedAt and p.id > :afterId)) "
             + "order by p.createdAt asc, p.id asc")
-    List<Posting> findPage(@Param("accountId") UUID accountId,
-                            @Param("from") Instant from,
-                            @Param("afterCreatedAt") Instant afterCreatedAt,
-                            @Param("afterId") UUID afterId,
-                            Pageable pageable);
+    List<Posting> findPage(
+            @Param("accountId") UUID accountId,
+            @Param("from") Instant from,
+            @Param("afterCreatedAt") Instant afterCreatedAt,
+            @Param("afterId") UUID afterId,
+            Pageable pageable);
 }

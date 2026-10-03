@@ -33,7 +33,12 @@ final class OutboxEvents {
         if (reason != null) {
             payload.put("reason", reason);
         }
-        return new OutboxRow(UUID.randomUUID(), "Transfer", transfer.getId(), eventType,
-                jsonMapper.writeValueAsString(payload), null);
+        return new OutboxRow(
+                UUID.randomUUID(),
+                "Transfer",
+                transfer.getId(),
+                eventType,
+                jsonMapper.writeValueAsString(payload),
+                null);
     }
 }

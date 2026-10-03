@@ -42,8 +42,8 @@ class LedgerGrpcClientAdapterTest {
 
     @Container
     private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-            .withFileFromPath(".", repoRoot())
-            .withDockerfilePath("ledger-accounts-service/Dockerfile"))
+                    .withFileFromPath(".", repoRoot())
+                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)
@@ -57,8 +57,7 @@ class LedgerGrpcClientAdapterTest {
                     "SPRING_FLYWAY_USER", "sagapay",
                     "SPRING_FLYWAY_PASSWORD", "sagapay-test",
                     "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"
-            ))
+                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
 
     private static ManagedChannel channel;
@@ -99,8 +98,8 @@ class LedgerGrpcClientAdapterTest {
     @Test
     void checkAndReserveRoundTripsToARealLedgerContainer() {
         // bob is seeded with 4.50 EUR.
-        ReservationResult result = adapter.checkAndReserve(
-                UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
+        ReservationResult result =
+                adapter.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
     }
@@ -108,8 +107,9 @@ class LedgerGrpcClientAdapterTest {
     @Test
     void postTransferWithoutAMatchingReservationIsARejectionNotAnOutage() {
         assertThatThrownBy(() -> adapter.postTransfer(
-                UUID.randomUUID().toString(), bobAccountId, tomaszAccountId, Money.of("1.00", "EUR")))
-                .isInstanceOfSatisfying(LedgerRejectedException.class,
+                        UUID.randomUUID().toString(), bobAccountId, tomaszAccountId, Money.of("1.00", "EUR")))
+                .isInstanceOfSatisfying(
+                        LedgerRejectedException.class,
                         e -> assertThat(e.ledgerStatus()).isEqualTo("NOT_FOUND"));
     }
 }

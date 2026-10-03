@@ -30,23 +30,27 @@ class GrpcTracingInterceptorConfigTest {
 
     @Autowired
     private GrpcChannelFactory channelFactory;
+
     @Autowired
     private AccountRepository accounts;
+
     @Autowired
     private TestObservationRegistry observationRegistry;
 
     @Test
     void grpcCallProducesAnObservation() {
-        UUID accountId = accounts.save(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000"))).getId();
+        UUID accountId = accounts.save(
+                        new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")))
+                .getId();
         var client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"));
 
-        client.getBalance(GetBalanceRequest.newBuilder().setAccountId(accountId.toString()).build());
+        client.getBalance(GetBalanceRequest.newBuilder()
+                .setAccountId(accountId.toString())
+                .build());
 
         // Not an exact count: the cached context shares this registry with other
         // test classes and the sweeper.
-        TestObservationRegistryAssert.assertThat(observationRegistry)
-                .hasObservationWithNameEqualTo("grpc.server");
+        TestObservationRegistryAssert.assertThat(observationRegistry).hasObservationWithNameEqualTo("grpc.server");
     }
 
     @TestConfiguration

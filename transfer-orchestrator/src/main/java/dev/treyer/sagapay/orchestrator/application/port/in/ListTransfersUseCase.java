@@ -9,7 +9,11 @@ import java.util.UUID;
 
 public interface ListTransfersUseCase {
 
-    enum Direction { SENT, RECEIVED, ALL }
+    enum Direction {
+        SENT,
+        RECEIVED,
+        ALL
+    }
 
     record Page(List<Transfer> items, TransferCursor next) {}
 

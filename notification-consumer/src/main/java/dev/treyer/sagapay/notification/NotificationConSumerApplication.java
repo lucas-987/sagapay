@@ -6,8 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class NotificationConSumerApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(NotificationConSumerApplication.class, args);
-	}
-
+    public static void main(String[] args) {
+        SpringApplication.run(NotificationConSumerApplication.class, args);
+    }
 }

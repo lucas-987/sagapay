@@ -29,11 +29,9 @@ class PostingCursorTest {
 
     @Test
     void decodeRejectsWellFormedBase64WithoutTheExpectedSeparator() {
-        String noSeparator = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString("nothing-to-see-here".getBytes());
+        String noSeparator = Base64.getUrlEncoder().withoutPadding().encodeToString("nothing-to-see-here".getBytes());
 
-        assertThatThrownBy(() -> PostingCursor.decode(noSeparator))
-                .isInstanceOf(InvalidCursorException.class);
+        assertThatThrownBy(() -> PostingCursor.decode(noSeparator)).isInstanceOf(InvalidCursorException.class);
     }
 
     @Test

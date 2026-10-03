@@ -22,7 +22,8 @@ class LedgerAccountLookupAdapter implements AccountLookupPort {
 
     @Override
     public Optional<UUID> lookupByHandle(String handle) {
-        Map<?, ?> response = restClient.get()
+        Map<?, ?> response = restClient
+                .get()
                 .uri("/v1/users/lookup?handle={handle}", handle)
                 .exchange((request, resp) -> {
                     if (resp.getStatusCode().isSameCodeAs(HttpStatusCode.valueOf(404))) {

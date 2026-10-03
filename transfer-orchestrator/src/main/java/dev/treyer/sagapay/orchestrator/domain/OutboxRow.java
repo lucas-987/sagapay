@@ -45,8 +45,8 @@ public class OutboxRow {
 
     protected OutboxRow() {}
 
-    public OutboxRow(UUID id, String aggregateType, UUID aggregateId, String eventType,
-                      String payload, String headers) {
+    public OutboxRow(
+            UUID id, String aggregateType, UUID aggregateId, String eventType, String payload, String headers) {
         this.id = Objects.requireNonNull(id, "id");
         this.aggregateType = Objects.requireNonNull(aggregateType, "aggregateType");
         this.aggregateId = Objects.requireNonNull(aggregateId, "aggregateId");
@@ -87,5 +87,4 @@ public class OutboxRow {
     public Instant getPublishedAt() {
         return publishedAt;
     }
-
 }

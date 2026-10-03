@@ -3,8 +3,8 @@ package dev.treyer.sagapay.orchestrator.application.service;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
+import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
@@ -33,14 +33,19 @@ class SagaServiceTest {
 
     @Autowired
     private SagaService sagaService;
+
     @Autowired
     private TransferRepository transferRepository;
+
     @Autowired
     private OutboxRepository outboxRepository;
+
     @Autowired
     private SagaStepRepository sagaStepRepository;
+
     @Autowired
     private FakeLedgerPort fakeLedgerPort;
+
     @Autowired
     private JsonMapper jsonMapper;
 
@@ -56,8 +61,10 @@ class SagaServiceTest {
     private final Money amount = Money.of("80.00", "EUR");
 
     private Transfer initiate(UUID idempotencyKey) {
-        return sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
-                amount, idempotencyKey, null).transfer();
+        return sagaService
+                .initiateTransfer(
+                        senderId, senderAccountId, recipientId, recipientAccountId, amount, idempotencyKey, null)
+                .transfer();
     }
 
     /** Parsed, not matched as text: Postgres reformats jsonb. */
@@ -65,13 +72,15 @@ class SagaServiceTest {
         String payload = outboxRepository.findByAggregateIdOrderByCreatedAt(transferId).stream()
                 .filter(row -> row.getEventType().equals("TransferFailed"))
                 .map(OutboxRow::getPayload)
-                .findFirst().orElseThrow();
+                .findFirst()
+                .orElseThrow();
         return jsonMapper.readTree(payload).get("reason").asString();
     }
 
     private List<String> eventTypesFor(UUID transferId) {
         return outboxRepository.findByAggregateIdOrderByCreatedAt(transferId).stream()
-                .map(OutboxRow::getEventType).toList();
+                .map(OutboxRow::getEventType)
+                .toList();
     }
 
     @Test
@@ -115,10 +124,10 @@ class SagaServiceTest {
     void sameIdempotencyKeyTwiceReturnsTheExistingTransfer() {
         UUID idempotencyKey = UUID.randomUUID();
 
-        var first = sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
-                amount, idempotencyKey, null);
-        var second = sagaService.initiateTransfer(senderId, senderAccountId, recipientId, recipientAccountId,
-                amount, idempotencyKey, null);
+        var first = sagaService.initiateTransfer(
+                senderId, senderAccountId, recipientId, recipientAccountId, amount, idempotencyKey, null);
+        var second = sagaService.initiateTransfer(
+                senderId, senderAccountId, recipientId, recipientAccountId, amount, idempotencyKey, null);
 
         assertThat(first.created()).isTrue();
         assertThat(second.created()).isFalse();
@@ -180,8 +189,7 @@ class SagaServiceTest {
 
         Transfer transfer = initiate(UUID.randomUUID());
 
-        assertThatThrownBy(() -> sagaService.advance(transfer.getId()))
-                .isInstanceOf(LedgerUnavailableException.class);
+        assertThatThrownBy(() -> sagaService.advance(transfer.getId())).isInstanceOf(LedgerUnavailableException.class);
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
                 .isEqualTo(TransferStatus.INITIATED);
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated");

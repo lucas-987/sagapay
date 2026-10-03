@@ -27,15 +27,17 @@ class PostingRepositoryTest {
 
     @Autowired
     private PostingRepository postings;
+
     @Autowired
     private AccountRepository accounts;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private UUID newAccount() {
         // Flushed so the raw insert below satisfies the foreign key.
-        Account account = accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("0.0000")));
+        Account account = accounts.saveAndFlush(
+                new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("0.0000")));
         return account.getId();
     }
 
@@ -44,7 +46,11 @@ class PostingRepositoryTest {
         jdbcTemplate.update(
                 "insert into postings (id, entry_group, account_id, transfer_id, leg, amount, created_at) "
                         + "values (?, ?, ?, ?, 'DEBIT', 1.00, ?)",
-                id, UUID.randomUUID(), accountId, "transfer-" + id, Timestamp.from(createdAt));
+                id,
+                UUID.randomUUID(),
+                accountId,
+                "transfer-" + id,
+                Timestamp.from(createdAt));
         return id;
     }
 
@@ -97,8 +103,8 @@ class PostingRepositoryTest {
         assertThat(firstPage).extracting(Posting::getId).containsExactly(p1, p2);
 
         Posting last = firstPage.get(firstPage.size() - 1);
-        List<Posting> secondPage = postings.findPage(
-                accountId, null, last.getCreatedAt(), last.getId(), PageRequest.of(0, 2));
+        List<Posting> secondPage =
+                postings.findPage(accountId, null, last.getCreatedAt(), last.getId(), PageRequest.of(0, 2));
 
         assertThat(secondPage).extracting(Posting::getId).containsExactly(p3);
     }
@@ -116,8 +122,8 @@ class PostingRepositoryTest {
         assertThat(firstPage).hasSize(1);
         Posting first = firstPage.get(0);
 
-        List<Posting> secondPage = postings.findPage(
-                accountId, null, first.getCreatedAt(), first.getId(), PageRequest.of(0, 1));
+        List<Posting> secondPage =
+                postings.findPage(accountId, null, first.getCreatedAt(), first.getId(), PageRequest.of(0, 1));
 
         assertThat(secondPage).hasSize(1);
         assertThat(List.of(first.getId(), secondPage.get(0).getId())).containsExactlyInAnyOrder(pA, pB);

@@ -22,10 +22,18 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
-    public int insertIfAbsent(UUID id, UUID idempotencyKey, UUID senderId, UUID senderAccountId, UUID recipientId,
-                              UUID recipientAccountId, BigDecimal amount, String currency, String note) {
-        return repository.insertIfAbsent(id, idempotencyKey, senderId, senderAccountId, recipientId,
-                recipientAccountId, amount, currency, note);
+    public int insertIfAbsent(
+            UUID id,
+            UUID idempotencyKey,
+            UUID senderId,
+            UUID senderAccountId,
+            UUID recipientId,
+            UUID recipientAccountId,
+            BigDecimal amount,
+            String currency,
+            String note) {
+        return repository.insertIfAbsent(
+                id, idempotencyKey, senderId, senderAccountId, recipientId, recipientAccountId, amount, currency, note);
     }
 
     @Override
@@ -44,15 +52,21 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
-    public List<Transfer> findPageForUser(UUID userId, boolean includeSent, boolean includeReceived,
-                                          TransferStatus status, Instant afterCreatedAt, UUID afterId, int maxRows) {
-        return repository.findPageForUser(userId, includeSent, includeReceived, status, afterCreatedAt, afterId,
-                PageRequest.ofSize(maxRows));
+    public List<Transfer> findPageForUser(
+            UUID userId,
+            boolean includeSent,
+            boolean includeReceived,
+            TransferStatus status,
+            Instant afterCreatedAt,
+            UUID afterId,
+            int maxRows) {
+        return repository.findPageForUser(
+                userId, includeSent, includeReceived, status, afterCreatedAt, afterId, PageRequest.ofSize(maxRows));
     }
 
     @Override
-    public int transitionWithReservation(UUID id, TransferStatus fromStatus, TransferStatus toStatus,
-                                         UUID reservationId) {
+    public int transitionWithReservation(
+            UUID id, TransferStatus fromStatus, TransferStatus toStatus, UUID reservationId) {
         return repository.transitionWithReservation(id, fromStatus, toStatus, reservationId);
     }
 

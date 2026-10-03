@@ -43,10 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("local-noauth")
-@TestPropertySource(properties = {
-        "saga.reprise.grace-period-ms=0",
-        "saga.reprise.sweep-interval-ms=1000"
-})
+@TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=1000"})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class TransferOrchestratorE2ETest {
 
@@ -62,8 +59,8 @@ class TransferOrchestratorE2ETest {
 
     @Container
     private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-            .withFileFromPath(".", repoRoot())
-            .withDockerfilePath("ledger-accounts-service/Dockerfile"))
+                    .withFileFromPath(".", repoRoot())
+                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)
@@ -76,8 +73,7 @@ class TransferOrchestratorE2ETest {
                     "SPRING_FLYWAY_USER", "sagapay",
                     "SPRING_FLYWAY_PASSWORD", "sagapay-test",
                     "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"
-            ))
+                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
             .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
 
     private static Path repoRoot() {
@@ -86,14 +82,15 @@ class TransferOrchestratorE2ETest {
 
     @DynamicPropertySource
     static void ledgerGrpcTarget(DynamicPropertyRegistry registry) {
-        registry.add("spring.grpc.client.channel.ledger.target",
+        registry.add(
+                "spring.grpc.client.channel.ledger.target",
                 () -> "static://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(9091));
-        registry.add("ledger.rest.base-url",
-                () -> "http://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(8081));
+        registry.add("ledger.rest.base-url", () -> "http://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(8081));
     }
 
     @LocalServerPort
     private int orchestratorPort;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -105,7 +102,8 @@ class TransferOrchestratorE2ETest {
     @BeforeAll
     static void setUpLedgerGrpcStub() {
         ledgerChannel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
-                .usePlaintext().build();
+                .usePlaintext()
+                .build();
         ledgerStub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
     }
 
@@ -131,14 +129,18 @@ class TransferOrchestratorE2ETest {
     }
 
     private UUID lookupAccountId(String handle) {
-        Map<?, ?> response = ledger().get().uri("/v1/users/lookup?handle={handle}", handle)
-                .retrieve().body(Map.class);
+        Map<?, ?> response = ledger().get()
+                .uri("/v1/users/lookup?handle={handle}", handle)
+                .retrieve()
+                .body(Map.class);
         return UUID.fromString((String) response.get("accountId"));
     }
 
     private BigDecimal balanceOf(UUID accountId) {
-        Map<?, ?> response = ledger().get().uri("/v1/wallet?accountId={id}", accountId)
-                .retrieve().body(Map.class);
+        Map<?, ?> response = ledger().get()
+                .uri("/v1/wallet?accountId={id}", accountId)
+                .retrieve()
+                .body(Map.class);
         Map<?, ?> balance = (Map<?, ?>) response.get("balance");
         return new BigDecimal((String) balance.get("amount"));
     }
@@ -147,9 +149,12 @@ class TransferOrchestratorE2ETest {
         long deadline = System.nanoTime() + timeout.toNanos();
         Map<?, ?> last = null;
         while (System.nanoTime() < deadline) {
-            last = orchestrator().get().uri("/v1/transfers/{id}", transferId)
+            last = orchestrator()
+                    .get()
+                    .uri("/v1/transfers/{id}", transferId)
                     .header("X-User-Id", UUID.randomUUID().toString())
-                    .retrieve().body(Map.class);
+                    .retrieve()
+                    .body(Map.class);
             if (expectedStatus.equals(last.get("status"))) {
                 return last;
             }
@@ -160,24 +165,27 @@ class TransferOrchestratorE2ETest {
                 throw new RuntimeException(e);
             }
         }
-        throw new AssertionError("transfer " + transferId + " never reached " + expectedStatus + ", last seen: " + last);
+        throw new AssertionError(
+                "transfer " + transferId + " never reached " + expectedStatus + ", last seen: " + last);
     }
 
     @Test
     void postedTransferMovesMoneyAndKeepsTheSumOfBalancesUnchanged() {
-        UUID senderId = lookupAccountId("gina");   // seeded 1200.00 EUR
+        UUID senderId = lookupAccountId("gina"); // seeded 1200.00 EUR
         UUID recipientId = lookupAccountId("hugo"); // seeded 3400.00 EUR
         BigDecimal senderBefore = balanceOf(senderId);
         BigDecimal recipientBefore = balanceOf(recipientId);
 
-        Map<?, ?> created = orchestrator().post().uri("/v1/transfers")
+        Map<?, ?> created = orchestrator()
+                .post()
+                .uri("/v1/transfers")
                 .header("X-User-Id", senderId.toString())
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""
-                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "80.00"}, "note": "e2e happy path"}"""
-                        .formatted(recipientId))
-                .retrieve().body(Map.class);
+                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "80.00"}, "note": "e2e happy path"}""".formatted(recipientId))
+                .retrieve()
+                .body(Map.class);
         UUID transferId = UUID.fromString((String) created.get("id"));
         assertThat(created.get("status")).isEqualTo("INITIATED");
 
@@ -193,30 +201,35 @@ class TransferOrchestratorE2ETest {
     @Test
     void replayingTheSameIdempotencyKeyReturns409AndMovesMoneyOnlyOnce() {
         UUID senderId = lookupAccountId("wojciech"); // seeded 42000.00 EUR
-        UUID recipientId = lookupAccountId("lina");  // seeded 99999.99 EUR
+        UUID recipientId = lookupAccountId("lina"); // seeded 99999.99 EUR
         UUID idempotencyKey = UUID.randomUUID();
         BigDecimal senderBefore = balanceOf(senderId);
 
         String requestBody = """
-                {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "25.00"}, "note": "replay test"}"""
-                .formatted(recipientId);
+                {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "25.00"}, "note": "replay test"}""".formatted(recipientId);
 
-        Map<?, ?> first = orchestrator().post().uri("/v1/transfers")
+        Map<?, ?> first = orchestrator()
+                .post()
+                .uri("/v1/transfers")
                 .header("X-User-Id", senderId.toString())
                 .header("Idempotency-Key", idempotencyKey.toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(requestBody)
-                .retrieve().body(Map.class);
+                .retrieve()
+                .body(Map.class);
         UUID transferId = UUID.fromString((String) first.get("id"));
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
         try {
-            orchestrator().post().uri("/v1/transfers")
+            orchestrator()
+                    .post()
+                    .uri("/v1/transfers")
                     .header("X-User-Id", senderId.toString())
                     .header("Idempotency-Key", idempotencyKey.toString())
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                     .body(requestBody)
-                    .retrieve().body(Map.class);
+                    .retrieve()
+                    .body(Map.class);
             org.junit.jupiter.api.Assertions.fail("expected a 409 on replay");
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             assertThat(e.getStatusCode().value()).isEqualTo(409);
@@ -234,14 +247,16 @@ class TransferOrchestratorE2ETest {
         UUID recipientId = lookupAccountId("marco");
         BigDecimal senderBefore = balanceOf(senderId);
 
-        Map<?, ?> created = orchestrator().post().uri("/v1/transfers")
+        Map<?, ?> created = orchestrator()
+                .post()
+                .uri("/v1/transfers")
                 .header("X-User-Id", senderId.toString())
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""
-                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "80.00"}, "note": "not enough funds"}"""
-                        .formatted(recipientId))
-                .retrieve().body(Map.class);
+                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "80.00"}, "note": "not enough funds"}""".formatted(recipientId))
+                .retrieve()
+                .body(Map.class);
         UUID transferId = UUID.fromString((String) created.get("id"));
 
         waitForStatus(transferId, "FAILED", Duration.ofSeconds(15));
@@ -251,7 +266,7 @@ class TransferOrchestratorE2ETest {
 
     @Test
     void reprisePollerAloneCompletesATransferForcedIntoReservedWithoutTheEagerPath() {
-        UUID senderId = lookupAccountId("julien");   // seeded 15000.00 EUR
+        UUID senderId = lookupAccountId("julien"); // seeded 15000.00 EUR
         UUID recipientId = lookupAccountId("tomasz");
         BigDecimal senderBefore = balanceOf(senderId);
         BigDecimal recipientBefore = balanceOf(recipientId);
@@ -262,18 +277,30 @@ class TransferOrchestratorE2ETest {
         CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(ledgerTransferId)
                 .setFromAccountId(senderId.toString())
-                .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
+                .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder()
+                        .setCurrency("EUR")
+                        .setAmount("40.00")
+                        .build())
                 .build());
         assertThat(reserved.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
 
         // Only the reprise poller can move this transfer on.
-        jdbcTemplate.update("""
+        jdbcTemplate.update(
+                """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status, reservation_id)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED'::transfer_status, ?)
                 """,
-                transferId, UUID.randomUUID(), senderId, senderId, recipientId, recipientId,
-                new BigDecimal("40.00"), "EUR", "crash recovery e2e", UUID.fromString(reserved.getReservationId()));
+                transferId,
+                UUID.randomUUID(),
+                senderId,
+                senderId,
+                recipientId,
+                recipientId,
+                new BigDecimal("40.00"),
+                "EUR",
+                "crash recovery e2e",
+                UUID.fromString(reserved.getReservationId()));
 
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
@@ -294,23 +321,35 @@ class TransferOrchestratorE2ETest {
         CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(transferId.toString())
                 .setFromAccountId(senderId.toString())
-                .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder().setCurrency("EUR").setAmount("15.00").build())
+                .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder()
+                        .setCurrency("EUR")
+                        .setAmount("15.00")
+                        .build())
                 .build());
         assertThat(reserved.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
 
-        jdbcTemplate.update("""
+        jdbcTemplate.update(
+                """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status)
                 values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED'::transfer_status)
                 """,
-                transferId, UUID.randomUUID(), senderId, senderId, recipientId, recipientId,
-                new BigDecimal("15.00"), "EUR", "crash before RESERVED e2e");
+                transferId,
+                UUID.randomUUID(),
+                senderId,
+                senderId,
+                recipientId,
+                recipientId,
+                new BigDecimal("15.00"),
+                "EUR",
+                "crash before RESERVED e2e");
 
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("15.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("15.00");
-        assertThat(jdbcTemplate.queryForObject("select reservation_id from transfers where id = ?", UUID.class,
-                transferId)).isEqualTo(UUID.fromString(reserved.getReservationId()));
+        assertThat(jdbcTemplate.queryForObject(
+                        "select reservation_id from transfers where id = ?", UUID.class, transferId))
+                .isEqualTo(UUID.fromString(reserved.getReservationId()));
     }
 }

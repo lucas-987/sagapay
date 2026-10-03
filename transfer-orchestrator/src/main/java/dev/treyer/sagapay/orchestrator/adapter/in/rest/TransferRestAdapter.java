@@ -52,10 +52,14 @@ public class TransferRestAdapter implements V1Api {
     private final AccountLookupPort accountLookupPort;
     private final Executor executor;
 
-    public TransferRestAdapter(InitiateTransferUseCase initiateTransferUseCase, AdvanceSagaUseCase advanceSagaUseCase,
-                                ListTransfersUseCase listTransfersUseCase, GetTransferUseCase getTransferUseCase,
-                                ConfirmTransferUseCase confirmTransferUseCase, AccountLookupPort accountLookupPort,
-                                @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
+    public TransferRestAdapter(
+            InitiateTransferUseCase initiateTransferUseCase,
+            AdvanceSagaUseCase advanceSagaUseCase,
+            ListTransfersUseCase listTransfersUseCase,
+            GetTransferUseCase getTransferUseCase,
+            ConfirmTransferUseCase confirmTransferUseCase,
+            AccountLookupPort accountLookupPort,
+            @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
         this.initiateTransferUseCase = initiateTransferUseCase;
         this.advanceSagaUseCase = advanceSagaUseCase;
         this.listTransfersUseCase = listTransfersUseCase;
@@ -102,14 +106,18 @@ public class TransferRestAdapter implements V1Api {
 
         dev.treyer.sagapay.orchestrator.domain.TransferStatus domainStatus;
         try {
-            domainStatus = status == null ? null : dev.treyer.sagapay.orchestrator.domain.TransferStatus.valueOf(status.name());
+            domainStatus = status == null
+                    ? null
+                    : dev.treyer.sagapay.orchestrator.domain.TransferStatus.valueOf(status.name());
         } catch (IllegalArgumentException e) {
             // A valid status that no transfer can have yet: empty page, not a 400.
-            return ResponseEntity.ok(new ListTransfers200Response().items(List.of()).nextCursor(null));
+            return ResponseEntity.ok(
+                    new ListTransfers200Response().items(List.of()).nextCursor(null));
         }
 
         ListTransfersUseCase.Page page = listTransfersUseCase.listTransfers(userId, dir, domainStatus, after, limit);
-        List<dev.treyer.sagapay.transfer.model.Transfer> items = page.items().stream().map(this::toRestTransfer).toList();
+        List<dev.treyer.sagapay.transfer.model.Transfer> items =
+                page.items().stream().map(this::toRestTransfer).toList();
         return ResponseEntity.ok(new ListTransfers200Response()
                 .items(items)
                 .nextCursor(page.next() == null ? null : page.next().encode()));
@@ -120,8 +128,12 @@ public class TransferRestAdapter implements V1Api {
         GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id);
         Transfer transfer = result.transfer();
 
-        TransferDetail detail = new TransferDetail(transfer.getId(), transfer.getSenderId().toString(),
-                toRestMoney(transfer), toRestStatus(transfer), transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
+        TransferDetail detail = new TransferDetail(
+                        transfer.getId(),
+                        transfer.getSenderId().toString(),
+                        toRestMoney(transfer),
+                        toRestStatus(transfer),
+                        transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
                 .failureReason(transfer.getFailureReason())
@@ -135,7 +147,8 @@ public class TransferRestAdapter implements V1Api {
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> confirmBlockedTransfer(
             UUID id, ConfirmBlockedTransferRequest request) {
         confirmTransferUseCase.confirmTransfer(id, request.getVerificationToken());
-        throw new IllegalStateException("unreachable: confirmTransfer always throws in M2 (no BLOCKED transfer exists yet)");
+        throw new IllegalStateException(
+                "unreachable: confirmTransfer always throws in M2 (no BLOCKED transfer exists yet)");
     }
 
     private UUID requireUserId() {
@@ -164,8 +177,10 @@ public class TransferRestAdapter implements V1Api {
         }
         if (request.getToHandle() != null) {
             String handle = request.getToHandle().startsWith("@")
-                    ? request.getToHandle().substring(1) : request.getToHandle();
-            return accountLookupPort.lookupByHandle(handle)
+                    ? request.getToHandle().substring(1)
+                    : request.getToHandle();
+            return accountLookupPort
+                    .lookupByHandle(handle)
                     .orElseThrow(() -> new RecipientNotFoundException(request.getToHandle()));
         }
         throw new MalformedRequestException("must provide either toUserId or toHandle");
@@ -180,16 +195,22 @@ public class TransferRestAdapter implements V1Api {
     }
 
     private static dev.treyer.sagapay.transfer.model.Money toRestMoney(Transfer transfer) {
-        return new dev.treyer.sagapay.transfer.model.Money(transfer.getCurrency(), transfer.getAmount().toPlainString());
+        return new dev.treyer.sagapay.transfer.model.Money(
+                transfer.getCurrency(), transfer.getAmount().toPlainString());
     }
 
     private static dev.treyer.sagapay.transfer.model.TransferStatus toRestStatus(Transfer transfer) {
-        return dev.treyer.sagapay.transfer.model.TransferStatus.valueOf(transfer.getStatus().name());
+        return dev.treyer.sagapay.transfer.model.TransferStatus.valueOf(
+                transfer.getStatus().name());
     }
 
     private dev.treyer.sagapay.transfer.model.Transfer toRestTransfer(Transfer transfer) {
-        return new dev.treyer.sagapay.transfer.model.Transfer(transfer.getId(), transfer.getSenderId().toString(),
-                toRestMoney(transfer), toRestStatus(transfer), transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
+        return new dev.treyer.sagapay.transfer.model.Transfer(
+                        transfer.getId(),
+                        transfer.getSenderId().toString(),
+                        toRestMoney(transfer),
+                        toRestStatus(transfer),
+                        transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
                 .failureReason(transfer.getFailureReason())

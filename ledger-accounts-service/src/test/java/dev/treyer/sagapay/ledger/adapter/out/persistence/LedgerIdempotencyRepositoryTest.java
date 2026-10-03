@@ -26,12 +26,14 @@ class LedgerIdempotencyRepositoryTest {
         String transferId = UUID.randomUUID().toString();
 
         int first = idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(), "{\"status\":\"OK\"}");
-        int second = idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(), "{\"status\":\"DIFFERENT\"}");
+        int second =
+                idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(), "{\"status\":\"DIFFERENT\"}");
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isEqualTo(0);
 
-        Optional<LedgerIdempotency> row = idempotency.findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE));
+        Optional<LedgerIdempotency> row =
+                idempotency.findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE));
         assertThat(row).isPresent();
         assertThat(row.get().getResultJson()).isEqualTo("{\"status\":\"OK\"}");
     }

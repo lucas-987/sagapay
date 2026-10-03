@@ -19,21 +19,30 @@ class SagaStepRepositoryTest {
 
     @Autowired
     private SagaStepRepository sagaSteps;
+
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @Autowired
     private TestEntityManager entityManager;
 
     // Satisfies the foreign key with a minimal row.
     private UUID newTransfer() {
         UUID id = UUID.randomUUID();
-        jdbcTemplate.update("""
+        jdbcTemplate.update(
+                """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency)
                 values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                id, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), new java.math.BigDecimal("10.0000"), "EUR");
+                id,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                new java.math.BigDecimal("10.0000"),
+                "EUR");
         return id;
     }
 

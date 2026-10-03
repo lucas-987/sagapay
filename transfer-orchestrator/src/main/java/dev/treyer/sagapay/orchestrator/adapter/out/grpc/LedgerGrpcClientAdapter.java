@@ -60,15 +60,15 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         return switch (response.getStatus()) {
             case OK -> new ReservationResult.Ok(UUID.fromString(response.getReservationId()));
             case INSUFFICIENT_FUNDS -> new ReservationResult.InsufficientFunds();
-            default -> throw new IllegalStateException(
-                    "unexpected CheckAndReserve status: " + response.getStatus());
+            default -> throw new IllegalStateException("unexpected CheckAndReserve status: " + response.getStatus());
         };
     }
 
     /** Found by Resilience4j through its signature. It also receives the
      * exceptions the breaker ignores, hence the rejection passthrough. */
     @SuppressWarnings("unused")
-    private ReservationResult checkAndReserveFallback(String transferId, UUID fromAccountId, Money amount, Throwable t) {
+    private ReservationResult checkAndReserveFallback(
+            String transferId, UUID fromAccountId, Money amount, Throwable t) {
         throw toFallbackException(t);
     }
 
@@ -91,7 +91,8 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     }
 
     @SuppressWarnings("unused")
-    private boolean postTransferFallback(String transferId, UUID fromAccountId, UUID toAccountId, Money amount, Throwable t) {
+    private boolean postTransferFallback(
+            String transferId, UUID fromAccountId, UUID toAccountId, Money amount, Throwable t) {
         throw toFallbackException(t);
     }
 

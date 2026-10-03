@@ -37,6 +37,7 @@ class OutboxPollerTest {
 
     @Autowired
     private OutboxPoller outboxPoller;
+
     @Autowired
     private OutboxRepository outboxRepository;
     // Not the bootstrap-servers property: @ServiceConnection bypasses it, so it
@@ -94,7 +95,8 @@ class OutboxPollerTest {
 
         List<ConsumerRecord<String, String>> found = pollFor(Set.of(senderId.toString()), Duration.ofSeconds(15));
         assertThat(found).hasSize(1);
-        assertThat(outboxRepository.findById(row.getId()).orElseThrow().getPublishedAt()).isNotNull();
+        assertThat(outboxRepository.findById(row.getId()).orElseThrow().getPublishedAt())
+                .isNotNull();
     }
 
     @Test

@@ -36,8 +36,14 @@ import java.util.UUID;
  * SagaTransitionWriter}, so no database transaction stays open across a network
  * call. */
 @Service
-public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase, ContinueReservedTransferUseCase,
-        SweepReprisePendingTransfersUseCase, ListTransfersUseCase, GetTransferUseCase, ConfirmTransferUseCase {
+public class SagaService
+        implements InitiateTransferUseCase,
+                AdvanceSagaUseCase,
+                ContinueReservedTransferUseCase,
+                SweepReprisePendingTransfersUseCase,
+                ListTransfersUseCase,
+                GetTransferUseCase,
+                ConfirmTransferUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(SagaService.class);
 
@@ -49,9 +55,14 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     private final SagaTransitionWriter writer;
     private final long repriseGracePeriodMs;
 
-    public SagaService(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox,
-                        LedgerPort ledger, JsonMapper jsonMapper, SagaTransitionWriter writer,
-                        @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs) {
+    public SagaService(
+            TransferPort transfers,
+            SagaStepPort sagaSteps,
+            OutboxPort outbox,
+            LedgerPort ledger,
+            JsonMapper jsonMapper,
+            SagaTransitionWriter writer,
+            @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
@@ -63,13 +74,28 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
     @Override
     @Transactional
-    public Result initiateTransfer(UUID senderId, UUID senderAccountId, UUID recipientId, UUID recipientAccountId,
-                                    Money amount, UUID idempotencyKey, String note) {
+    public Result initiateTransfer(
+            UUID senderId,
+            UUID senderAccountId,
+            UUID recipientId,
+            UUID recipientAccountId,
+            Money amount,
+            UUID idempotencyKey,
+            String note) {
         UUID id = UUID.randomUUID();
-        int inserted = transfers.insertIfAbsent(id, idempotencyKey, senderId, senderAccountId, recipientId,
-                recipientAccountId, amount.amount(), amount.currency().getCurrencyCode(), note);
+        int inserted = transfers.insertIfAbsent(
+                id,
+                idempotencyKey,
+                senderId,
+                senderAccountId,
+                recipientId,
+                recipientAccountId,
+                amount.amount(),
+                amount.currency().getCurrencyCode(),
+                note);
 
-        Transfer transfer = transfers.findBySenderIdAndIdempotencyKey(senderId, idempotencyKey)
+        Transfer transfer = transfers
+                .findBySenderIdAndIdempotencyKey(senderId, idempotencyKey)
                 .orElseThrow(() -> new IllegalStateException(
                         "transfer row vanished for sender " + senderId + " / idempotency key " + idempotencyKey));
 
@@ -89,7 +115,9 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
         ReservationResult result;
         try {
-            result = ledger.checkAndReserve(transferId.toString(), transfer.getSenderAccountId(),
+            result = ledger.checkAndReserve(
+                    transferId.toString(),
+                    transfer.getSenderAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
             writer.applyRejected(transferId, transfer, TransferStatus.INITIATED, "RESERVE", "RESERVE_REJECTED", e);
@@ -117,8 +145,11 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
         boolean posted;
         try {
-            posted = ledger.postTransfer(transferId.toString(), transfer.getSenderAccountId(),
-                    transfer.getRecipientAccountId(), Money.of(transfer.getAmount(), transfer.getCurrency()));
+            posted = ledger.postTransfer(
+                    transferId.toString(),
+                    transfer.getSenderAccountId(),
+                    transfer.getRecipientAccountId(),
+                    Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
             // Typically an expired reservation: the ledger will never post it, and
             // a refused postTransfer moved no money, so FAILED is the outcome.
@@ -156,15 +187,16 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     }
 
     @Override
-    public Page listTransfers(UUID userId, Direction direction, TransferStatus status, TransferCursor after, int limit) {
+    public Page listTransfers(
+            UUID userId, Direction direction, TransferStatus status, TransferCursor after, int limit) {
         boolean includeSent = direction != Direction.RECEIVED;
         boolean includeReceived = direction != Direction.SENT;
         Instant afterCreatedAt = after == null ? null : after.createdAt();
         UUID afterId = after == null ? null : after.id();
 
         // limit + 1: the extra row only signals a next page.
-        List<Transfer> rows = transfers.findPageForUser(userId, includeSent, includeReceived, status,
-                afterCreatedAt, afterId, limit + 1);
+        List<Transfer> rows = transfers.findPageForUser(
+                userId, includeSent, includeReceived, status, afterCreatedAt, afterId, limit + 1);
         boolean hasMore = rows.size() > limit;
         List<Transfer> items = hasMore ? rows.subList(0, limit) : rows;
         TransferCursor next = hasMore ? TransferCursor.of(items.get(items.size() - 1)) : null;
@@ -185,7 +217,8 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     }
 
     private Transfer requireTransfer(UUID transferId) {
-        return transfers.findById(transferId)
+        return transfers
+                .findById(transferId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown transfer " + transferId));
     }
 }

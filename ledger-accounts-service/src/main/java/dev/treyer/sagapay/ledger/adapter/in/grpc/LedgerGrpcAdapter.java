@@ -24,10 +24,11 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
     private final ReleaseReservationUseCase releaseReservationUseCase;
     private final GetBalanceUseCase getBalanceUseCase;
 
-    LedgerGrpcAdapter(CheckAndReserveUseCase checkAndReserveUseCase,
-                      PostTransferUseCase postTransferUseCase,
-                      ReleaseReservationUseCase releaseReservationUseCase,
-                      GetBalanceUseCase getBalanceUseCase) {
+    LedgerGrpcAdapter(
+            CheckAndReserveUseCase checkAndReserveUseCase,
+            PostTransferUseCase postTransferUseCase,
+            ReleaseReservationUseCase releaseReservationUseCase,
+            GetBalanceUseCase getBalanceUseCase) {
         this.checkAndReserveUseCase = checkAndReserveUseCase;
         this.postTransferUseCase = postTransferUseCase;
         this.releaseReservationUseCase = releaseReservationUseCase;
@@ -35,20 +36,23 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
     }
 
     @Override
-    public void checkAndReserve(CheckAndReserveRequest request, StreamObserver<CheckAndReserveResponse> responseObserver) {
+    public void checkAndReserve(
+            CheckAndReserveRequest request, StreamObserver<CheckAndReserveResponse> responseObserver) {
         var result = checkAndReserveUseCase.checkAndReserve(
                 request.getTransferId(),
                 parseUuid("fromAccountId", request.getFromAccountId()),
                 toMoney(request.getAmount()));
 
         CheckAndReserveResponse response = switch (result) {
-            case CheckAndReserveResult.Ok ok -> CheckAndReserveResponse.newBuilder()
-                    .setStatus(CheckAndReserveResponse.Status.OK)
-                    .setReservationId(ok.reservationId().toString())
-                    .build();
-            case CheckAndReserveResult.InsufficientFunds ignored -> CheckAndReserveResponse.newBuilder()
-                    .setStatus(CheckAndReserveResponse.Status.INSUFFICIENT_FUNDS)
-                    .build();
+            case CheckAndReserveResult.Ok ok ->
+                CheckAndReserveResponse.newBuilder()
+                        .setStatus(CheckAndReserveResponse.Status.OK)
+                        .setReservationId(ok.reservationId().toString())
+                        .build();
+            case CheckAndReserveResult.InsufficientFunds ignored ->
+                CheckAndReserveResponse.newBuilder()
+                        .setStatus(CheckAndReserveResponse.Status.INSUFFICIENT_FUNDS)
+                        .build();
         };
         responseObserver.onNext(response);
         responseObserver.onCompleted();
@@ -60,12 +64,10 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
                 request.getTransferId(),
                 parseUuid("fromAccountId", request.getFromAccountId()),
                 parseUuid("toAccountId", request.getToAccountId()),
-                toMoney(request.getAmount())
-        );
+                toMoney(request.getAmount()));
 
-        PostTransferResponse response = PostTransferResponse.newBuilder()
-                .setPosted(result)
-                .build();
+        PostTransferResponse response =
+                PostTransferResponse.newBuilder().setPosted(result).build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
@@ -73,8 +75,7 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
     @Override
     public void releaseReservation(ReleaseReservationRequest request, StreamObserver<Empty> responseObserver) {
         releaseReservationUseCase.releaseReservation(
-                request.getTransferId(),
-                parseUuid("reservationId", request.getReservationId()));
+                request.getTransferId(), parseUuid("reservationId", request.getReservationId()));
         responseObserver.onNext(Empty.newBuilder().build());
         responseObserver.onCompleted();
     }
@@ -82,9 +83,8 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
     @Override
     public void getBalance(GetBalanceRequest request, StreamObserver<GetBalanceResponse> responseObserver) {
         Money balance = getBalanceUseCase.getBalance(parseUuid("accountId", request.getAccountId()));
-        responseObserver.onNext(GetBalanceResponse.newBuilder()
-                .setBalance(toProto(balance))
-                .build());
+        responseObserver.onNext(
+                GetBalanceResponse.newBuilder().setBalance(toProto(balance)).build());
         responseObserver.onCompleted();
     }
 

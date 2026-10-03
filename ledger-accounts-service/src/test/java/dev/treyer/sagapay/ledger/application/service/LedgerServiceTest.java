@@ -53,23 +53,31 @@ class LedgerServiceTest {
 
     @Autowired
     private CheckAndReserveUseCase checkAndReserveUseCase;
+
     @Autowired
     private PostTransferUseCase postTransferUseCase;
+
     @Autowired
     private ReleaseReservationUseCase releaseReservationUseCase;
+
     @Autowired
     private GetWalletUseCase getWalletUseCase;
+
     @Autowired
     private ListPostingsUseCase listPostingsUseCase;
+
     @Autowired
     private ExpireReservationsUseCase expireReservationsUseCase;
 
     @Autowired
     private AccountRepository accounts;
+
     @Autowired
     private PostingRepository postings;
+
     @Autowired
     private ReservationRepository reservations;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -117,8 +125,12 @@ class LedgerServiceTest {
             go.countDown();
 
             List<CheckAndReserveResult> results = List.of(f1.get(), f2.get());
-            long okCount = results.stream().filter(r -> r instanceof CheckAndReserveResult.Ok).count();
-            long insufficientCount = results.stream().filter(r -> r instanceof CheckAndReserveResult.InsufficientFunds).count();
+            long okCount = results.stream()
+                    .filter(r -> r instanceof CheckAndReserveResult.Ok)
+                    .count();
+            long insufficientCount = results.stream()
+                    .filter(r -> r instanceof CheckAndReserveResult.InsufficientFunds)
+                    .count();
 
             assertThat(okCount).isEqualTo(1);
             assertThat(insufficientCount).isEqualTo(1);
@@ -150,7 +162,7 @@ class LedgerServiceTest {
 
         // Bypasses the application guard to test the CHECK constraint alone.
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "UPDATE accounts SET balance = balance - 100 WHERE id = ?", account.getId()))
+                        "UPDATE accounts SET balance = balance - 100 WHERE id = ?", account.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -160,7 +172,7 @@ class LedgerServiceTest {
         Money usdAmount = Money.of("10.00", "USD");
 
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                UUID.randomUUID().toString(), account.getId(), usdAmount))
+                        UUID.randomUUID().toString(), account.getId(), usdAmount))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("currency mismatch");
     }
@@ -198,7 +210,7 @@ class LedgerServiceTest {
         checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), Money.of("20.00", "EUR"));
 
         assertThatThrownBy(() -> postTransferUseCase.postTransfer(
-                transferId, from.getId(), to.getId(), Money.of("30.00", "EUR")))
+                        transferId, from.getId(), to.getId(), Money.of("30.00", "EUR")))
                 .isInstanceOf(NoMatchingReservationException.class);
     }
 
@@ -220,8 +232,8 @@ class LedgerServiceTest {
         String transferId = UUID.randomUUID().toString();
         checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
 
-        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                transferId, account.getId(), Money.of("31.00", "EUR")))
+        assertThatThrownBy(() ->
+                        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("31.00", "EUR")))
                 .isInstanceOf(IdempotencyConflictException.class);
     }
 
@@ -233,13 +245,13 @@ class LedgerServiceTest {
         String transferId = UUID.randomUUID().toString();
         checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("50.00", "EUR"));
         jdbcTemplate.update(
-                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?",
-                transferId);
+                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?", transferId);
 
         WalletSnapshot wallet = getWalletUseCase.getWallet(account.getId());
 
         assertThat(wallet.held().amount()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(wallet.available().amount()).isEqualByComparingTo(wallet.balance().amount());
+        assertThat(wallet.available().amount())
+                .isEqualByComparingTo(wallet.balance().amount());
     }
 
     @Test
@@ -255,7 +267,8 @@ class LedgerServiceTest {
 
         WalletSnapshot wallet = getWalletUseCase.getWallet(account.getId());
         assertThat(wallet.held().amount()).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(wallet.available().amount()).isEqualByComparingTo(wallet.balance().amount());
+        assertThat(wallet.available().amount())
+                .isEqualByComparingTo(wallet.balance().amount());
     }
 
     @Test
@@ -353,10 +366,10 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
 
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                UUID.randomUUID().toString(), account.getId(), Money.of("0.00", "EUR")))
+                        UUID.randomUUID().toString(), account.getId(), Money.of("0.00", "EUR")))
                 .isInstanceOf(InvalidAmountException.class);
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                UUID.randomUUID().toString(), account.getId(), Money.of("-10.00", "EUR")))
+                        UUID.randomUUID().toString(), account.getId(), Money.of("-10.00", "EUR")))
                 .isInstanceOf(InvalidAmountException.class);
     }
 

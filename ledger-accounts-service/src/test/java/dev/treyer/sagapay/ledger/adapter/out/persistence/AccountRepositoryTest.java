@@ -20,6 +20,7 @@ class AccountRepositoryTest {
 
     @Autowired
     private AccountRepository accounts;
+
     @Autowired
     private TestEntityManager entityManager;
 
@@ -41,8 +42,8 @@ class AccountRepositoryTest {
 
     @Test
     void debitIfSufficientFundsDebitsWhenBalanceCovers() {
-        Account account = accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("100.0000")));
+        Account account = accounts.saveAndFlush(
+                new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("100.0000")));
 
         int updated = accounts.debitIfSufficientFunds(account.getId(), new BigDecimal("40.0000"));
         // The @Modifying update bypasses the persistence context: without clear(),
@@ -56,8 +57,8 @@ class AccountRepositoryTest {
 
     @Test
     void debitIfSufficientFundsDoesNothingWhenBalanceTooLow() {
-        Account account = accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
+        Account account = accounts.saveAndFlush(
+                new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
 
         int updated = accounts.debitIfSufficientFunds(account.getId(), new BigDecimal("40.0000"));
         entityManager.clear();
@@ -69,8 +70,8 @@ class AccountRepositoryTest {
 
     @Test
     void creditIncreasesBalance() {
-        Account account = accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
+        Account account = accounts.saveAndFlush(
+                new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
 
         accounts.credit(account.getId(), new BigDecimal("5.0000"));
         entityManager.clear();
@@ -81,8 +82,8 @@ class AccountRepositoryTest {
 
     @Test
     void findByIdForUpdateFindsExistingAccount() {
-        Account account = accounts.saveAndFlush(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
+        Account account = accounts.saveAndFlush(
+                new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
 
         assertThat(accounts.findByIdForUpdate(account.getId())).isPresent();
     }

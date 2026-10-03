@@ -13,19 +13,32 @@ class ArchitectureTest {
 
     @ArchTest
     static final ArchRule domainDependsOnNoOtherLayer = noClasses()
-            .that().resideInAPackage("..ledger.domain..")
-            .should().dependOnClassesThat().resideInAnyPackage(
+            .that()
+            .resideInAPackage("..ledger.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
                     "..ledger.application..", "..ledger.adapter..", "..ledger.config..", "org.springframework..");
 
     @ArchTest
     static final ArchRule applicationDependsOnPortsNotAdapters = noClasses()
-            .that().resideInAPackage("..ledger.application..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "..ledger.adapter..", "..ledger.config..",
-                    "org.springframework.data..", "org.springframework.web..", "io.grpc..", "jakarta.servlet..");
+            .that()
+            .resideInAPackage("..ledger.application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "..ledger.adapter..",
+                    "..ledger.config..",
+                    "org.springframework.data..",
+                    "org.springframework.web..",
+                    "io.grpc..",
+                    "jakarta.servlet..");
 
     @ArchTest
     static final ArchRule inboundAdaptersDoNotCallOutboundAdapters = noClasses()
-            .that().resideInAPackage("..ledger.adapter.in..")
-            .should().dependOnClassesThat().resideInAPackage("..ledger.adapter.out..");
+            .that()
+            .resideInAPackage("..ledger.adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..ledger.adapter.out..");
 }

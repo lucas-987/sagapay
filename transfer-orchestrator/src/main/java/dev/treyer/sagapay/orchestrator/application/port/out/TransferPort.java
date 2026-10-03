@@ -12,8 +12,16 @@ import java.util.UUID;
 public interface TransferPort {
 
     /** @return 0 when a transfer with this sender and idempotency key already exists. */
-    int insertIfAbsent(UUID id, UUID idempotencyKey, UUID senderId, UUID senderAccountId, UUID recipientId,
-                       UUID recipientAccountId, BigDecimal amount, String currency, String note);
+    int insertIfAbsent(
+            UUID id,
+            UUID idempotencyKey,
+            UUID senderId,
+            UUID senderAccountId,
+            UUID recipientId,
+            UUID recipientAccountId,
+            BigDecimal amount,
+            String currency,
+            String note);
 
     Optional<Transfer> findById(UUID id);
 
@@ -22,8 +30,14 @@ public interface TransferPort {
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
     /** Newest first, strictly after {@code (afterCreatedAt, afterId)} when given. */
-    List<Transfer> findPageForUser(UUID userId, boolean includeSent, boolean includeReceived, TransferStatus status,
-                                   Instant afterCreatedAt, UUID afterId, int maxRows);
+    List<Transfer> findPageForUser(
+            UUID userId,
+            boolean includeSent,
+            boolean includeReceived,
+            TransferStatus status,
+            Instant afterCreatedAt,
+            UUID afterId,
+            int maxRows);
 
     /** The transition methods return 0 when the transfer is not in {@code fromStatus}. */
     int transitionWithReservation(UUID id, TransferStatus fromStatus, TransferStatus toStatus, UUID reservationId);

@@ -37,6 +37,7 @@ class LedgerGrpcAdapterTest {
 
     @Autowired
     private GrpcChannelFactory channelFactory;
+
     @Autowired
     private AccountRepository accounts;
 
@@ -48,8 +49,8 @@ class LedgerGrpcAdapterTest {
     }
 
     private UUID newAccount(String balance) {
-        return accounts.save(new Account(
-                "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal(balance))).getId();
+        return accounts.save(new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal(balance)))
+                .getId();
     }
 
     @Test
@@ -68,7 +69,8 @@ class LedgerGrpcAdapterTest {
     void getBalanceUnknownAccountReturnsNotFound() {
         String unknownId = UUID.randomUUID().toString();
 
-        assertThatThrownBy(() -> client.getBalance(GetBalanceRequest.newBuilder().setAccountId(unknownId).build()))
+        assertThatThrownBy(() -> client.getBalance(
+                        GetBalanceRequest.newBuilder().setAccountId(unknownId).build()))
                 .isInstanceOf(StatusRuntimeException.class)
                 .hasMessageContaining("NOT_FOUND");
     }
@@ -76,8 +78,8 @@ class LedgerGrpcAdapterTest {
     @Test
     void getBalanceMalformedAccountIdReturnsInvalidArgument() {
         assertThatThrownBy(() -> client.getBalance(GetBalanceRequest.newBuilder()
-                .setAccountId("not-a-uuid")
-                .build()))
+                        .setAccountId("not-a-uuid")
+                        .build()))
                 .isInstanceOf(StatusRuntimeException.class)
                 .hasMessageContaining("INVALID_ARGUMENT");
     }
@@ -89,7 +91,8 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse response = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString())
                 .setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
+                .setAmount(
+                        Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
 
         assertThat(response.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
@@ -101,10 +104,13 @@ class LedgerGrpcAdapterTest {
         UUID accountId = newAccount("100.0000");
 
         assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
-                .setTransferId(UUID.randomUUID().toString())
-                .setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("USD").setAmount("10.00").build())
-                .build()))
+                        .setTransferId(UUID.randomUUID().toString())
+                        .setFromAccountId(accountId.toString())
+                        .setAmount(Money.newBuilder()
+                                .setCurrency("USD")
+                                .setAmount("10.00")
+                                .build())
+                        .build()))
                 .isInstanceOf(StatusRuntimeException.class)
                 .hasMessageContaining("INVALID_ARGUMENT");
     }
@@ -114,10 +120,13 @@ class LedgerGrpcAdapterTest {
         UUID accountId = newAccount("100.0000");
 
         assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
-                .setTransferId(UUID.randomUUID().toString())
-                .setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("10.12345").build())
-                .build()))
+                        .setTransferId(UUID.randomUUID().toString())
+                        .setFromAccountId(accountId.toString())
+                        .setAmount(Money.newBuilder()
+                                .setCurrency("EUR")
+                                .setAmount("10.12345")
+                                .build())
+                        .build()))
                 .isInstanceOf(StatusRuntimeException.class)
                 .hasMessageContaining("INVALID_ARGUMENT");
     }
@@ -129,7 +138,8 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse response = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString())
                 .setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
+                .setAmount(
+                        Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
 
         assertThat(response.getStatus()).isEqualTo(CheckAndReserveResponse.Status.INSUFFICIENT_FUNDS);
@@ -143,16 +153,24 @@ class LedgerGrpcAdapterTest {
         Money amount = Money.newBuilder().setCurrency("EUR").setAmount("30.00").build();
 
         CheckAndReserveResponse reserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
-                .setTransferId(transferId).setFromAccountId(from.toString()).setAmount(amount).build());
+                .setTransferId(transferId)
+                .setFromAccountId(from.toString())
+                .setAmount(amount)
+                .build());
         assertThat(reserve.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
 
         PostTransferResponse posted = client.postTransfer(PostTransferRequest.newBuilder()
-                .setTransferId(transferId).setFromAccountId(from.toString()).setToAccountId(to.toString())
-                .setAmount(amount).build());
+                .setTransferId(transferId)
+                .setFromAccountId(from.toString())
+                .setToAccountId(to.toString())
+                .setAmount(amount)
+                .build());
         assertThat(posted.getPosted()).isTrue();
 
-        GetBalanceResponse fromBalance = client.getBalance(GetBalanceRequest.newBuilder().setAccountId(from.toString()).build());
-        GetBalanceResponse toBalance = client.getBalance(GetBalanceRequest.newBuilder().setAccountId(to.toString()).build());
+        GetBalanceResponse fromBalance = client.getBalance(
+                GetBalanceRequest.newBuilder().setAccountId(from.toString()).build());
+        GetBalanceResponse toBalance = client.getBalance(
+                GetBalanceRequest.newBuilder().setAccountId(to.toString()).build());
         assertThat(fromBalance.getBalance().getAmount()).isEqualTo("70.0000");
         assertThat(toBalance.getBalance().getAmount()).isEqualTo("30.0000");
     }
@@ -162,19 +180,25 @@ class LedgerGrpcAdapterTest {
         UUID accountId = newAccount("100.0000");
         String transferId = UUID.randomUUID().toString();
         CheckAndReserveResponse reserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
-                .setTransferId(transferId).setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
+                .setTransferId(transferId)
+                .setFromAccountId(accountId.toString())
+                .setAmount(
+                        Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
         assertThat(reserve.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
 
         client.releaseReservation(ReleaseReservationRequest.newBuilder()
-                .setTransferId(transferId).setReservationId(reserve.getReservationId()).build());
+                .setTransferId(transferId)
+                .setReservationId(reserve.getReservationId())
+                .build());
 
         // GetBalance has no held amount, so the release shows indirectly: 40 + 90 > 100
         // fits only once the first hold is gone.
         CheckAndReserveResponse secondReserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
-                .setTransferId(UUID.randomUUID().toString()).setFromAccountId(accountId.toString())
-                .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("90.00").build())
+                .setTransferId(UUID.randomUUID().toString())
+                .setFromAccountId(accountId.toString())
+                .setAmount(
+                        Money.newBuilder().setCurrency("EUR").setAmount("90.00").build())
                 .build());
         assertThat(secondReserve.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
     }

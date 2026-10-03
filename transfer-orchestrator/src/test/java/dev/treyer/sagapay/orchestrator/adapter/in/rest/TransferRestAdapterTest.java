@@ -52,20 +52,33 @@ class TransferRestAdapterTest {
 
     @MockitoBean
     private InitiateTransferUseCase initiateTransferUseCase;
+
     @MockitoBean
     private AdvanceSagaUseCase advanceSagaUseCase;
+
     @MockitoBean
     private ListTransfersUseCase listTransfersUseCase;
+
     @MockitoBean
     private GetTransferUseCase getTransferUseCase;
+
     @MockitoBean
     private ConfirmTransferUseCase confirmTransferUseCase;
+
     @MockitoBean
     private AccountLookupPort accountLookupPort;
 
     private static Transfer newTransfer(UUID senderId, UUID recipientId) {
-        return new Transfer(UUID.randomUUID(), UUID.randomUUID(), senderId, senderId, recipientId, recipientId,
-                new BigDecimal("80.0000"), "EUR", "pizza");
+        return new Transfer(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                senderId,
+                senderId,
+                recipientId,
+                recipientId,
+                new BigDecimal("80.0000"),
+                "EUR",
+                "pizza");
     }
 
     @Test
@@ -73,8 +86,14 @@ class TransferRestAdapterTest {
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
-        when(initiateTransferUseCase.initiateTransfer(eq(senderId), eq(senderId), eq(recipientId), eq(recipientId),
-                any(Money.class), any(UUID.class), eq("pizza")))
+        when(initiateTransferUseCase.initiateTransfer(
+                        eq(senderId),
+                        eq(senderId),
+                        eq(recipientId),
+                        eq(recipientId),
+                        any(Money.class),
+                        any(UUID.class),
+                        eq("pizza")))
                 .thenReturn(new InitiateTransferUseCase.Result(transfer, true));
 
         mockMvc.perform(post("/v1/transfers")
@@ -94,8 +113,14 @@ class TransferRestAdapterTest {
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
-        when(initiateTransferUseCase.initiateTransfer(eq(senderId), eq(senderId), eq(recipientId), eq(recipientId),
-                any(Money.class), any(UUID.class), eq("pizza")))
+        when(initiateTransferUseCase.initiateTransfer(
+                        eq(senderId),
+                        eq(senderId),
+                        eq(recipientId),
+                        eq(recipientId),
+                        any(Money.class),
+                        any(UUID.class),
+                        eq("pizza")))
                 .thenReturn(new InitiateTransferUseCase.Result(transfer, false));
 
         mockMvc.perform(post("/v1/transfers")
@@ -132,7 +157,8 @@ class TransferRestAdapterTest {
     void confirmBlockedTransferAlwaysReturns409WithTransferNotBlockedCode() throws Exception {
         UUID transferId = UUID.randomUUID();
         org.mockito.Mockito.doThrow(new TransferNotBlockedException(transferId))
-                .when(confirmTransferUseCase).confirmTransfer(eq(transferId), eq("tok"));
+                .when(confirmTransferUseCase)
+                .confirmTransfer(eq(transferId), eq("tok"));
 
         mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
                         .contentType(MediaType.APPLICATION_JSON)

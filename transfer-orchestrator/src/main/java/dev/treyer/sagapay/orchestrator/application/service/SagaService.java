@@ -1,9 +1,6 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.common.domain.Money;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.application.port.in.AdvanceSagaUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ContinueReservedTransferUseCase;
@@ -12,6 +9,9 @@ import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCa
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.SweepReprisePendingTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -23,7 +23,6 @@ import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,15 +41,15 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
     private static final Logger log = LoggerFactory.getLogger(SagaService.class);
 
-    private final TransferRepository transfers;
-    private final SagaStepRepository sagaSteps;
-    private final OutboxRepository outbox;
+    private final TransferPort transfers;
+    private final SagaStepPort sagaSteps;
+    private final OutboxPort outbox;
     private final LedgerPort ledger;
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
     private final long repriseGracePeriodMs;
 
-    public SagaService(TransferRepository transfers, SagaStepRepository sagaSteps, OutboxRepository outbox,
+    public SagaService(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox,
                         LedgerPort ledger, JsonMapper jsonMapper, SagaTransitionWriter writer,
                         @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs) {
         this.transfers = transfers;
@@ -165,7 +164,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
         // limit + 1: the extra row only signals a next page.
         List<Transfer> rows = transfers.findPageForUser(userId, includeSent, includeReceived, status,
-                afterCreatedAt, afterId, PageRequest.ofSize(limit + 1));
+                afterCreatedAt, afterId, limit + 1);
         boolean hasMore = rows.size() > limit;
         List<Transfer> items = hasMore ? rows.subList(0, limit) : rows;
         TransferCursor next = hasMore ? TransferCursor.of(items.get(items.size() - 1)) : null;
@@ -175,7 +174,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     @Override
     public TransferWithSteps getTransfer(UUID transferId) {
         Transfer transfer = transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
-        return new TransferWithSteps(transfer, sagaSteps.findByTransferIdOrderByAtAsc(transferId));
+        return new TransferWithSteps(transfer, sagaSteps.findByTransferId(transferId));
     }
 
     @Override

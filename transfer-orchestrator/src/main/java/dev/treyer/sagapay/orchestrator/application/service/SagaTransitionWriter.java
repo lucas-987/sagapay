@@ -1,8 +1,8 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
+import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
@@ -23,12 +23,12 @@ import java.util.UUID;
 @Component
 class SagaTransitionWriter {
 
-    private final TransferRepository transfers;
-    private final SagaStepRepository sagaSteps;
-    private final OutboxRepository outbox;
+    private final TransferPort transfers;
+    private final SagaStepPort sagaSteps;
+    private final OutboxPort outbox;
     private final JsonMapper jsonMapper;
 
-    SagaTransitionWriter(TransferRepository transfers, SagaStepRepository sagaSteps, OutboxRepository outbox,
+    SagaTransitionWriter(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox,
                           JsonMapper jsonMapper) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;

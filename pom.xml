@@ -37,6 +37,7 @@
         <grpc.version>1.83.1</grpc.version>
         <protobuf-plugin.version>5.1.8</protobuf-plugin.version>
         <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+        <archunit.version>1.5.1</archunit.version>
         <openapi-generator.version>7.25.0</openapi-generator.version>
         <logstash-logback.version>8.0</logstash-logback.version>
     </properties>
@@ -68,6 +69,11 @@
                 <groupId>dev.treyer.sagapay</groupId>
                 <artifactId>common</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
             </dependency>
             <dependency>
                 <groupId>dev.treyer.sagapay</groupId>

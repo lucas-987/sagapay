@@ -32,8 +32,7 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
 
     private static final long DEADLINE_MS = 500;
 
-    /** Codes the ledger answers with when the request itself is at fault -- see
-     * its {@code LedgerGrpcExceptionAdvice}. */
+    /** Codes the ledger uses when the request itself is at fault. */
     private static final Set<Status.Code> REJECTION_CODES =
             Set.of(Status.Code.NOT_FOUND, Status.Code.INVALID_ARGUMENT, Status.Code.ALREADY_EXISTS);
 
@@ -96,9 +95,6 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         throw toFallbackException(t);
     }
 
-    /** A rejection carries the ledger's answer up to the saga; any other
-     * status (timeout, connection refused, internal error) is left for the
-     * fallback to turn into {@link LedgerUnavailableException}. */
     private static RuntimeException classify(StatusRuntimeException e) {
         Status.Code code = e.getStatus().getCode();
         if (REJECTION_CODES.contains(code)) {

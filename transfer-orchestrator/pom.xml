@@ -50,16 +50,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
-		<!-- Verified against the parent BOM (spring-boot-dependencies:4.1.1), not
-		     assumed by symmetry with the server starter: groupId org.springframework.boot,
-		     no version to declare, same schema as spring-boot-starter-grpc-server. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-grpc-client</artifactId>
 		</dependency>
-		<!-- Declared explicitly, not relied on transitively via webmvc: SagaService
-		     uses JsonMapper directly to serialize outbox payloads (same reasoning as
-		     the ledger's LedgerService). -->
+		<!-- Used directly for outbox payloads: not left to a transitive dependency. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>

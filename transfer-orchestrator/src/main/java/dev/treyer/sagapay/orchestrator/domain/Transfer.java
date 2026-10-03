@@ -14,10 +14,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** A class, not a record: JPA requires a no-arg constructor plus fields mutable by
- * reflection (same reasoning as the ledger's {@code Account}). Raw UUIDs for
- * sender/recipient/account ids, no {@code @ManyToOne}: those rows live in the
- * ledger's own database, another service — a correlation id, not a foreign key. */
+/** Account ids are plain values: the accounts live in the ledger's database. */
 @Entity
 @Table(name = "transfers")
 public class Transfer {
@@ -50,11 +47,7 @@ public class Transfer {
     @Column(name = "note", updatable = false, length = 200)
     private String note;
 
-    // status is a native Postgres ENUM (transfer_status), not VARCHAR like the
-    // ledger's ReservationStatus: @JdbcTypeCode(NAMED_ENUM), on top of
-    // @Enumerated(STRING), tells Hibernate to bind/read this field as that named
-    // database enum type — save()/findById() round-trip verified in
-    // TransferRepositoryTest against a real Postgres instance.
+    // NAMED_ENUM binds the field to the native Postgres enum type.
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false)
@@ -72,7 +65,6 @@ public class Transfer {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected Transfer() {}
 
     public Transfer(UUID id, UUID idempotencyKey, UUID senderId, UUID senderAccountId,
@@ -147,8 +139,6 @@ public class Transfer {
         return updatedAt;
     }
 
-    // No setStatus()/setReservationId(): transitions go through conditional
-    // @Modifying queries (WHERE status = ...), same reasoning as
-    // Account.setBalance()/Reservation's lack of a status setter in M1 — a public
-    // setter would invite a load/mutate/save race instead of an atomic guard.
+    // No status setter: transitions go through conditional updates, which a
+    // load-mutate-save would race.
 }

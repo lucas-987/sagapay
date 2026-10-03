@@ -33,21 +33,9 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 
 /**
- * Adapter in — REST, implements the interface generated from the OpenAPI spec.
- * Depends only on the {@code *UseCase} ports, never on {@code SagaService}
- * directly (same rule as the ledger's {@code LedgerRestAdapter}).
- *
- * <p>{@code POST /v1/requests} is intentionally not overridden — {@code
- * V1Api}'s default returns 501, matching the checklist's decision that it's cut
- * from the whole MVP, not just deferred.
- *
- * <p>{@code X-User-Id}: a dev/local stand-in for the JWT {@code sub} claim
- * (there's no Keycloak wired yet, M4). Every {@code CreateTransferRequest.
- * toUserId}/resolved {@code toHandle} is treated as *both* a user id and an
- * account id: the ledger fuses the two (an {@code Account} carries its own
- * {@code handle}/{@code displayName}, no separate user entity), so {@code
- * transfers.sender_id == transfers.sender_account_id} in this MVP even though
- * the schema keeps them as distinct columns.
+ * {@code POST /v1/requests} keeps the generated 501: money requests are out of the
+ * MVP. {@code X-User-Id} stands in for the token subject until authentication is
+ * wired. A user id is also its account id: the ledger has no separate user entity.
  */
 @RestController
 public class TransferRestAdapter implements V1Api {
@@ -88,19 +76,14 @@ public class TransferRestAdapter implements V1Api {
                 senderId, senderId, recipientId, recipientId, amount, idempotencyKey, request.getNote());
 
         if (result.created()) {
-            // "en tâche de fond" (checklist intro): the client sees 202 with
-            // status=INITIATED right away, doesn't wait for the ledger round
-            // trip(s) advance() makes. SagaService.advance() itself stays
-            // synchronous (directly unit-testable, see SagaServiceTest) --
-            // dispatching it off-thread is this adapter's job, not the
-            // domain's.
+            // The 202 does not wait for the ledger.
             UUID transferId = result.transfer().getId();
             executor.execute(() -> {
                 try {
                     advanceSagaUseCase.advance(transferId);
                 } catch (LedgerUnavailableException e) {
-                    // Nobody is waiting on this thread to report to: the
-                    // transfer stays INITIATED and SagaReprisePoller resumes it.
+                    // Nobody to report to: the transfer stays INITIATED for the
+                    // reprise poller.
                     log.warn("Ledger unavailable for transfer {}, left for the reprise poller", transferId, e);
                 }
             });
@@ -121,8 +104,7 @@ public class TransferRestAdapter implements V1Api {
         try {
             domainStatus = status == null ? null : dev.treyer.sagapay.orchestrator.domain.TransferStatus.valueOf(status.name());
         } catch (IllegalArgumentException e) {
-            // A status this MVP can't reach yet (SCREENING, BLOCKED, ...) -- a
-            // valid filter, just one with no possible matches, not a 400.
+            // A valid status that no transfer can have yet: empty page, not a 400.
             return ResponseEntity.ok(new ListTransfers200Response().items(List.of()).nextCursor(null));
         }
 
@@ -145,7 +127,6 @@ public class TransferRestAdapter implements V1Api {
                 .failureReason(transfer.getFailureReason())
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
                 .steps(result.steps().stream().map(this::toRestStep).toList())
-                // No fraud service exists in M2 -- nullable in the spec, not an omission.
                 .fraud(null);
         return ResponseEntity.ok(detail);
     }
@@ -158,11 +139,7 @@ public class TransferRestAdapter implements V1Api {
     }
 
     private UUID requireUserId() {
-        // Not V1Api.getRequest(): its default implementation always returns
-        // Optional.empty() -- it's an extension point implementors may
-        // override, not something Spring populates automatically.
-        // RequestContextHolder is the standard way to reach the current HTTP
-        // request from within a request-handling thread.
+        // V1Api.getRequest() is an extension point that returns empty by default.
         ServletRequestAttributes attributes =
                 (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
         String value = attributes.getRequest().getHeader(USER_ID_HEADER);
@@ -177,8 +154,6 @@ public class TransferRestAdapter implements V1Api {
         }
     }
 
-    /** {@code toUserId} used as-is; {@code toHandle} (e.g. {@code @bob})
-     * resolved via the ledger's own handle lookup (§8 stretch scope). */
     private UUID resolveRecipient(CreateTransferRequest request) {
         if (request.getToUserId() != null) {
             try {

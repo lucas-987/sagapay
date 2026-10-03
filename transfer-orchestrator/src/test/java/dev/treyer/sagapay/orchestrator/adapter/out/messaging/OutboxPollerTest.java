@@ -39,11 +39,8 @@ class OutboxPollerTest {
     private OutboxPoller outboxPoller;
     @Autowired
     private OutboxRepository outboxRepository;
-    // Not @Value("${spring.kafka.bootstrap-servers}"): @ServiceConnection wires
-    // the app's own KafkaTemplate via a KafkaConnectionDetails bean, bypassing
-    // that property entirely -- it keeps its static application.properties
-    // default in the Environment, verified by this test initially connecting
-    // to the wrong (unreachable) broker address with it.
+    // Not the bootstrap-servers property: @ServiceConnection bypasses it, so it
+    // still holds the static default address.
     @Autowired
     private KafkaContainer kafkaContainer;
 
@@ -72,12 +69,8 @@ class OutboxPollerTest {
                 new OutboxRow(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferInitiated", payload, null));
     }
 
-    /** Polls repeatedly for the *whole* timeout, not just until the expected
-     * count is first reached -- exiting the moment enough records arrive would
-     * silently hide a duplicate that shows up a poll or two later, which is
-     * exactly the failure this helper needs to be able to catch (see the
-     * concurrency test below). Other tests' messages on the same shared topic
-     * are filtered out by key rather than assumed absent. */
+    /** Polls for the whole timeout: stopping at the expected count would hide a
+     * late duplicate. Other tests' messages are filtered out by key. */
     private List<ConsumerRecord<String, String>> pollFor(Set<String> expectedKeys, Duration timeout) {
         List<ConsumerRecord<String, String>> found = new ArrayList<>();
         long deadline = System.nanoTime() + timeout.toNanos();
@@ -117,8 +110,7 @@ class OutboxPollerTest {
 
         assertThat(traceparent).isNotNull();
         assertThat(new String(traceparent.value(), StandardCharsets.UTF_8)).isNotBlank();
-        // Transport metadata, not a business field -- the payload's "data" only
-        // ever carried senderId/recipientId/amount/etc (see OutboxEvents).
+        // A transport header, not a payload field.
         assertThat(record.value()).doesNotContain("\"data\":{\"traceparent\"");
     }
 
@@ -144,9 +136,7 @@ class OutboxPollerTest {
         }
 
         List<ConsumerRecord<String, String>> found = pollFor(senderIds, Duration.ofSeconds(20));
-        // Total records matching one of this test's own keys -- not distinct
-        // keys -- so a duplicate publish (same key, 2 different offsets) would
-        // actually be caught instead of silently collapsed.
+        // Records, not distinct keys, so a duplicate publish is caught.
         assertThat(found).hasSize(senderIds.size());
     }
 }

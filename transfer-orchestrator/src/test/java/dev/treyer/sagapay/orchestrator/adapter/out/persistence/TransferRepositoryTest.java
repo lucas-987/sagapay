@@ -38,9 +38,7 @@ class TransferRepositoryTest {
                 new BigDecimal("10.0000"), "EUR");
     }
 
-    // Proves the SQL constraint from V1__transfers.sql itself exists, not just that
-    // application code happens to respect it — raw SQL, not the JPA entity path,
-    // same reasoning as the ledger's ReservationRepositoryTest suite in M1.
+    // Raw SQL, to test the database constraint itself.
     @Test
     void uniqueSenderIdAndIdempotencyKeyIsEnforcedAtTheDatabaseLevel() {
         UUID senderId = UUID.randomUUID();
@@ -56,7 +54,7 @@ class TransferRepositoryTest {
         UUID idempotencyKey = UUID.randomUUID();
         insertRaw(UUID.randomUUID(), UUID.randomUUID(), idempotencyKey);
 
-        // Different sender_id -> no conflict, the constraint is on the pair.
+        // The constraint is on the pair.
         insertRaw(UUID.randomUUID(), UUID.randomUUID(), idempotencyKey);
     }
 

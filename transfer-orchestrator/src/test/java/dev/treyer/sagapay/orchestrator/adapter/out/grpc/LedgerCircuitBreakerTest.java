@@ -104,8 +104,7 @@ class LedgerCircuitBreakerTest {
     @Order(1)
     void ledgerRejectionsSurfaceAsIsAndNeverOpenTheCircuit() {
         CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("ledger");
-        // More rejections than minimum-number-of-calls (application.properties):
-        // enough to open the circuit if they were counted as failures.
+        // More than the breaker's minimum number of calls.
         for (int i = 0; i < 6; i++) {
             assertThatThrownBy(() -> ledgerPort.postTransfer(
                     UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
@@ -119,7 +118,6 @@ class LedgerCircuitBreakerTest {
     @Test
     @Order(2)
     void killingTheLedgerContainerOpensTheCircuitAndFallsBackToLedgerUnavailable() {
-        // Sanity: works while the container is still up.
         ReservationResult before = ledgerPort.checkAndReserve(
                 UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
         assertThat(before).isInstanceOf(ReservationResult.Ok.class);
@@ -127,8 +125,6 @@ class LedgerCircuitBreakerTest {
         LEDGER.stop();
 
         CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("ledger");
-        // minimum-number-of-calls=5 (application.properties): drive enough
-        // failures for the breaker to evaluate and open.
         for (int i = 0; i < 5 && circuitBreaker.getState() != CircuitBreaker.State.OPEN; i++) {
             assertThatThrownBy(() -> ledgerPort.checkAndReserve(
                     UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
@@ -136,8 +132,6 @@ class LedgerCircuitBreakerTest {
         }
 
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
-        // Proven open, not just "each call happens to fail": the registry state
-        // above is Resilience4j's own bookkeeping, not inferred from timing.
         assertThatThrownBy(() -> ledgerPort.checkAndReserve(
                 UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
                 .isInstanceOf(LedgerUnavailableException.class);

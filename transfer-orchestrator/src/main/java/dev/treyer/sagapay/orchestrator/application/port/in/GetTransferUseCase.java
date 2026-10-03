@@ -8,8 +8,7 @@ import java.util.UUID;
 
 public interface GetTransferUseCase {
 
-    /** {@code steps} in write order (oldest first) -- what {@code
-     * TransferDetail.steps} exposes over REST (§8). */
+    /** {@code steps} oldest first. */
     record TransferWithSteps(Transfer transfer, List<SagaStep> steps) {}
 
     TransferWithSteps getTransfer(UUID transferId);

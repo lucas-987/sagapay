@@ -11,12 +11,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** One outbox row per saga transition, drained to Kafka by {@code OutboxPoller}
- * (§9). {@code payload}/{@code headers} are pre-serialized JSON text (same
- * convention as the ledger's {@code ledger_idempotency.result_json} — the caller
- * serializes via {@code JsonMapper}, this entity just carries the string) bound to
- * the {@code jsonb} columns via {@code @JdbcTypeCode(JSON)}, same reasoning as
- * {@code Transfer.status}'s {@code NAMED_ENUM} mapping for its native enum column. */
+/** {@code payload} and {@code headers} hold JSON already serialized by the caller. */
 @Entity
 @Table(name = "outbox")
 public class OutboxRow {
@@ -48,7 +43,6 @@ public class OutboxRow {
     @Column(name = "published_at")
     private Instant publishedAt;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected OutboxRow() {}
 
     public OutboxRow(UUID id, String aggregateType, UUID aggregateId, String eventType,
@@ -94,6 +88,4 @@ public class OutboxRow {
         return publishedAt;
     }
 
-    // No setPublishedAt(): marked published through a conditional @Modifying
-    // query, same reasoning as Transfer's lack of a status setter.
 }

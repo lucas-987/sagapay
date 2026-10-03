@@ -13,10 +13,8 @@ public interface OutboxRepository extends JpaRepository<OutboxRow, UUID> {
 
     List<OutboxRow> findByAggregateIdOrderByCreatedAt(UUID aggregateId);
 
-    /** {@code FOR UPDATE SKIP LOCKED}: lets several poller runs (or instances)
-     * share the work without ever publishing the same row twice or blocking each
-     * other — each skips rows already claimed by another run instead of waiting.
-     * Native query, not a JPQL {@code @Lock}: SKIP LOCKED has no JPQL equivalent. */
+    /** SKIP LOCKED lets concurrent pollers share rows without waiting or
+     * publishing twice; it has no JPQL equivalent. */
     @Query(nativeQuery = true, value = """
             select * from outbox
             where published_at is null

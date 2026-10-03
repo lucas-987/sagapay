@@ -258,9 +258,7 @@ class TransferOrchestratorE2ETest {
         UUID transferId = UUID.randomUUID();
         String ledgerTransferId = transferId.toString();
 
-        // A real reservation in the ledger, made directly via gRPC -- not
-        // through SagaService.advance(), so the orchestrator's own eager path
-        // never runs for this transfer.
+        // Reserved directly on the ledger: the eager path never runs.
         CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(ledgerTransferId)
                 .setFromAccountId(senderId.toString())
@@ -268,8 +266,7 @@ class TransferOrchestratorE2ETest {
                 .build());
         assertThat(reserved.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
 
-        // Forced straight into RESERVED, bypassing initiateTransfer()/advance()
-        // entirely -- only SagaReprisePoller.sweep() can move this forward.
+        // Only the reprise poller can move this transfer on.
         jdbcTemplate.update("""
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status, reservation_id)
@@ -284,12 +281,8 @@ class TransferOrchestratorE2ETest {
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("40.00");
     }
 
-    /** Crash after the ledger reserved but before the orchestrator recorded it:
-     * the ledger holds a reservation, the orchestrator still says INITIATED.
-     * The poller replays checkAndReserve -- idempotent on transferId, so it gets
-     * the same reservation back instead of holding the money twice -- then
-     * posts. Also covers the plainer crash before the ledger was ever called:
-     * same INITIATED row, just without the pre-existing reservation. */
+    /** Crash after the ledger reserved, before RESERVED was recorded: the replayed
+     * checkAndReserve returns the same reservation instead of holding twice. */
     @Test
     void reprisePollerAloneCompletesATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
         UUID senderId = lookupAccountId("julien");

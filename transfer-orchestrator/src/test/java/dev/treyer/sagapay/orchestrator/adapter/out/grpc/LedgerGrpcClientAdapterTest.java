@@ -26,13 +26,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * First test in this project that starts the container of an *other* service
- * (the ledger, whose Dockerfile already exists since M1) rather than only its
- * own — new ground, per the M2 checklist: no {@code @SpringBootTest} here on
- * purpose, this only needs a raw gRPC channel and the adapter under test, not
- * the orchestrator's own Postgres/Kafka/RabbitMQ infrastructure.
- */
+/** No Spring context: a raw channel to the ledger container is all this needs. */
 @Testcontainers
 class LedgerGrpcClientAdapterTest {
 
@@ -53,8 +47,7 @@ class LedgerGrpcClientAdapterTest {
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)
-            // local: seeds demo accounts (bob among them). local-noauth: opens
-            // both REST and gRPC without a JWT -- no Keycloak in this test.
+            // local seeds the sample accounts; local-noauth opens REST and gRPC.
             .withEnv(Map.of(
                     "SPRING_PROFILES_ACTIVE", "local,local-noauth",
                     "SPRING_DATASOURCE_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
@@ -73,9 +66,7 @@ class LedgerGrpcClientAdapterTest {
     private static UUID bobAccountId;
     private static UUID tomaszAccountId;
 
-    // Repo-root build context: the ledger's Dockerfile does `COPY . .` and builds
-    // the whole Maven reactor (-am), so it needs to see common/contracts/etc,
-    // not just its own module directory.
+    // The ledger's Dockerfile builds from the repository root.
     private static Path repoRoot() {
         return Paths.get(System.getProperty("user.dir")).getParent();
     }
@@ -107,16 +98,13 @@ class LedgerGrpcClientAdapterTest {
 
     @Test
     void checkAndReserveRoundTripsToARealLedgerContainer() {
-        // bob is seeded with 4.50 EUR (LocalAccountSeeder) -- 1.00 fits.
+        // bob is seeded with 4.50 EUR.
         ReservationResult result = adapter.checkAndReserve(
                 UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
     }
 
-    /** What the saga gets when a reservation expired before postTransfer: the
-     * ledger's definitive NOT_FOUND must surface as a rejection, not be confused
-     * with the ledger being down. */
     @Test
     void postTransferWithoutAMatchingReservationIsARejectionNotAnOutage() {
         assertThatThrownBy(() -> adapter.postTransfer(

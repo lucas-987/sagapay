@@ -14,8 +14,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The other face of {@link NoAuthSecurityConfigTest}: without the {@code
- * local-noauth} profile, Spring Security's default lockdown must stay active. */
+/** Without {@code local-noauth}, Spring Security's default lockdown must stay. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 class DefaultRestSecurityLockdownTest {

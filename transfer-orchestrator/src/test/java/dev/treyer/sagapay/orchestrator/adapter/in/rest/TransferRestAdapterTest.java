@@ -37,11 +37,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** {@code @WebMvcTest}: use cases mocked, no real SQL/gRPC. {@code
- * addFilters = false} -- security is verified separately (§8.5). A {@link
- * SyncTaskExecutor} stands in for the real {@code applicationTaskExecutor}
- * bean (out of this slice's auto-configuration) so the fire-and-forget {@code
- * advance()} dispatch runs inline and is observable in these tests. */
+/** Security is tested separately. A {@link SyncTaskExecutor} runs the background
+ * {@code advance()} inline, so the tests can observe it. */
 @WebMvcTest(TransferRestAdapter.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import(TransferRestAdapterTest.SyncExecutorConfig.class)

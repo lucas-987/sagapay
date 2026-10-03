@@ -8,8 +8,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 
-// public: reused by tests in sub-packages (Spring Initializr generates this
-// package-private by default).
+// Public: reused by tests in sub-packages.
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 

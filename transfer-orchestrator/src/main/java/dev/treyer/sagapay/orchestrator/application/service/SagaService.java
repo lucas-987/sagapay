@@ -84,9 +84,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     public void advance(UUID transferId) {
         Transfer transfer = requireTransfer(transferId);
         if (transfer.getStatus() != TransferStatus.INITIATED) {
-            // Already advanced by a concurrent caller (the eager path and the
-            // reprise poller racing on the same transfer) -- idempotent no-op,
-            // not an error.
+            // The eager path and the reprise poller may race on a transfer.
             return;
         }
 
@@ -103,9 +101,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
             case ReservationResult.Ok ok -> {
                 boolean applied = writer.applyReserved(transferId, transfer, ok.reservationId());
                 if (applied) {
-                    // No fraud branch in M2 -- reserved funds chain straight into
-                    // posting, in the same call rather than waiting for a
-                    // separate trigger.
+                    // No fraud screening yet: reserved funds are posted at once.
                     continueFromReserved(transferId);
                 }
             }
@@ -117,9 +113,6 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     public void continueFromReserved(UUID transferId) {
         Transfer transfer = requireTransfer(transferId);
         if (transfer.getStatus() != TransferStatus.RESERVED) {
-            // Not reserved (yet), or already posted by a concurrent caller --
-            // idempotent no-op. Lets the reprise poller call this blindly for
-            // any transfer it finds stuck in RESERVED.
             return;
         }
 
@@ -128,18 +121,13 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
             posted = ledger.postTransfer(transferId.toString(), transfer.getSenderAccountId(),
                     transfer.getRecipientAccountId(), Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
-            // Typically the reservation expired on the ledger side while this
-            // transfer sat in RESERVED (crash, long outage): the ledger released
-            // the hold and will never post against it. No money moved -- the
-            // ledger rolls back the whole postTransfer on a rejection -- so
-            // FAILED is the true outcome, not a guess.
+            // Typically an expired reservation: the ledger will never post it, and
+            // a refused postTransfer moved no money, so FAILED is the outcome.
             writer.applyRejected(transferId, transfer, TransferStatus.RESERVED, "POST", "POST_REJECTED", e);
             return;
         }
         if (!posted) {
-            // The ledger never reports posted=false for a transfer it already
-            // accepted a reservation for (see LedgerService.postTransfer) -- left
-            // in RESERVED rather than guessed at, so the poller retries it.
+            // Not expected once reserved: left RESERVED for the poller to retry.
             return;
         }
 
@@ -151,9 +139,8 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
         Instant cutoff = Instant.now().minusMillis(repriseGracePeriodMs);
         int resumed = 0;
         try {
-            // INITIATED first: advance() chains into continueFromReserved()
-            // itself, so a transfer resumed here is already past RESERVED by the
-            // time RESERVED is queried below.
+            // INITIATED first: advance() goes on to post, so those transfers are
+            // done before RESERVED is queried.
             for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.INITIATED, cutoff)) {
                 advance(transfer.getId());
                 resumed++;
@@ -163,9 +150,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
                 resumed++;
             }
         } catch (LedgerUnavailableException e) {
-            // Every remaining transfer needs the same ledger: stop here rather
-            // than hit it (or the open circuit) once per row. What's left keeps
-            // its current state for the next sweep.
+            // The remaining transfers need the same ledger: retry them next sweep.
             log.warn("Ledger unavailable, saga reprise sweep stopped early ({} resumed so far)", resumed, e);
         }
         return resumed;
@@ -178,9 +163,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
         Instant afterCreatedAt = after == null ? null : after.createdAt();
         UUID afterId = after == null ? null : after.id();
 
-        // Request limit + 1: the extra row (if present) only tells us whether a
-        // next page exists, stripped before returning items -- same idiom as
-        // the ledger's ListPostingsUseCase.
+        // limit + 1: the extra row only signals a next page.
         List<Transfer> rows = transfers.findPageForUser(userId, includeSent, includeReceived, status,
                 afterCreatedAt, afterId, PageRequest.ofSize(limit + 1));
         boolean hasMore = rows.size() > limit;
@@ -197,9 +180,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
 
     @Override
     public void confirmTransfer(UUID transferId, String verificationToken) {
-        // 404 first if the id itself doesn't exist; otherwise always
-        // TransferNotBlockedException -- BLOCKED isn't even a value TransferStatus
-        // can hold in M2 (no fraud branch), so there's nothing else to check.
+        // No transfer can be blocked yet.
         transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
         throw new TransferNotBlockedException(transferId);
     }

@@ -24,9 +24,7 @@ class SagaStepRepositoryTest {
     @Autowired
     private TestEntityManager entityManager;
 
-    // transfer_id is a real FK in this schema (both tables live in orchestrator_svc)
-    // -- a row must exist first, minimal raw insert since SagaStepRepositoryTest
-    // isn't testing Transfer itself.
+    // Satisfies the foreign key with a minimal row.
     private UUID newTransfer() {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update("""

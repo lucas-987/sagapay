@@ -8,13 +8,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 
-/**
- * Disables Spring Security for local development — active only under the {@code
- * local-noauth} profile, never by default. Same pattern as the ledger's {@code
- * NoAuthSecurityConfig} (ADR 0004), replicated here as soon as this service has
- * REST endpoints to unlock, rather than rediscovering the same 401-by-default
- * via a manual curl.
- */
+/** Opens REST for local development only; outside this profile Spring Security's
+ * locked-down default stays. */
 @Configuration
 @Profile("local-noauth")
 class NoAuthSecurityConfig {

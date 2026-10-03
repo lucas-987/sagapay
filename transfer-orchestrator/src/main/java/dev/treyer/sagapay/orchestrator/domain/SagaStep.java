@@ -13,10 +13,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** One row per saga transition (RESERVE/POST, OK/FAILED) — what {@code GET
- * /v1/transfers/{id}} exposes as {@code TransferDetail.steps} (§8). {@code
- * transfer_id} is a real FK (both rows live in this same orchestrator_svc
- * database, unlike the ledger's correlation-only ids). */
+/** One row per saga transition. */
 @Entity
 @Table(name = "saga_steps")
 public class SagaStep {
@@ -42,7 +39,6 @@ public class SagaStep {
     @Column(name = "detail", updatable = false, columnDefinition = "jsonb")
     private String detail;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected SagaStep() {}
 
     public SagaStep(UUID transferId, String step, String outcome, String detail) {

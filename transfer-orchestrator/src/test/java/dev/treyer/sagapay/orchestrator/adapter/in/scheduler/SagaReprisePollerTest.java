@@ -25,13 +25,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Proves the poller alone can complete a transfer stuck in {@code INITIATED}
- * or {@code RESERVED} -- not just that it doesn't break when the eager path
- * already finished. Transfers below are inserted directly in those states,
- * never through {@code SagaService.initiateTransfer()}/{@code advance()}. */
+/** Transfers are inserted directly in their stuck state, so only the poller can
+ * move them on. */
 @Import({TestcontainersConfiguration.class, SagaReprisePollerTest.FakeLedgerPortConfig.class})
-// Huge interval: only the explicit sweep() calls below may run the poller,
-// never the scheduler in the middle of a test.
+// Only the explicit sweep() calls may run the poller.
 @TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=3600000"})
 @SpringBootTest
 class SagaReprisePollerTest {
@@ -45,8 +42,7 @@ class SagaReprisePollerTest {
     @Autowired
     private FakeLedgerPort fakeLedgerPort;
 
-    /** With a zero grace period every sweep sees every leftover row, so each
-     * test starts from an empty table and a happy-path fake. */
+    /** With no grace period, every sweep sees every leftover row. */
     @BeforeEach
     void cleanSlate() {
         jdbcTemplate.update("delete from saga_steps");
@@ -97,8 +93,7 @@ class SagaReprisePollerTest {
         assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
     }
 
-    /** E.g. the ledger's reservation expired during a long outage: retrying can
-     * never succeed, so the transfer must fail rather than be retried forever. */
+    /** For instance an expired reservation: retrying can never succeed. */
     @Test
     void pollerFailsAReservedTransferTheLedgerRefusesToPost() {
         UUID transferId = forceTransferInto(TransferStatus.RESERVED);
@@ -110,7 +105,7 @@ class SagaReprisePollerTest {
         assertThat(reload(transferId).getFailureReason()).isEqualTo("POST_REJECTED");
 
         reprisePoller.sweep();
-        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1); // not retried
+        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
     }
 
     @Test
@@ -139,8 +134,6 @@ class SagaReprisePollerTest {
 
     @TestConfiguration
     static class FakeLedgerPortConfig {
-        // @Primary: the real LedgerGrpcClientAdapter (§5) is also on the
-        // classpath and satisfies LedgerPort too.
         @Bean
         @Primary
         FakeLedgerPort fakeLedgerPort() {
@@ -148,9 +141,6 @@ class SagaReprisePollerTest {
         }
     }
 
-    /** Package-visible copy of {@code application.service.FakeLedgerPort}'s
-     * shape: that one is package-private to its own test package, and this test
-     * lives in a different package. */
     static class FakeLedgerPort implements LedgerPort {
         private RuntimeException reserveFailure;
         private RuntimeException postFailure;

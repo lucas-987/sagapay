@@ -5,11 +5,8 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 
-/** The last page item's {@code (createdAt, id)}, not a plain offset — same
- * reasoning as the ledger's {@code PostingCursor}: {@code transfers} keeps
- * receiving writes (status transitions bump {@code updatedAt}, but {@code
- * createdAt} never changes), so a position-based cursor stays stable no matter
- * what's happened since the previous page was read. */
+/** A position rather than an offset, stable under concurrent writes; {@code
+ * createdAt} never changes. */
 public record TransferCursor(Instant createdAt, UUID id) {
 
     private static final String SEPARATOR = "|";

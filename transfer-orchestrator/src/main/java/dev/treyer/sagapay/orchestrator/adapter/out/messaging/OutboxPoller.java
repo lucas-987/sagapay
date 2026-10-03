@@ -18,14 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Adapter out — drains {@code outbox} to Kafka. {@code @Transactional}: {@code
- * findUnpublishedForUpdateSkipLocked}'s {@code FOR UPDATE} lock is only held
- * for the duration of an active transaction, and must still be held while
- * {@code markPublished} runs (same batch, same lock) -- unlike {@code
- * SagaService}'s other methods, there's no remote call inside this
- * transaction's critical section: {@code kafkaTemplate.send(...).join()}
- * waits for the broker's ack, not a saga step, and failing to publish must
- * roll back nothing (the row simply stays unpublished for the next run).
+ * The row locks must be held until the rows are marked published, hence one
+ * transaction around the batch. A failed publish leaves the row for the next run.
  */
 @Component
 public class OutboxPoller {
@@ -63,19 +57,9 @@ public class OutboxPoller {
         CloudEvent<JsonNode> event = CloudEvent.now(SOURCE, row.getEventType() + ".v1",
                 row.getAggregateId().toString(), payload);
 
-        // A fresh span per publish, not a reused "current" one: this runs on the
-        // scheduler's own thread, outside any request/saga-step trace -- the
-        // traceparent header exists to let a future consumer correlate back to
-        // this publish event itself, not to inherit a caller's trace that
-        // doesn't exist here.
-        //
-        // Built directly from TraceContext (W3C Trace Context format:
-        // version-traceId-spanId-flags, https://www.w3.org/TR/trace-context/)
-        // rather than via the auto-configured Propagator bean: that bean
-        // resolved to one with an empty field list in this project's current
-        // config (produced no header at all when actually exercised, verified
-        // by running OutboxPollerTest against it) -- a fixed, standardized wire
-        // format is simple enough to not need to depend on diagnosing why.
+        // A new span per publish: the scheduler thread has no trace to inherit.
+        // The W3C header is built by hand because the auto-configured Propagator
+        // injects no field in this tracing setup.
         Span span = tracer.nextSpan().name("outbox-publish").start();
         try {
             TraceContext context = span.context();
@@ -83,9 +67,6 @@ public class OutboxPoller {
             String traceparent = TRACEPARENT_VERSION + "-" + context.traceId() + "-" + context.spanId() + "-" + flags;
 
             ProducerRecord<String, String> record = new ProducerRecord<>(TOPIC, key, jsonMapper.writeValueAsString(event));
-            // A transport header, not a payload field: a consumer reads this
-            // via ConsumerRecord.headers(), never from the deserialized
-            // business payload.
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
         } finally {

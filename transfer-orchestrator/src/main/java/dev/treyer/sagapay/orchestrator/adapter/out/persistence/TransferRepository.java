@@ -18,19 +18,12 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
     Optional<Transfer> findBySenderIdAndIdempotencyKey(UUID senderId, UUID idempotencyKey);
 
-    /** Used by {@code SagaReprisePoller} (§7) to find transfers the eager direct
-     * path never finished -- {@code updatedAt} doubles as "since when has this
-     * been in this status" because only a status transition touches it. */
+    /** {@code updatedAt} tells how long a transfer has been in its status: only
+     * transitions touch it. */
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
-    /** Keyset pagination (createdAt, id), same reasoning as the ledger's {@code
-     * PostingCursor}/{@code PostingRepository.findPage}: an OFFSET shifts under
-     * concurrent writes, a real position doesn't. {@code cast(... as ...) is
-     * null or ...} for the optional filters: a bare {@code ? is null} leaves
-     * Postgres unable to infer the parameter's type (same fix as ADR 0004 needed
-     * for the ledger's own {@code findPage}). {@code includeSent}/{@code
-     * includeReceived} rather than binding a {@code Direction} enum into JPQL:
-     * booleans compare directly, no enum-literal-in-query-string needed. */
+    /** The casts type the optional filters: a parameter used only in
+     * {@code ? is null} gives Postgres no type. */
     @Query("select t from Transfer t where "
             + "((:includeSent = true and t.senderId = :userId) or (:includeReceived = true and t.recipientId = :userId)) "
             + "and (cast(:status as string) is null or t.status = :status) "
@@ -45,16 +38,9 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
                                     @Param("afterId") UUID afterId,
                                     Pageable pageable);
 
-    /** 1 row inserted = this call is first, its own outbox write is the one to
-     * make. 0 rows = a concurrent replay (or the client's own retry) already won
-     * — same insert-first idiom as the ledger's {@code ledger_idempotency}, here
-     * applied directly to the business row since {@code transfers} carries its
-     * own idempotency constraint (no separate table needed). Native query, not
-     * {@code save()}: {@code ON CONFLICT DO NOTHING} has no JPQL equivalent, and
-     * unlike a caught {@code DataIntegrityViolationException} it never aborts the
-     * surrounding transaction, so the read-back below can run in the same
-     * {@code @Transactional} method. {@code status} is a literal, not a bind
-     * parameter: every row is born {@code INITIATED}, so there's nothing to cast. */
+    /** @return 0 when a replay already created the transfer. Unlike a caught
+     * constraint violation, {@code ON CONFLICT DO NOTHING} leaves the transaction
+     * usable for the read-back. */
     @Modifying
     @Query(nativeQuery = true, value = """
             insert into transfers (id, idempotency_key, sender_id, sender_account_id, recipient_id,
@@ -69,11 +55,6 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
                         @Param("amount") BigDecimal amount, @Param("currency") String currency,
                         @Param("note") String note);
 
-    /** JPQL, not native SQL: Hibernate's own type system (the {@code
-     * @JdbcTypeCode(NAMED_ENUM)} mapping on {@code Transfer.status}) handles
-     * binding these enum parameters against the native Postgres enum column,
-     * same as it already does for {@code save()} — no manual {@code ::}` cast
-     * needed here, unlike {@link #insertIfAbsent}. */
     @Modifying
     @Query("update Transfer t set t.status = :toStatus, t.reservationId = :reservationId, t.updatedAt = CURRENT_TIMESTAMP "
             + "where t.id = :id and t.status = :fromStatus")

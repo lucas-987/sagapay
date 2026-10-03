@@ -60,8 +60,7 @@ class SagaServiceTest {
                 amount, idempotencyKey, null).transfer();
     }
 
-    /** Parsed rather than matched as a string: the payload column is jsonb, so
-     * Postgres hands it back re-serialized in its own format. */
+    /** Parsed, not matched as text: Postgres reformats jsonb. */
     private String failedEventReasonFor(UUID transferId) {
         String payload = outboxRepository.findByAggregateIdOrderByCreatedAt(transferId).stream()
                 .filter(row -> row.getEventType().equals("TransferFailed"))
@@ -124,7 +123,7 @@ class SagaServiceTest {
         assertThat(first.created()).isTrue();
         assertThat(second.created()).isFalse();
         assertThat(second.transfer().getId()).isEqualTo(first.transfer().getId());
-        assertThat(eventTypesFor(first.transfer().getId())).containsExactly("TransferInitiated"); // not written twice
+        assertThat(eventTypesFor(first.transfer().getId())).containsExactly("TransferInitiated");
     }
 
     @Test
@@ -155,7 +154,6 @@ class SagaServiceTest {
 
     @Test
     void postRejectedByTheLedgerFailsTheTransferInsteadOfLeavingItReserved() {
-        // e.g. the reservation expired on the ledger while this transfer sat in RESERVED
         fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
 
         Transfer transfer = initiate(UUID.randomUUID());
@@ -191,11 +189,7 @@ class SagaServiceTest {
 
     @TestConfiguration
     static class FakeLedgerPortConfig {
-        // @Primary: the real LedgerGrpcClientAdapter (§5) is also on the
-        // classpath and satisfies LedgerPort too -- without this, the context
-        // fails to start with 2 candidate beans. This fake is what SagaService
-        // should actually get here, to test the saga's own chaining logic in
-        // isolation from a real network call.
+        // @Primary over the real gRPC adapter.
         @Bean
         @Primary
         FakeLedgerPort fakeLedgerPort() {

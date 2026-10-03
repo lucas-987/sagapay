@@ -6,10 +6,6 @@ import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 
 import java.util.UUID;
 
-/** A plain Java test double, not Mockito: {@code SagaService} tests exercise the
- * saga's chaining logic against a configurable, call-counting fake rather than
- * a real gRPC call to the ledger (that round trip is {@code
- * LedgerGrpcClientAdapterTest}'s job, §5). */
 class FakeLedgerPort implements LedgerPort {
 
     private ReservationResult reservationResult = new ReservationResult.Ok(UUID.randomUUID());
@@ -23,7 +19,6 @@ class FakeLedgerPort implements LedgerPort {
         this.reservationFailure = null;
     }
 
-    /** E.g. a {@code LedgerRejectedException} or {@code LedgerUnavailableException}. */
     void willFailReserve(RuntimeException failure) {
         this.reservationFailure = failure;
     }
@@ -37,7 +32,7 @@ class FakeLedgerPort implements LedgerPort {
         this.postFailure = failure;
     }
 
-    /** The bean is shared by every test of the class: back to the happy path. */
+    /** The bean is shared by the whole test class. */
     void reset() {
         willReserve(new ReservationResult.Ok(UUID.randomUUID()));
         willPost(true);

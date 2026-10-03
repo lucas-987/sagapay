@@ -15,8 +15,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Same pattern as the ledger's {@code NoAuthSecurityConfigTest} (ADR 0004),
- * replicated here per the M2 checklist §8.5. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("local-noauth")
 @Import(TestcontainersConfiguration.class)
@@ -33,8 +31,7 @@ class NoAuthSecurityConfigTest {
                         .GET().build(),
                 HttpResponse.BodyHandlers.discarding());
 
-        // 404, not 401: proves the request actually reached the use case (the
-        // transfer id is simply unknown) instead of being blocked upstream.
+        // 404, not 401: the request reached the use case.
         assertThat(response.statusCode()).isEqualTo(404);
     }
 }

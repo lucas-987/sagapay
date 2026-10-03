@@ -48,7 +48,7 @@ class OutboxRepositoryTest {
         UUID aggregateId = UUID.randomUUID();
         save(aggregateId, "TransferInitiated");
         save(aggregateId, "FundsReserved");
-        save(UUID.randomUUID(), "TransferInitiated"); // different aggregate, must not leak in
+        save(UUID.randomUUID(), "TransferInitiated"); // another aggregate
 
         List<OutboxRow> rows = outbox.findByAggregateIdOrderByCreatedAt(aggregateId);
 

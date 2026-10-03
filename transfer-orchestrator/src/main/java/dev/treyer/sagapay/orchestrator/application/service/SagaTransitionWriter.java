@@ -16,19 +16,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * The local-write half of each saga step — separated from {@link SagaService}
- * so each transition is its own short {@code @Transactional} method, called
- * only *after* the corresponding {@link
- * dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort} call has
- * already returned. A single {@code @Transactional} method spanning both the
- * gRPC call and these writes would hold a Postgres transaction (and its locks)
- * open for the duration of a network round trip to another service — the
- * opposite of what a saga's "many short local transactions" design is for.
- *
- * <p>A separate Spring bean, not a private method on {@code SagaService}: Spring's
- * transactional proxy only intercepts calls that cross a real bean boundary --
- * {@code this.someTransactionalMethod()} from within the same class silently
- * skips {@code @Transactional} entirely (self-invocation).
+ * Each transition is a short transaction run after the ledger call returned, so no
+ * transaction spans a network round trip. A separate bean: {@code @Transactional}
+ * is ignored on calls within the same class.
  */
 @Component
 class SagaTransitionWriter {
@@ -46,8 +36,7 @@ class SagaTransitionWriter {
         this.jsonMapper = jsonMapper;
     }
 
-    /** @return false if a concurrent caller already moved the transfer out of
-     * {@code INITIATED} — its outcome stands, nothing more to write here. */
+    /** @return false when a concurrent caller already moved the transfer on. */
     @Transactional
     boolean applyReserved(UUID transferId, Transfer transfer, UUID reservationId) {
         int updated = transfers.transitionWithReservation(
@@ -84,9 +73,8 @@ class SagaTransitionWriter {
         return true;
     }
 
-    /** The ledger definitively refused {@code step} for this transfer. The
-     * ledger's own answer goes into {@code saga_steps.detail}: {@code
-     * failureReason} only says which step was refused, the detail says why. */
+    /** {@code failureReason} names the refused step; the ledger's answer goes into
+     * the step detail. */
     @Transactional
     boolean applyRejected(UUID transferId, Transfer transfer, TransferStatus fromStatus, String step,
                           String failureReason, LedgerRejectedException rejection) {

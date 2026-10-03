@@ -13,11 +13,6 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/**
- * Translates business errors into RFC 9457 responses ({@code
- * application/problem+json}) — same family as the ledger's {@code
- * LedgerRestExceptionHandler}.
- */
 @RestControllerAdvice(basePackageClasses = TransferRestAdapter.class)
 public class TransferRestExceptionHandler {
 

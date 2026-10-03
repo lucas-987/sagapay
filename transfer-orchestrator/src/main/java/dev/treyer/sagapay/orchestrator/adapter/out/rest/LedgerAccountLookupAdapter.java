@@ -10,9 +10,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** REST, not gRPC: {@code ledger.proto} has no lookup RPC, only the ledger's own
- * {@code GET /v1/users/lookup} (M1) does this. {@code RestClient} needs no extra
- * dependency -- already auto-configured by {@code spring-boot-starter-webmvc}. */
+/** REST: the ledger exposes no lookup RPC. */
 @Component
 class LedgerAccountLookupAdapter implements AccountLookupPort {
 

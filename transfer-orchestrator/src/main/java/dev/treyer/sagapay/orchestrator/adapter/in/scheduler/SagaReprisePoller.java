@@ -22,8 +22,7 @@ public class SagaReprisePoller {
         this.sweepUseCase = sweepUseCase;
     }
 
-    /** {@code fixedDelay}, not {@code fixedRate}: the next run starts from the
-     * end of the previous one, so a slow sweep can't overlap with itself. */
+    /** {@code fixedDelay}, so a slow sweep cannot overlap with the next one. */
     @Scheduled(fixedDelayString = "${saga.reprise.sweep-interval-ms:60000}")
     public void sweep() {
         int resumed = sweepUseCase.sweepStuckTransfers();

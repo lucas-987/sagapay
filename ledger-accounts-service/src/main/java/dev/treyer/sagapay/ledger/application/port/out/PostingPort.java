@@ -9,14 +9,9 @@ import java.util.UUID;
 
 public interface PostingPort {
 
-    /** Append-only — the only write. */
     void save(Posting posting);
 
-    /**
-     * Keyset page ordered by ascending {@code (createdAt, id)}, strictly after
-     * {@code after} ({@code null} = from the start) — see {@link PostingCursor} for
-     * why there's no offset. {@code maxRows} is a raw row count; it's up to the
-     * caller to request {@code limit + 1} if it wants to detect a next page.
-     */
+    /** Keyset page ordered by {@code (createdAt, id)}, strictly after {@code after}
+     * ({@code null} for the first page). */
     List<Posting> findPage(UUID accountId, Instant from, PostingCursor after, int maxRows);
 }

@@ -10,17 +10,10 @@ import org.springframework.grpc.server.GlobalServerInterceptor;
 import org.springframework.stereotype.Component;
 
 /**
- * Locks gRPC down by default — REST gets this for free (spring-boot-starter-
- * security-oauth2-resource-server locks everything down as soon as no {@code
- * SecurityFilterChain} is defined), but gRPC has no such default: verified that
- * {@code GrpcServerOAuth2ResourceServerAutoConfiguration} only activates once a
- * {@code GrpcSecurity} bean already exists, so without this class every RPC is
- * open in every profile. No real JWT validation here — deferred until Keycloak
- * is wired; once it is, replace this with spring-grpc-core's {@code GrpcSecurity}
- * DSL instead of extending this hand-rolled interceptor.
- *
- * <p>{@code @GlobalServerInterceptor} applies it to every RPC automatically —
- * nothing to reference from {@code LedgerGrpcAdapter}.
+ * Spring Security locks REST down by default but not gRPC: its gRPC resource-server
+ * auto-configuration only activates once a {@code GrpcSecurity} bean exists, so every
+ * RPC would be open. Replace with the {@code GrpcSecurity} DSL once tokens can be
+ * validated.
  */
 @Component
 @GlobalServerInterceptor

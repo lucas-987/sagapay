@@ -45,10 +45,8 @@ class AccountRepositoryTest {
                 "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("100.0000")));
 
         int updated = accounts.debitIfSufficientFunds(account.getId(), new BigDecimal("40.0000"));
-        // @Modifying bypasses the persistence context (a direct SQL UPDATE) —
-        // without this clear(), the findById right after would return the entity
-        // cached by saveAndFlush above, with its balance from BEFORE the debit
-        // (classic JPA pitfall: the L1 cache doesn't know a bulk update happened).
+        // The @Modifying update bypasses the persistence context: without clear(),
+        // findById returns the cached entity with its old balance.
         entityManager.clear();
 
         assertThat(updated).isEqualTo(1);
@@ -86,8 +84,6 @@ class AccountRepositoryTest {
         Account account = accounts.saveAndFlush(new Account(
                 "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")));
 
-        // Lock behavior under concurrency is covered separately in LedgerServiceTest —
-        // this only checks the query itself returns the right row.
         assertThat(accounts.findByIdForUpdate(account.getId())).isPresent();
     }
 

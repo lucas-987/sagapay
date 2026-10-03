@@ -6,19 +6,14 @@ import jakarta.persistence.Enumerated;
 import java.io.Serializable;
 import java.util.Objects;
 
-/** {@code @Embeddable}, not {@code @IdClass}: simpler to pass around wherever a row
- * needs to be identified, without duplicating fields between the entity and the key
- * class. {@code equals}/{@code hashCode} are mandatory — required by the JPA spec for
- * any primary key class. */
 public class LedgerIdempotencyId implements Serializable {
 
-    // Not a DB FK: `transfers` lives in another service's database (orchestrator_svc).
+    // Not a foreign key: transfers live in another service's database.
     private String transferId;
 
     @Enumerated(EnumType.STRING)
     private LedgerOperation operation;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected LedgerIdempotencyId() {}
 
     public LedgerIdempotencyId(String transferId, LedgerOperation operation) {

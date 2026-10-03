@@ -30,10 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** {@code @WebMvcTest}: use cases are mocked ({@code @MockitoBean} — Spring Boot
- * removed the old {@code @MockBean} on this stack). No real SQL runs here, which is
- * why this test alone wouldn't have caught the {@code listPostings} bug (ADR 0004);
- * {@code addFilters = false} because security is verified separately. */
+/** Use cases are mocked, so no SQL runs here; security is tested separately. */
 @WebMvcTest(LedgerRestAdapter.class)
 @AutoConfigureMockMvc(addFilters = false)
 class LedgerRestAdapterTest {

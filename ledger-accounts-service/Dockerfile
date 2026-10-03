@@ -1,9 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Build from the repo root (context = ..), not from this directory alone: the
-# Maven reactor needs to see every module (common, contracts, the other services)
-# to resolve the multi-module build, even though only this one is actually built
-# (-pl ledger-accounts-service -am).
+# Built from the repository root: the Maven reactor needs every module.
 
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /workspace

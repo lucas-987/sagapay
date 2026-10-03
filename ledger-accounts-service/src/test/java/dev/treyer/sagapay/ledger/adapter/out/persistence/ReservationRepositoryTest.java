@@ -37,9 +37,7 @@ class ReservationRepositoryTest {
                 "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("1000.0000"))).getId();
     }
 
-    // saveAndFlush: some tests below then manipulate the row via jdbcTemplate (raw
-    // SQL, outside the Hibernate session) — without a flush, the deferred INSERT
-    // isn't visible yet to that direct SQL UPDATE, which would silently affect 0 rows.
+    // Flushed so raw SQL updates in the tests can see the row.
     private Reservation newReservation(UUID accountId, String transferId, String amount) {
         return reservations.saveAndFlush(new Reservation(UUID.randomUUID(), accountId, transferId,
                 new BigDecimal(amount), Instant.now().plus(5, ChronoUnit.MINUTES)));
@@ -82,7 +80,7 @@ class ReservationRepositoryTest {
 
         BigDecimal held = reservations.sumAmountByAccountIdAndStatus(accountId, ReservationStatus.ACTIVE);
 
-        assertThat(held).isEqualByComparingTo(BigDecimal.ZERO); // coalesce(sum(...), 0) — not null, even with zero matching rows
+        assertThat(held).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -97,7 +95,7 @@ class ReservationRepositoryTest {
                 transferId, reservation.getId(), ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
 
         assertThat(firstUpdate).isEqualTo(1);
-        assertThat(secondUpdate).isEqualTo(0); // no longer ACTIVE — idempotent no-op, not an error
+        assertThat(secondUpdate).isEqualTo(0);
     }
 
     @Test
@@ -110,7 +108,6 @@ class ReservationRepositoryTest {
         int updated = reservations.updateStatusByReservationId(
                 transferId, wrongReservationId, ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
 
-        // reservationId is part of the WHERE clause — a mismatch means 0 rows change, not an exception
         assertThat(updated).isEqualTo(0);
     }
 
@@ -126,8 +123,8 @@ class ReservationRepositoryTest {
         assertThat(updated).isEqualTo(1);
     }
 
-    /** Forces expiry directly in the database: {@code expiresAt} has no setter, and
-     * no application-level way to age a reservation on demand. */
+    /** Expiry is forced in the database: nothing in the application ages a
+     * reservation. */
     @Test
     void expireOverdueTransitionsOnlyExpiredActiveReservations() {
         UUID accountId = newAccount();
@@ -139,9 +136,7 @@ class ReservationRepositoryTest {
         int updated = reservations.expireOverdue(ReservationStatus.ACTIVE, ReservationStatus.EXPIRED);
 
         assertThat(updated).isEqualTo(1);
-        // @Modifying queries don't update entities already loaded in the
-        // persistence context — without clear(), findById would return the entity
-        // cached by newReservation() above, still ACTIVE.
+        // The @Modifying update bypasses the persistence context.
         entityManager.clear();
         assertThat(reservations.findById(expired.getId()).orElseThrow().getStatus())
                 .isEqualTo(ReservationStatus.EXPIRED);
@@ -161,7 +156,7 @@ class ReservationRepositoryTest {
         int updated = reservations.expireOverdue(ReservationStatus.ACTIVE, ReservationStatus.EXPIRED);
 
         assertThat(updated).isEqualTo(0);
-        entityManager.clear(); // same L1-cache pitfall as above
+        entityManager.clear();
         assertThat(reservations.findById(reservation.getId()).orElseThrow().getStatus())
                 .isEqualTo(ReservationStatus.RELEASED);
     }

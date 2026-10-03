@@ -9,16 +9,8 @@ import io.grpc.Status;
 import org.springframework.grpc.server.advice.GrpcAdvice;
 import org.springframework.grpc.server.advice.GrpcExceptionHandler;
 
-/**
- * Translates business errors into gRPC {@code Status} — the gRPC counterpart of
- * {@code LedgerRestExceptionHandler}. {@code spring-boot-starter-grpc-server}
- * auto-applies this to every {@code @GrpcService} bean — nothing to reference from
- * {@code LedgerGrpcAdapter}.
- *
- * <p>Must be {@code public}: verified that the reflection-based invocation of these
- * handler methods doesn't call {@code setAccessible}, so a package-private class
- * throws {@code IllegalAccessException}.
- */
+/** Must be {@code public}: the handler methods are invoked reflectively without
+ * {@code setAccessible}. */
 @GrpcAdvice
 public class LedgerGrpcExceptionAdvice {
 
@@ -42,10 +34,8 @@ public class LedgerGrpcExceptionAdvice {
         return Status.INVALID_ARGUMENT.withDescription(e.getMessage());
     }
 
-    /** {@code Money} rejects amounts beyond 4 decimals by construction; without
-     * this handler a malformed gRPC amount surfaces as an uncaught {@code
-     * ArithmeticException}, translated into a generic {@code INTERNAL} with an
-     * internal message leaked to the client. */
+    /** {@code Money} rejects more than 4 decimals; unhandled, the client would get
+     * INTERNAL with an internal message. */
     @GrpcExceptionHandler(ArithmeticException.class)
     public Status handleInvalidPrecision(ArithmeticException e) {
         return Status.INVALID_ARGUMENT.withDescription("invalid amount: " + e.getMessage());

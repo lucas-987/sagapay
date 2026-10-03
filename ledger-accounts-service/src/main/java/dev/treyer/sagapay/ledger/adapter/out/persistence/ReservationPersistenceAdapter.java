@@ -41,9 +41,6 @@ class ReservationPersistenceAdapter implements ReservationPort {
 
     @Override
     public int expireOverdue() {
-        // Hardcoded, not parameterized like the sibling methods: "expiring" only
-        // ever means ACTIVE -> EXPIRED, so a generic from/to signature here would
-        // just be unused flexibility.
         return repository.expireOverdue(ReservationStatus.ACTIVE, ReservationStatus.EXPIRED);
     }
 }

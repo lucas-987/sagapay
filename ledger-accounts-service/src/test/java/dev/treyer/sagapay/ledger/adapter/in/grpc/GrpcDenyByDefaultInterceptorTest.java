@@ -15,10 +15,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** gRPC counterpart of {@code DefaultRestSecurityLockdownTest}: without {@code
- * local-noauth}, {@link GrpcDenyByDefaultInterceptor} must reject every call before
- * it reaches the handler, so even a nonexistent account must fail with
- * UNAUTHENTICATED rather than NOT_FOUND. */
+/** Without {@code local-noauth}, calls are rejected before the handler: even an
+ * unknown account gets UNAUTHENTICATED, not NOT_FOUND. */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
 @Import(TestcontainersConfiguration.class)

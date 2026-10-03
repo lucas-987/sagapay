@@ -8,9 +8,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
 
-/** INSERT-only — never UPDATE or DELETE: the DB role {@code ledger_app} only has
- * SELECT/INSERT grants on this table, enforced at the database level, not just by
- * convention. */
+/** Insert-only, enforced by the database role's grants. */
 @Entity
 @Table(name = "ledger_idempotency")
 public class LedgerIdempotency {
@@ -24,7 +22,6 @@ public class LedgerIdempotency {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected LedgerIdempotency() {}
 
     public LedgerIdempotency(String transferId, LedgerOperation operation, String resultJson) {
@@ -45,6 +42,4 @@ public class LedgerIdempotency {
         return createdAt;
     }
 
-    // No setResultJson(): written once via INSERT ... ON CONFLICT DO NOTHING, with
-    // the result already computed — never updated afterwards.
 }

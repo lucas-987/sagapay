@@ -7,7 +7,7 @@ import java.util.Optional;
 
 public interface LedgerIdempotencyPort {
 
-    /** {@code INSERT ... ON CONFLICT DO NOTHING} — @return rows inserted (1 or 0). */
+    /** @return 1 when inserted, 0 when the key already exists. */
     int insertIfAbsent(String transferId, String operation, String resultJson);
 
     Optional<LedgerIdempotency> findById(LedgerIdempotencyId id);

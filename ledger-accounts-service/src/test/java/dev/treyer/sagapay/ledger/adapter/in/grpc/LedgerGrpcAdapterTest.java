@@ -28,10 +28,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** {@code local-noauth} is active because these tests exercise RPC business
- * behavior, not the {@link GrpcDenyByDefaultInterceptor} lock (covered separately by
- * {@code GrpcDenyByDefaultInterceptorTest}) — without it, every call below would
- * fail with UNAUTHENTICATED before reaching the handler. */
+/** {@code local-noauth}: these tests cover the RPCs, not the default lock. */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
 @ActiveProfiles("local-noauth")
@@ -76,9 +73,6 @@ class LedgerGrpcAdapterTest {
                 .hasMessageContaining("NOT_FOUND");
     }
 
-    /** Regression: a malformed id used to throw a bare {@code
-     * IllegalArgumentException}, indistinguishable from "unknown account" — the
-     * caller got NOT_FOUND instead of INVALID_ARGUMENT. */
     @Test
     void getBalanceMalformedAccountIdReturnsInvalidArgument() {
         assertThatThrownBy(() -> client.getBalance(GetBalanceRequest.newBuilder()
@@ -102,9 +96,6 @@ class LedgerGrpcAdapterTest {
         assertThat(response.getReservationId()).isNotBlank();
     }
 
-    /** Regression: unknown account and currency mismatch used to both return {@code
-     * NOT_FOUND} (a single generic catch on {@code IllegalArgumentException}) —
-     * {@code CurrencyMismatchException} must give {@code INVALID_ARGUMENT}. */
     @Test
     void checkAndReserveCurrencyMismatchReturnsInvalidArgument() {
         UUID accountId = newAccount("100.0000");
@@ -118,9 +109,6 @@ class LedgerGrpcAdapterTest {
                 .hasMessageContaining("INVALID_ARGUMENT");
     }
 
-    /** An amount with more than 4 decimals makes {@code Money} throw {@code
-     * ArithmeticException} ({@code RoundingMode.UNNECESSARY}) — without a dedicated
-     * handler, it used to surface as a generic {@code INTERNAL}. */
     @Test
     void checkAndReserveOverPrecisionAmountReturnsInvalidArgument() {
         UUID accountId = newAccount("100.0000");
@@ -182,9 +170,8 @@ class LedgerGrpcAdapterTest {
         client.releaseReservation(ReleaseReservationRequest.newBuilder()
                 .setTransferId(transferId).setReservationId(reserve.getReservationId()).build());
 
-        // GetBalance has no held/available breakdown (REST-only), so the release is
-        // verified indirectly: a reservation that couldn't fit with the hold still
-        // active (40 + 90 > 100) now succeeds.
+        // GetBalance has no held amount, so the release shows indirectly: 40 + 90 > 100
+        // fits only once the first hold is gone.
         CheckAndReserveResponse secondReserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString()).setFromAccountId(accountId.toString())
                 .setAmount(Money.newBuilder().setCurrency("EUR").setAmount("90.00").build())

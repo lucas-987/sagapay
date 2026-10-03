@@ -16,10 +16,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The JDK's {@code HttpClient} rather than {@code TestRestTemplate}: the latter
- * needs {@code spring-boot-restclient}, which isn't otherwise a project dependency —
- * {@code ledger-accounts-service} never makes outbound REST calls, so it's not
- * worth pulling in just for these two tests. */
+/** The JDK's {@code HttpClient}: {@code TestRestTemplate} would add a dependency
+ * the service otherwise does not need. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("local-noauth")
 @Import(TestcontainersConfiguration.class)
@@ -37,8 +35,7 @@ class NoAuthSecurityConfigTest {
                         .GET().build(),
                 HttpResponse.BodyHandlers.discarding());
 
-        // 404, not 401: proves the request actually reached the use case (the
-        // account is simply unknown) instead of being blocked upstream by security.
+        // 404, not 401: the request reached the use case.
         assertThat(response.statusCode()).isEqualTo(404);
     }
 }

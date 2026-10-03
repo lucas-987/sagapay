@@ -9,25 +9,10 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Disables Spring Security for local development — active only under the {@code
- * local-noauth} profile, never by default. Without this bean,
- * spring-boot-starter-security-oauth2-resource-server being present with no
- * {@code SecurityFilterChain} defined, Spring Security locks everything down by
- * default (generated Basic Auth). Outside this profile, that locked-down default
- * stays — deliberate, not an oversight.
- *
- * <p>Kept distinct from the {@code local} profile ({@code LocalAccountSeeder}) on
- * purpose: each is independently activatable.
- *
- * <p>Stateless on purpose, not Spring Security's default session/form-oriented
- * behavior: a REST API that will carry a bearer JWT later needs neither a session
- * nor CSRF (CSRF protects a session cookie automatically sent by the browser —
- * not relevant without one).
- *
- * <p>Covers REST only — {@code oauth2-resource-server} is a Servlet mechanism, it
- * doesn't apply to the gRPC server. gRPC gets its own separate lock, {@code
- * GrpcDenyByDefaultInterceptor}. Real JWT authentication for either transport is
- * still deferred until Keycloak is wired; no token exists to validate before then.
+ * Opens REST for local development only; outside this profile Spring Security's
+ * locked-down default stays. Stateless and without CSRF: a bearer-token API has no
+ * session cookie to protect. gRPC is locked separately by
+ * {@code GrpcDenyByDefaultInterceptor}.
  */
 @Configuration
 @Profile("local-noauth")

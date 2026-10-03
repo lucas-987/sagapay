@@ -20,10 +20,8 @@ import org.springframework.test.context.ActiveProfiles;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/** Verifies {@link GrpcTracingInterceptorConfig} actually produces a span per gRPC
- * call. A {@code TestObservationRegistry} replaces the auto-configured one ({@code
- * @ConditionalOnMissingBean} lets this test's bean win) so spans can be inspected
- * without a running OTLP collector. */
+/** The test registry replaces the auto-configured one, which backs off through
+ * {@code @ConditionalOnMissingBean}. */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
 @ActiveProfiles("local-noauth")
@@ -45,10 +43,8 @@ class GrpcTracingInterceptorConfigTest {
 
         client.getBalance(GetBalanceRequest.newBuilder().setAccountId(accountId.toString()).build());
 
-        // Existence, not an exact count: Spring's context caching shares this
-        // registry with sibling gRPC test classes, and the scheduled sweeper adds
-        // its own spans on startup — an exact total would be flaky for reasons
-        // unrelated to what this test actually checks.
+        // Not an exact count: the cached context shares this registry with other
+        // test classes and the sweeper.
         TestObservationRegistryAssert.assertThat(observationRegistry)
                 .hasObservationWithNameEqualTo("grpc.server");
     }

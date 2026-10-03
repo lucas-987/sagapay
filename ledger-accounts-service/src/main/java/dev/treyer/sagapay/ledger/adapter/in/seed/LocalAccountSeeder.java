@@ -12,18 +12,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * Populates {@code accounts} with demo data — active only under the {@code local}
- * profile, never by default.
- *
- * <p>A {@code CommandLineRunner @Profile("local")} rather than a REST endpoint
- * (e.g. {@code POST /internal/seed}): an endpoint stays reachable over the
- * network as long as nobody removes/protects it, whereas a {@code
- * @Profile("local")} bean doesn't exist in the Spring context at all when that
- * profile isn't active.
- *
- * <p>Calls {@link AccountPort} directly rather than an {@code in} port: this
- * isn't a business use case ({@code ledger.proto} has no {@code CreateAccount}
- * RPC), just bootstrap.
+ * Sample accounts for local runs. A profile-gated bean rather than a seed endpoint:
+ * outside the {@code local} profile it does not exist at all, so nothing is reachable
+ * over the network.
  */
 @Component
 @Profile("local")
@@ -31,10 +22,8 @@ class LocalAccountSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LocalAccountSeeder.class);
 
-    /** Varied balances on purpose: a few near zero to trigger {@code
-     * InsufficientFunds} on a modest reservation, and a handful of non-EUR
-     * accounts to exercise the {@code requireSameCurrency} guard via a
-     * cross-currency call. */
+    /** Some balances near zero and some non-EUR accounts, to exercise insufficient
+     * funds and the currency guard. */
     private static final List<SeedAccount> ACCOUNTS = List.of(
             new SeedAccount("alice", "Alice Martin", "EUR", "0.00"),
             new SeedAccount("bob", "Bob Dupont", "EUR", "4.50"),
@@ -66,12 +55,10 @@ class LocalAccountSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        log.info("Seeding {} demo accounts (profile 'local')...", ACCOUNTS.size());
+        log.info("Seeding {} sample accounts (profile 'local')...", ACCOUNTS.size());
         for (SeedAccount seed : ACCOUNTS) {
-            // Skip an already-seeded handle rather than re-insert: the local
-            // profile's database persists across restarts (named Docker volume),
-            // and `handle` is UNIQUE — replaying the seed would abort the whole
-            // service's startup, not just this one account.
+            // The local database survives restarts and handle is unique:
+            // re-inserting would make startup fail.
             if (accounts.findByHandle(seed.handle()).isPresent()) {
                 log.info("  {} already seeded, skipping", seed.handle());
                 continue;

@@ -44,16 +44,11 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** {@code @SpringBootTest} rather than a pure unit test: the {@code FOR UPDATE}
- * lock and the {@code CHECK (balance >= 0)} constraint aren't mockable, a real
- * Postgres is required.
- *
- * <p>Each test creates its own account with a random handle — no shared {@code
- * @Transactional} rollback, which would skew the concurrency tests (both threads
- * must see state that's actually committed, not a suspended test transaction). */
+/** Against a real Postgres: row locks and CHECK constraints cannot be mocked. No
+ * test transaction: concurrent threads must see committed state. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
-@TestPropertySource(properties = "spring.grpc.server.port=0") // ephemeral port: the fixed default would conflict across parallel test contexts
+@TestPropertySource(properties = "spring.grpc.server.port=0")
 class LedgerServiceTest {
 
     @Autowired
@@ -105,7 +100,7 @@ class LedgerServiceTest {
     @Test
     void concurrentCheckAndReserveOnlyOneSucceedsWhenFundsCoverJustOne() throws Exception {
         Account account = newAccount("EUR", "100.0000");
-        Money amount = Money.of("60.00", "EUR"); // 2x60 > 100 — only one of the two can succeed
+        Money amount = Money.of("60.00", "EUR"); // 2 x 60 > 100
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch go = new CountDownLatch(1);
@@ -144,7 +139,7 @@ class LedgerServiceTest {
         boolean second = postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
 
         assertThat(first).isTrue();
-        assertThat(second).isTrue(); // same memoized result returned, not a second movement
+        assertThat(second).isTrue();
         Account reloaded = accounts.findById(from.getId()).orElseThrow();
         assertThat(reloaded.getBalance()).isEqualByComparingTo("30.0000");
     }
@@ -153,8 +148,7 @@ class LedgerServiceTest {
     void balanceNeverGoesNegativeEvenBypassingApplicationLogic() {
         Account account = newAccount("EUR", "10.0000");
 
-        // Deliberately bypasses the application guard (debitIfSufficientFunds) to
-        // verify the database CHECK constraint holds on its own.
+        // Bypasses the application guard to test the CHECK constraint alone.
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "UPDATE accounts SET balance = balance - 100 WHERE id = ?", account.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -171,9 +165,6 @@ class LedgerServiceTest {
                 .hasMessageContaining("currency mismatch");
     }
 
-    /** Regression: {@code postTransfer} used to validate only the source account's
-     * currency, never the destination's — an EUR→USD transfer silently credited the
-     * raw EUR amount onto a USD account. */
     @Test
     void postTransferRejectsCurrencyMismatchOnDestinationAccount() {
         Account from = newAccount("EUR", "100.0000");
@@ -186,9 +177,6 @@ class LedgerServiceTest {
                 .isInstanceOf(CurrencyMismatchException.class);
     }
 
-    /** Regression (real double-spend bug): {@code postTransfer} used to never
-     * consult reservations before debiting, only the account's raw balance — an
-     * unreserved transfer went through as long as the balance covered it. */
     @Test
     void postTransferWithoutAnyReservationThrows() {
         Account from = newAccount("EUR", "100.0000");
@@ -202,8 +190,6 @@ class LedgerServiceTest {
         assertThat(reloaded.getBalance()).isEqualByComparingTo("100.0000");
     }
 
-    /** Same bug, amount variant: a reservation exists for this transferId but for a
-     * different amount, which must not authorize debiting the requested amount. */
     @Test
     void postTransferWithReservationForADifferentAmountThrows() {
         Account from = newAccount("EUR", "100.0000");
@@ -216,9 +202,6 @@ class LedgerServiceTest {
                 .isInstanceOf(NoMatchingReservationException.class);
     }
 
-    /** Regression: a replayed {@code checkAndReserve} on an already-used {@code
-     * transferId} used to return the memoized result without ever comparing {@code
-     * fromAccountId}/{@code amount} against the original call. */
     @Test
     void checkAndReserveReplayWithDifferentAccountThrowsIdempotencyConflict() {
         Account account = newAccount("EUR", "100.0000");
@@ -242,10 +225,8 @@ class LedgerServiceTest {
                 .isInstanceOf(IdempotencyConflictException.class);
     }
 
-    /** Regression: {@code heldAmount} used to sum every ACTIVE reservation with no
-     * filter on {@code expiresAt} — an abandoned hold (e.g. a crashed client) stayed
-     * stuck forever with no sweep job. Expiry is forced directly in the database:
-     * nothing in the application code ages a reservation on demand. */
+    /** Expiry is forced in the database: nothing in the application ages a
+     * reservation. */
     @Test
     void expiredReservationIsExcludedFromHeldAmount() {
         Account account = newAccount("EUR", "200.0000");
@@ -286,7 +267,6 @@ class LedgerServiceTest {
         UUID reservationId = ((CheckAndReserveResult.Ok) result).reservationId();
 
         releaseReservationUseCase.releaseReservation(transferId, reservationId);
-        // Must throw nothing: the conditional @Modifying update simply matches no rows the second time.
         releaseReservationUseCase.releaseReservation(transferId, reservationId);
     }
 
@@ -303,9 +283,6 @@ class LedgerServiceTest {
         assertThat(wallet.available().amount()).isEqualByComparingTo("150.0000");
     }
 
-    /** Unlike the concurrency test above (two different transferIds), this replays
-     * the same transferId sequentially, exercising the "memoized result, read it
-     * back" path rather than the funds-check path. */
     @Test
     void checkAndReserveIsIdempotentOnSameTransferId() {
         Account account = newAccount("EUR", "100.0000");
@@ -319,16 +296,12 @@ class LedgerServiceTest {
         assertThat(second).isInstanceOf(CheckAndReserveResult.Ok.class);
         assertThat(((CheckAndReserveResult.Ok) second).reservationId())
                 .isEqualTo(((CheckAndReserveResult.Ok) first).reservationId());
-        // findByTransferId's derived query expects at most one row; a non-idempotent
-        // replay that created a second reservation would make this call throw instead.
+        // Throws if the replay created a second reservation.
         assertThat(reservations.findByTransferId(transferId)).isPresent();
     }
 
-    /** Same transferId as above, but genuinely concurrent this time. In practice
-     * both calls end up serialized by the account's {@code FOR UPDATE} lock (taken
-     * before the idempotent write), so the second thread finds the row already
-     * committed rather than racing a real INSERT conflict — but the guarantee this
-     * test cares about is the observable one: both converge to the same result. */
+    /** The row lock serializes the two calls in practice; what matters is that both
+     * return the same result. */
     @Test
     void checkAndReserveConcurrentCallsWithSameTransferIdConverge() throws Exception {
         Account account = newAccount("EUR", "100.0000");
@@ -361,11 +334,6 @@ class LedgerServiceTest {
         }
     }
 
-    /** Regression, same bug class as {@code
-     * checkAndReserveReplayWithDifferentAccountThrowsIdempotencyConflict}: the
-     * idempotent replay of {@code postTransfer} used to only compare the memoized
-     * {@code posted} boolean, never {@code fromAccountId}/{@code toAccountId}/{@code
-     * amount}. */
     @Test
     void postTransferReplayWithDifferentDestinationThrowsIdempotencyConflict() {
         Account from = newAccount("EUR", "100.0000");
@@ -380,9 +348,6 @@ class LedgerServiceTest {
                 .isInstanceOf(IdempotencyConflictException.class);
     }
 
-    /** Regression: a zero or negative amount used to pass the funds-available check
-     * (trivially true) and was only rejected on insert by the database's {@code
-     * CHECK (amount > 0)} — a 500, not a clean 400. */
     @Test
     void checkAndReserveRejectsNonPositiveAmount() {
         Account account = newAccount("EUR", "100.0000");
@@ -395,9 +360,6 @@ class LedgerServiceTest {
                 .isInstanceOf(InvalidAmountException.class);
     }
 
-    /** Regression: {@code limit=0} used to produce an empty {@code items} via
-     * {@code subList(0, 0)}, then throw {@code IndexOutOfBoundsException} while
-     * computing the next cursor ({@code items.get(-1)}). */
     @Test
     void listPostingsWithZeroLimitReturnsEmptyPageInsteadOfCrashing() {
         Account from = newAccount("EUR", "100.0000");
@@ -413,9 +375,6 @@ class LedgerServiceTest {
         assertThat(page.next()).isNull();
     }
 
-    /** Without the scheduled sweep, an abandoned reservation stays {@code ACTIVE} in
-     * the database forever, even though {@code heldAmount}/{@code consumeIfMatching}
-     * already exclude it via {@code expiresAt}. */
     @Test
     void expireOverdueReservationsTransitionsOnlyExpiredActiveOnes() {
         Account account = newAccount("EUR", "200.0000");
@@ -429,9 +388,7 @@ class LedgerServiceTest {
 
         int expiredCount = expireReservationsUseCase.expireOverdueReservations();
 
-        // >= 1, not ==1: the sweep is global (no per-account filter) and shares its
-        // Postgres with the rest of the class, so a reservation expired-but-not-swept
-        // by another test can get swept here too.
+        // At least one: the sweep is global and may also expire other tests' rows.
         assertThat(expiredCount).isGreaterThanOrEqualTo(1);
         Reservation expired = reservations.findByTransferId(expiredTransferId).orElseThrow();
         Reservation fresh = reservations.findByTransferId(freshTransferId).orElseThrow();

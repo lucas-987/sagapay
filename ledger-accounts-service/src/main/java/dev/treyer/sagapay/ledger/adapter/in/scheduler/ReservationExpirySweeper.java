@@ -6,11 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/**
- * Adapter in — triggers {@link ExpireReservationsUseCase} on a clock rather than
- * an RPC/endpoint. Active in every profile, unlike {@code LocalAccountSeeder}: an
- * abandoned reservation is a production concern, not just a dev one.
- */
+/** Active in every profile: an abandoned reservation is a production concern. */
 @Component
 public class ReservationExpirySweeper {
 
@@ -22,8 +18,7 @@ public class ReservationExpirySweeper {
         this.expireReservationsUseCase = expireReservationsUseCase;
     }
 
-    /** {@code fixedDelay}, not {@code fixedRate}: the next run starts from the end
-     * of the previous one, so a slow sweep can't overlap with itself. */
+    /** {@code fixedDelay}, so a slow sweep cannot overlap with the next one. */
     @Scheduled(fixedDelayString = "${ledger.reservation.expiry-sweep-interval-ms:60000}")
     public void sweep() {
         int expired = expireReservationsUseCase.expireOverdueReservations();

@@ -7,14 +7,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.grpc.server.GlobalServerInterceptor;
 
 /**
- * Republishes the auto-configured gRPC observation interceptor as a global one:
- * verified that its auto-configured bean carries only {@code @Bean}/{@code
- * @Order}, never {@code @GlobalServerInterceptor} — without this class, the 4
- * {@code LedgerGrpcAdapter} RPCs would produce no spans, unlike REST which gets
- * them for free.
- *
- * <p>Reuses the auto-configured bean as-is rather than creating a second
- * instance, which would duplicate metrics/spans.
+ * The auto-configured observation interceptor is not registered as a global gRPC
+ * interceptor, so RPCs would produce no spans. The existing bean is reused: a second
+ * instance would duplicate spans and metrics.
  */
 @Configuration
 class GrpcTracingInterceptorConfig {

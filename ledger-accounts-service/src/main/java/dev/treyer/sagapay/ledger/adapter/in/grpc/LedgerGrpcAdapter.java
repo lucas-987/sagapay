@@ -14,11 +14,8 @@ import org.springframework.grpc.server.service.GrpcService;
 
 import java.util.UUID;
 
-/**
- * Adapter in — gRPC. Exceptions aren't caught here: an uncaught one bubbles up to
- * {@code LedgerGrpcExceptionAdvice} (@GrpcAdvice), which resolves it into the
- * appropriate {@code Status} for all 4 RPCs.
- */
+/** Exceptions are left to {@code LedgerGrpcExceptionAdvice}, which maps them to a
+ * {@code Status}. */
 @GrpcService
 class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
 
@@ -91,8 +88,8 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
         responseObserver.onCompleted();
     }
 
-    /** {@code UUID.fromString} throws a bare {@code IllegalArgumentException} on a
-     * malformed id, indistinguishable from "unknown account" without this guard. */
+    /** {@code UUID.fromString} throws a bare {@code IllegalArgumentException}, which
+     * would be mapped to NOT_FOUND like an unknown account. */
     private static UUID parseUuid(String field, String value) {
         try {
             return UUID.fromString(value);
@@ -102,8 +99,7 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
     }
 
     private static Money toMoney(dev.treyer.sagapay.common.v1.Money money) {
-        // Same reasoning as parseUuid: BigDecimal/Currency.getInstance both throw
-        // a bare IllegalArgumentException on bad input, indistinguishable without this.
+        // Same reason as parseUuid.
         try {
             return Money.of(money.getAmount(), money.getCurrency());
         } catch (IllegalArgumentException e) {

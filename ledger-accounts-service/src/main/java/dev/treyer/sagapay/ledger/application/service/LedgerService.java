@@ -42,12 +42,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-/**
- * One class for every use case, rather than one class per use case: they share the
- * same out ports and operate on the same aggregate (account + its reservations), so
- * splitting further wouldn't add anything beyond the interface abstraction already
- * in place. Each method is a single local transaction — no distributed transaction.
- */
 @Service
 public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCase,
         ReleaseReservationUseCase, GetBalanceUseCase, GetWalletUseCase, ListPostingsUseCase,
@@ -74,18 +68,16 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
     @Override
     @Transactional
     public CheckAndReserveResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
-        // Pessimistic lock: serializes concurrent replays of the same transferId so
-        // everything below can be computed before the idempotent write.
+        // The lock serializes replays of the same transferId, so the result can be
+        // computed before the idempotent write.
         Account account = accounts.findByIdForUpdate(fromAccountId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown account " + fromAccountId));
 
         requireSameCurrency(account, amount);
         BigDecimal requestedAmount = amount.amount();
         if (requestedAmount.signum() <= 0) {
-            // Without this guard a zero/negative amount passed the funds-available
-            // check below (trivially true) and was only rejected by the
-            // reservations table's CHECK (amount > 0) — a 500 with a leaked
-            // persistence stack trace instead of a clean 400.
+            // A non-positive amount would pass the funds check and only fail on the
+            // table's CHECK constraint, as a 500.
             throw new InvalidAmountException(requestedAmount);
         }
 
@@ -100,11 +92,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         int inserted = idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(),
                 toResultJson(result, fromAccountId, requestedAmount));
         if (inserted == 0) {
-            // A concurrent replay won the race (shouldn't happen given the lock
-            // above, but stays as a safety net): discard our own computation and
-            // read back the definitive result — but only if it's really the same
-            // call (same fromAccountId/amount), not a transferId reused for a
-            // different request.
+            // Safety net behind the lock: a concurrent replay stored its result
+            // first. Return it only if it was the same call.
             ResultJson previous = jsonMapper.readValue(idempotency
                     .findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE))
                     .orElseThrow(() -> new IllegalStateException("idempotency row vanished for " + transferId))
@@ -122,12 +111,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return result;
     }
 
-    /**
-     * Unlike {@link #checkAndReserve}, idempotence is checked before mutating
-     * anything, not after computing the result: here the computation
-     * ({@code debitIfSufficientFunds}) IS the mutation, so there's no way to defer
-     * the idempotent write behind the computation.
-     */
+    // Idempotence is checked before mutating, unlike checkAndReserve: here computing
+    // the result is the mutation itself.
     @Override
     @Transactional
     public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
@@ -137,9 +122,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
             return memoized.get();
         }
 
-        // Lock ordered by ascending id to avoid deadlocking against a concurrent
-        // transfer in the opposite direction; this also serializes concurrent
-        // replays of the same transferId, as in checkAndReserve.
+        // Locks taken in ascending id order, so two opposite transfers cannot
+        // deadlock.
         Account fromAccount = null;
         Account toAccount = null;
         for (UUID id : Stream.of(fromAccountId, toAccountId).sorted().toList()) {
@@ -156,14 +140,12 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         requireSameCurrency(fromAccount, amount);
         requireSameCurrency(toAccount, amount);
 
-        // Re-check now that the lock is held: a concurrent replay could have
-        // committed between the first (lock-free) check above and here.
+        // A concurrent replay may have committed since the lock-free check.
         memoized = existingPostResult(transferId, fromAccountId, toAccountId, requestedAmount);
         if (memoized.isPresent()) {
             return memoized.get();
         }
 
-        // Check that a valid reservation exists for the transfer before updating accounts
         int consumed = reservations.consumeIfMatching(transferId, fromAccountId, requestedAmount,
                 ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
         if (consumed == 0) {
@@ -172,10 +154,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
 
         boolean posted = accounts.debitIfSufficientFunds(fromAccountId, requestedAmount) > 0;
         if (!posted) {
-            // Should never happen: checkAndReserve already guaranteed the balance
-            // covered this reservation. If it happens anyway, fail the whole transaction
-            // (undoing the reservation consumption above too) rather than memoize
-            // "posted=false" when the reservation was just marked consumed.
+            // The reservation guaranteed the funds. Failing the transaction also
+            // undoes the reservation consumption above.
             throw new IllegalStateException(
                     "reservation consumed but debit failed for transferId " + transferId
                             + " on account " + fromAccountId);
@@ -209,8 +189,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return Money.of(account.getBalance(), account.getCurrency());
     }
 
-    /** Read-only, without a lock: a dirty read of a hold that was just released is
-     * acceptable for a displayed balance, unlike {@link #checkAndReserve}. */
+    // No lock: a slightly stale hold is acceptable for a displayed balance.
     @Override
     @Transactional(readOnly = true)
     public WalletSnapshot getWallet(UUID accountId) {
@@ -224,18 +203,13 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
                 Money.of(held, currency));
     }
 
-    /** Requests {@code limit + 1} rows from the port: the extra row (if present)
-     * only tells us whether a next page exists, and is stripped before returning
-     * {@code items}. */
+    // Fetches limit + 1 rows: the extra one only signals a next page.
     @Override
     @Transactional(readOnly = true)
     public PostingPage listPostings(UUID accountId, Instant from, PostingCursor after, int limit) {
         Account account = requireAccount(accountId);
         if (limit <= 0) {
-            // The OpenAPI spec declares `minimum: 1`, but the generated interface
-            // doesn't enforce it server-side — without this guard, limit=0 produced
-            // an empty `items` then an IndexOutOfBoundsException while computing the
-            // next cursor. Treated as "no items requested", not an error.
+            // The generated interface does not enforce the OpenAPI minimum of 1.
             return new PostingPage(List.of(), account.getCurrency(), null);
         }
         List<Posting> rows = postings.findPage(accountId, from, after, limit + 1);
@@ -245,9 +219,7 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return new PostingPage(items, account.getCurrency(), next);
     }
 
-    /** Returns only {@code accountId}/{@code displayName} — {@code requireAccount}
-     * would return the full {@link Account}, balance included, which a "who is
-     * this" lookup before sending money must never expose. */
+    // Never exposes the balance: this answers "who is this" before sending money.
     @Override
     @Transactional(readOnly = true)
     public AccountLookup lookupByHandle(String handle) {
@@ -256,8 +228,6 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return new AccountLookup(account.getId(), account.getDisplayName());
     }
 
-    /** {@code IllegalArgumentException} maps to 404/{@code NOT_FOUND} in both
-     * adapters — see {@code LedgerRestExceptionHandler}/{@code LedgerGrpcAdapter}. */
     private Account requireAccount(UUID accountId) {
         return accounts.findById(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown account " + accountId));
@@ -267,20 +237,13 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return reservations.sumAmountByAccountIdAndStatus(accountId, ReservationStatus.ACTIVE);
     }
 
-    /** Rejects an inconsistent currency rather than silently treating it as the
-     * account's own — no multi-currency conversion. */
     private static void requireSameCurrency(Account account, Money amount) {
         if (!amount.hasCurrencyCode(account.getCurrency())) {
-            // Dedicated exception, not a bare IllegalArgumentException: this must
-            // map to 400/INVALID_ARGUMENT, not the 404/NOT_FOUND used for an
-            // unknown account.
             throw new CurrencyMismatchException("currency mismatch: account " + account.getId()
                     + " is " + account.getCurrency() + ", amount is " + amount.currency().getCurrencyCode());
         }
     }
 
-    /** Throws {@link IdempotencyConflictException} if a replay's parameters don't
-     * match the original call, same guard as {@link #checkAndReserve}. */
     private Optional<Boolean> existingPostResult(String transferId, UUID fromAccountId, UUID toAccountId,
                                                   BigDecimal amount) {
         Optional<PostResultJson> previous = idempotency
@@ -297,12 +260,8 @@ public class LedgerService implements CheckAndReserveUseCase, PostTransferUseCas
         return Optional.of(dto.posted());
     }
 
-    // Each operation serializes a small flat DTO record rather than the
-    // CheckAndReserveResult sealed interface directly, avoiding any polymorphic
-    // Jackson config for a shape known ahead of time. JacksonException is unchecked
-    // in Jackson 3, so no try/catch is needed. Each DTO also carries the original
-    // call's parameters alongside the result, so a replay can be validated against
-    // the original call before its memoized result is returned.
+    // Flat records rather than the sealed result type: no polymorphic Jackson setup.
+    // They keep the call's parameters so a replay can be checked against them.
 
     private record ResultJson(String status, UUID reservationId, UUID fromAccountId, BigDecimal amount) {}
 

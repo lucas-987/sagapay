@@ -52,8 +52,7 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-grpc-server</artifactId>
 		</dependency>
-		<!-- Declared explicitly, not relied on transitively via webmvc: LedgerService
-		     uses JsonMapper directly to (de)serialize ledger_idempotency.result_json. -->
+		<!-- Used directly for idempotency results: not left to a transitive dependency. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jackson</artifactId>

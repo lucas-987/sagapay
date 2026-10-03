@@ -9,9 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface LedgerIdempotencyRepository extends JpaRepository<LedgerIdempotency, LedgerIdempotencyId> {
 
-    /** 1 row inserted = this call is first, its computed result is the one to use.
-     * 0 rows = a concurrent replay already won; discard this result and read the
-     * existing one back via {@code findById} instead. */
+    /** @return 1 when this call is first; 0 when a concurrent replay already stored
+     * its result, which must then be read back. */
     @Modifying
     @Query(nativeQuery = true, value = """
             insert into ledger_idempotency (transfer_id, operation, result_json, created_at)

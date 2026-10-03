@@ -29,7 +29,7 @@ class LedgerIdempotencyRepositoryTest {
         int second = idempotency.insertIfAbsent(transferId, LedgerOperation.RESERVE.name(), "{\"status\":\"DIFFERENT\"}");
 
         assertThat(first).isEqualTo(1);
-        assertThat(second).isEqualTo(0); // ON CONFLICT DO NOTHING — the 2nd computed result is discarded
+        assertThat(second).isEqualTo(0);
 
         Optional<LedgerIdempotency> row = idempotency.findById(new LedgerIdempotencyId(transferId, LedgerOperation.RESERVE));
         assertThat(row).isPresent();
@@ -44,7 +44,7 @@ class LedgerIdempotencyRepositoryTest {
         int releaseInsert = idempotency.insertIfAbsent(transferId, LedgerOperation.RELEASE.name(), "{}");
 
         assertThat(reserveInsert).isEqualTo(1);
-        assertThat(releaseInsert).isEqualTo(1); // composite key (transferId, operation) — no conflict between them, unlike the same-operation case above
+        assertThat(releaseInsert).isEqualTo(1); // the key includes the operation
     }
 
     @Test

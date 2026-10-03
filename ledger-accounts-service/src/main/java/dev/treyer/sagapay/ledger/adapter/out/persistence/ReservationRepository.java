@@ -15,18 +15,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
 
     Optional<Reservation> findByTransferId(String transferId);
 
-    /** Filters {@code expiresAt} directly instead of relying on the scheduled sweep
-     * ({@code ReservationExpirySweeper}) to have already flipped the status: an
-     * abandoned hold must stop counting the moment it expires, not just at the
-     * sweep's next run. */
+    /** Filters on {@code expiresAt} rather than the status: an expired hold must stop
+     * counting immediately, not at the next sweep. */
     @Query("select coalesce(sum(r.amount), 0) from Reservation r "
             + "where r.accountId = :accountId and r.status = :status and r.expiresAt > CURRENT_TIMESTAMP")
     BigDecimal sumAmountByAccountIdAndStatus(@Param("accountId") UUID accountId,
                                               @Param("status") ReservationStatus status);
 
-    /** Guarded by {@code id} on top of {@code transferId}: a mismatched
-     * {@code reservationId} also yields 0 rows, not just an already-changed status —
-     * makes this idempotent without needing a {@code ledger_idempotency} entry. */
+    /** Matching on {@code id} as well makes a wrong reservation id a no-op, and the
+     * status guard makes replays idempotent. */
     @Modifying
     @Query("update Reservation r set r.status = :toStatus "
             + "where r.transferId = :transferId and r.id = :reservationId and r.status = :fromStatus")
@@ -35,10 +32,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
                                      @Param("fromStatus") ReservationStatus fromStatus,
                                      @Param("toStatus") ReservationStatus toStatus);
 
-    /** Like {@link #updateStatusByReservationId}, but guarded by {@code accountId}
-     * and {@code amount} instead of {@code reservationId}: {@code postTransfer}
-     * doesn't have a reservation id to key off of, only the transfer's declared
-     * account/amount. */
+    /** Keyed on account and amount: {@code postTransfer} has no reservation id. */
     @Modifying
     @Query("update Reservation r set r.status = :toStatus "
             + "where r.transferId = :transferId and r.accountId = :accountId and r.amount = :amount "
@@ -48,9 +42,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
                            @Param("fromStatus") ReservationStatus fromStatus,
                            @Param("toStatus") ReservationStatus toStatus);
 
-    /** No {@code SELECT ... FOR UPDATE SKIP LOCKED}: there's no per-row side effect
-     * to run exactly once here, just an idempotent status flip, so a plain bulk
-     * {@code UPDATE} is safe even if several instances run it concurrently. */
+    /** A plain bulk update is safe across instances: the status flip is idempotent
+     * and has no per-row side effect. */
     @Modifying
     @Query("update Reservation r set r.status = :toStatus "
             + "where r.status = :fromStatus and r.expiresAt <= CURRENT_TIMESTAMP")

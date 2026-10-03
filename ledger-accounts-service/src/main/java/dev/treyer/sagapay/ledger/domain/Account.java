@@ -10,8 +10,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** A class, not a record: JPA requires a no-arg constructor plus fields mutable by
- * reflection — two constraints incompatible with a record. */
 @Entity
 @Table(name = "accounts")
 public class Account {
@@ -35,13 +33,6 @@ public class Account {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /**
-     * Required by JPA (field access, see the annotations on the fields above) —
-     * never called by business code, only Hibernate uses it to reconstruct the
-     * entity from a row read from the database, then fills the fields by
-     * reflection. {@code protected}: the spec allows public/protected, protected
-     * discourages calling it directly from the rest of the code.
-     */
     protected Account() {}
 
     public Account(String handle, String displayName, String currency, BigDecimal balance) {
@@ -77,7 +68,6 @@ public class Account {
         return createdAt;
     }
 
-    // No setBalance(): the balance only ever changes through a conditional
-    // @Modifying query (UPDATE ... WHERE balance - :amt >= 0), never load/mutate/save
-    // — a public setter would invite bypassing that atomic guard.
+    // No setBalance(): the balance only changes through the conditional update that
+    // guards against overdraft.
 }

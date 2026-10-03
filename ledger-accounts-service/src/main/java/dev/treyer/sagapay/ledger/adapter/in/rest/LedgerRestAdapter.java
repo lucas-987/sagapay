@@ -20,18 +20,11 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Adapter in — REST, implements the interface generated from the OpenAPI spec.
- * Depends only on the {@code *UseCase} ports, never on {@code LedgerService}
- * directly.
- */
 @RestController
 public class LedgerRestAdapter implements V1Api {
 
-    /** Only value produced today: {@code checkAndReserve}/{@code
-     * releaseReservation} never write to {@code postings}, only {@code
-     * postTransfer} does — the spec's other reason values have no matching row
-     * yet, and {@code reason} isn't even a database column. */
+    /** Only {@code postTransfer} writes postings, so it is the only reason a posting
+     * can have; it is not stored. */
     private static final String POSTING_REASON_TRANSFER_SETTLE = "TRANSFER_SETTLE";
 
     private final GetWalletUseCase getWalletUseCase;
@@ -79,9 +72,7 @@ public class LedgerRestAdapter implements V1Api {
                 .displayName(lookup.displayName()));
     }
 
-    // Not reusable from LedgerGrpcAdapter.toProto: dev.treyer.sagapay.ledger.model.Money
-    // (OpenAPI-generated) and common.v1.Money (protoc-generated) are distinct
-    // types despite the identical name.
+    // The OpenAPI and protobuf Money classes are distinct types despite the name.
     private static dev.treyer.sagapay.ledger.model.Money toMoney(Money money) {
         return new dev.treyer.sagapay.ledger.model.Money()
                 .currency(money.currency().getCurrencyCode())

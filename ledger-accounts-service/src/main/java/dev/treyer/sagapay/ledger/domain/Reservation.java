@@ -21,13 +21,10 @@ public class Reservation {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    // Raw UUID, not @ManyToOne Account: avoids an unnecessary proxy load on the
-    // checkAndReserve/postTransfer hot path.
     @Column(name = "account_id", nullable = false, updatable = false)
     private UUID accountId;
 
-    // NOT a DB FK despite the name: the `transfers` row lives in orchestrator_svc,
-    // another service's database — a correlation id, not a foreign key.
+    // Not a foreign key: transfers live in another service's database.
     @Column(name = "transfer_id", nullable = false, updatable = false, length = 64)
     private String transferId;
 
@@ -44,15 +41,10 @@ public class Reservation {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected Reservation() {}
 
-    /** {@code id} taken as a parameter, not auto-generated here: {@code
-     * LedgerService} returns this same id to the caller in {@code
-     * CheckAndReserveResult.Ok}. Generating it independently on both sides was a
-     * real bug — the id returned to the caller never matched the actual database
-     * row, so {@code releaseReservation(transferId, reservationId)} could never
-     * find anything to release. */
+    /** {@code id} is supplied by the caller: it is the id returned to the client,
+     * which must match the stored row. */
     public Reservation(UUID id, UUID accountId, String transferId, BigDecimal amount, Instant expiresAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.accountId = Objects.requireNonNull(accountId, "accountId");
@@ -91,7 +83,6 @@ public class Reservation {
         return createdAt;
     }
 
-    // No setStatus(): status transitions go through a conditional @Modifying query
-    // (WHERE status = 'ACTIVE'), not mutate-and-save — otherwise the guard against a
-    // double CONSUMED/RELEASED is lost. Same reasoning as Account.setBalance().
+    // No setStatus(): transitions go through a conditional update that prevents a
+    // double consume or release.
 }

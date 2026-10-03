@@ -12,11 +12,8 @@ import java.util.UUID;
 
 public interface PostingRepository extends JpaRepository<Posting, UUID> {
 
-    /** {@code cast(:param as timestamp)} is required, not cosmetic: without it,
-     * Postgres rejects the query when {@code from}/the cursor is null on the first
-     * page ("could not determine data type of parameter") because the sole use of
-     * that parameter is inside {@code ? is null}, giving it no type information
-     * otherwise. */
+    /** The casts are required: a parameter used only in {@code ? is null} gives
+     * Postgres no type, and it rejects the query when the value is null. */
     @Query("select p from Posting p where p.accountId = :accountId "
             + "and (cast(:from as timestamp) is null or p.createdAt >= :from) "
             + "and (cast(:afterCreatedAt as timestamp) is null "

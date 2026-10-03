@@ -12,9 +12,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** One line of the append-only, double-entry ledger. No field ever changes after
- * creation — an ideal candidate for a record if JPA allowed it (see {@link Account}
- * for why it doesn't). */
+/** One line of the append-only, double-entry ledger. */
 @Entity
 @Table(name = "postings")
 public class Posting {
@@ -26,14 +24,10 @@ public class Posting {
     @Column(name = "entry_group", nullable = false, updatable = false)
     private UUID entryGroup;
 
-    // Raw UUID, not @ManyToOne Account: the ledger never navigates a graph of JPA
-    // objects, avoiding an unnecessary proxy load.
     @Column(name = "account_id", nullable = false, updatable = false)
     private UUID accountId;
 
-    // NOT a DB FK despite the name: the `transfers` row lives in orchestrator_svc,
-    // another service's database — no DB constraint is possible across two separate
-    // databases, so this is a correlation id, not a foreign key.
+    // Not a foreign key: transfers live in another service's database.
     @Column(name = "transfer_id", nullable = false, updatable = false, length = 64)
     private String transferId;
 
@@ -47,7 +41,6 @@ public class Posting {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Required by JPA (field access) — never called by business code. */
     protected Posting() {}
 
     public Posting(UUID entryGroup, UUID accountId, String transferId, PostingLeg leg, BigDecimal amount) {
@@ -88,6 +81,4 @@ public class Posting {
         return createdAt;
     }
 
-    // No setters: append-only, consistent with the ledger_app DB role which only
-    // has SELECT/INSERT grants on this table.
 }

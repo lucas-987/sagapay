@@ -19,12 +19,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Regression coverage for a Postgres type-inference bug in {@link
- * PostingRepository#findPage} ({@code PSQLException: could not determine data type
- * of parameter}, see ADR 0004). Postings are inserted directly via SQL ({@code
- * jdbcTemplate}) rather than through {@link Posting}'s constructor, which always
- * sets {@code createdAt = Instant.now()} — these tests need precise, sometimes
- * identical, timestamps for the tie-break-by-id test below. */
+/** Postings are inserted through SQL: the tests need chosen, sometimes identical,
+ * timestamps, which the entity constructor does not allow. */
 @DataJpaTest
 @Import(TestcontainersConfiguration.class)
 class PostingRepositoryTest {
@@ -37,9 +33,7 @@ class PostingRepositoryTest {
     private JdbcTemplate jdbcTemplate;
 
     private UUID newAccount() {
-        // saveAndFlush: the account row must physically exist before the raw JDBC
-        // insert below, or the postings_account_id_fkey FK fails against
-        // Hibernate's still-unflushed persistence context.
+        // Flushed so the raw insert below satisfies the foreign key.
         Account account = accounts.saveAndFlush(new Account(
                 "test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("0.0000")));
         return account.getId();
@@ -59,8 +53,7 @@ class PostingRepositoryTest {
         UUID accountId = newAccount();
         insertPosting(accountId, Instant.now());
 
-        // Before the fix, this call failed with "could not determine data type of
-        // parameter $2" whenever both from and the cursor were null, as here.
+        // Both from and the cursor null: Postgres needs the casts to type them.
         List<Posting> page = postings.findPage(accountId, null, null, null, PageRequest.of(0, 10));
 
         assertThat(page).hasSize(1);
@@ -113,11 +106,8 @@ class PostingRepositoryTest {
     @Test
     void findPageBreaksTiesById_whenTwoPostingsShareTheExactSameCreatedAt() {
         UUID accountId = newAccount();
-        // postTransfer inserts debit + credit at almost the same instant (same
-        // entry_group), which is why id must break the tie. This test makes no
-        // assumption about which order Postgres actually picks between the two
-        // UUIDs — only that each row comes out exactly once across two consecutive
-        // pages, never duplicated or skipped.
+        // Debit and credit share an instant. Whatever order the ids give, each row
+        // must appear exactly once across the two pages.
         Instant sameInstant = Instant.now().minus(1, ChronoUnit.HOURS);
         UUID pA = insertPosting(accountId, sameInstant);
         UUID pB = insertPosting(accountId, sameInstant);

@@ -5,13 +5,8 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
 
-/**
- * The last page item's {@code (createdAt, id)}, not a plain rank/offset: on an
- * append-only table under continuous writes, an {@code OFFSET} shifts with every
- * concurrent insert between two calls (a page can skip or repeat rows); comparing
- * against a real position stays stable no matter what's been inserted since. {@code
- * id} breaks ties on {@code createdAt} (several postings can share the same instant).
- */
+/** A position rather than an offset: concurrent inserts shift offsets, so pages
+ * would skip or repeat rows. {@code id} breaks ties on {@code createdAt}. */
 public record PostingCursor(Instant createdAt, UUID id) {
 
     private static final String SEPARATOR = "|";
@@ -31,8 +26,6 @@ public record PostingCursor(Instant createdAt, UUID id) {
             int sep = raw.indexOf(SEPARATOR);
             return new PostingCursor(Instant.parse(raw.substring(0, sep)), UUID.fromString(raw.substring(sep + 1)));
         } catch (RuntimeException e) {
-            // Catches Base64/UUID/date-parse/missing-separator failures alike: a
-            // malformed cursor is never an error a client can tell apart in detail.
             throw new InvalidCursorException("malformed cursor", e);
         }
     }

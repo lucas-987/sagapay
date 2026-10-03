@@ -14,11 +14,6 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/**
- * Translates business errors into RFC 9457 responses ({@code
- * application/problem+json}) — the REST counterpart of {@code
- * LedgerGrpcExceptionAdvice}.
- */
 @RestControllerAdvice(basePackageClasses = LedgerRestAdapter.class)
 public class LedgerRestExceptionHandler {
 
@@ -32,17 +27,14 @@ public class LedgerRestExceptionHandler {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.CURRENCY_MISMATCH, e.getMessage());
     }
 
-    /** Not reachable by any of the 3 current REST endpoints (none call {@code
-     * checkAndReserve}) — kept for symmetry with {@code LedgerGrpcExceptionAdvice},
-     * where it is reachable. */
+    /** Unreachable from the current REST endpoints; mirrors the gRPC advice. */
     @ExceptionHandler(InvalidAmountException.class)
     public ProblemDetail handleInvalidAmount(InvalidAmountException e) {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.INVALID_AMOUNT, e.getMessage());
     }
 
-    /** Not reachable today either (REST type conversion goes through Spring MVC
-     * binding, not manual parsing) — kept for symmetry, same as {@link
-     * #handleInvalidAmount}. */
+    /** Unreachable from REST, where Spring MVC binding parses the input; mirrors the
+     * gRPC advice. */
     @ExceptionHandler(MalformedRequestException.class)
     public ProblemDetail handleMalformedRequest(MalformedRequestException e) {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.MALFORMED_REQUEST, e.getMessage());
@@ -63,8 +55,6 @@ public class LedgerRestExceptionHandler {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.INVALID_CURSOR, e.getMessage());
     }
 
-    /** Distinct from {@code ACCOUNT_NOT_FOUND}: same 404, but says "this handle
-     * matches no one" rather than "this account id doesn't exist". */
     @ExceptionHandler(UnknownHandleException.class)
     public ProblemDetail handleUnknownHandle(UnknownHandleException e) {
         return Problems.of(HttpStatus.NOT_FOUND, AppErrorCode.RECIPIENT_NOT_FOUND, e.getMessage());

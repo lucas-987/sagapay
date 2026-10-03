@@ -20,11 +20,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     @Query("select a from Account a where a.id = :id")
     Optional<Account> findByIdForUpdate(@Param("id") UUID id);
 
-    /** Returns {@code Optional}, not {@code List}: {@code handle} is {@code UNIQUE}. */
     Optional<Account> findByHandle(String handle);
 
-    /** Returns the affected-row count: 0 means insufficient balance, letting the
-     * caller detect it from the count instead of relying on an exception. */
+    /** @return 0 when the balance is insufficient. */
     @Modifying
     @Query("update Account a set a.balance = a.balance - :amount "
             + "where a.id = :id and a.balance - :amount >= 0")

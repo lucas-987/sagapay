@@ -28,6 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- A floor just under the current coverage: it may only go up. -->
+		<jacoco.minimum.line>0.80</jacoco.minimum.line>
 	</properties>
 	<dependencies>
 		<dependency>

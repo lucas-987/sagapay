@@ -1,4 +1,4 @@
-# SagaPay — Payments demo
+# SagaPay — peer-to-peer payments
 
 Maven multi-module: `common`, `contracts`, `ledger-accounts-service`,
 `transfer-orchestrator`, `fraud-detection-service`, `api-gateway`,

@@ -1,6 +1,6 @@
 **/target/
 .git/
 .idea/
-dev-notes/
+**/*.md
 *.iml
 .env

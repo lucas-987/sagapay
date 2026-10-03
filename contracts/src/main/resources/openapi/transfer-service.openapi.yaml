@@ -6,7 +6,7 @@ info:
     Creation and tracking of P2P transfers. Orchestrated saga. RFC 9457 errors.
     Exposed via api-gateway under `/v1`.
 servers:
-  - url: https://api.p2.demo.example.com
+  - url: https://api.sagapay.example.com
 security:
   - oidc: [transfers:write, transfers:read]
 
@@ -128,7 +128,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
 
   schemas:
     Money:

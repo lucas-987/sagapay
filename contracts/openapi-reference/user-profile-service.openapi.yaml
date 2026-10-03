@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Application identity, contacts, recipient lookup, devices, KYC-lite.
 servers:
-  - url: https://api.p2.demo.example.com
+  - url: https://api.sagapay.example.com
 security:
   - oidc: [profile:read]
 
@@ -90,7 +90,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
   schemas:
     Profile:
       type: object

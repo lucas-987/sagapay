@@ -6,7 +6,7 @@ info:
     Screening is asynchronous (Kafka). This REST API serves human review
     (SUPPORT role) and case introspection.
 servers:
-  - url: https://api.p2.demo.example.com
+  - url: https://api.sagapay.example.com
 security:
   - oidc: [fraud:review]
 
@@ -86,7 +86,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
   schemas:
     FraudCase:
       type: object

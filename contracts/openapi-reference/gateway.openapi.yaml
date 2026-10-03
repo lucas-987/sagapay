@@ -7,7 +7,7 @@ info:
     services (see their specs) + SSE + Idempotency-Key cache. Bearer JWT
     (Keycloak), Redis rate-limit (key = userId).
 servers:
-  - url: https://api.p2.demo.example.com
+  - url: https://api.sagapay.example.com
 security:
   - bearer: []
 

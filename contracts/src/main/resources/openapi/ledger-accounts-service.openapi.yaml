@@ -6,7 +6,7 @@ info:
     Wallet reads (balance, available, postings). Money mutations go
     EXCLUSIVELY through gRPC (ledger.proto), never REST.
 servers:
-  - url: https://api.p2.demo.example.com
+  - url: https://api.sagapay.example.com
 security:
   - oidc: [wallet:read]
 
@@ -72,14 +72,10 @@ paths:
       operationId: lookupAccount
       summary: Resolve a handle to an account (recipient preview before a transfer)
       description: >-
-        Simplified MVP subset of user-profile-service's lookupRecipient (see
-        contracts/openapi-reference/user-profile-service.openapi.yaml) — folded into
-        ledger-accounts-service because `accounts` already carries handle/display_name
-        (mvp-implementation-plan.md: user-profile-service itself is post-MVP). No
-        email/phone resolution (accounts only have a handle), no rate-limiting
-        (api-gateway's job, out of M1 scope), no avatarUrl — exact handle match only,
-        and deliberately never returns balance/currency (this is a "who is this"
-        lookup, not a wallet read).
+        Simplified subset of user-profile-service's lookupRecipient (see
+        contracts/openapi-reference/user-profile-service.openapi.yaml), served by
+        ledger-accounts-service because accounts already carry a handle and a
+        display name. Exact handle match only; never returns balance or currency.
       parameters:
         - name: handle
           in: query
@@ -100,7 +96,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.demo.example.com/realms/demo/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
   schemas:
     Money:
       type: object

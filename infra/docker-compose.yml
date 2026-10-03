@@ -10,9 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # $$POSTGRES_USER: the container's own variable (escaped so Compose doesn't
-      # substitute it itself while reading the file) — stays correct whatever the
-      # actually configured name is, no need to duplicate the value here.
+      # $$ leaves the container's own variable to the container, not to Compose.
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d ledger_svc"]
       interval: 5s
       timeout: 3s
@@ -39,11 +37,8 @@ services:
       SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
       SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD: ${LEDGER_APP_PASSWORD}
 
-  # Own container rather than a 2nd database on the `postgres` service above
-  # (M2 decision, revisiting the full-spec's single-Postgres/init-multi-db.sh
-  # layout): a straight copy of the `postgres` block costs less than writing and
-  # maintaining a multi-database init script, and matches where this project is
-  # headed post-MVP (one deployment per service, per the polyrepo-split roadmap).
+  # Its own container rather than a second database on `postgres`: each service
+  # owns its data store, and no multi-database init script is needed.
   postgres-orchestrator:
     image: postgres:17
     environment:
@@ -60,10 +55,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # KRaft mode (no separate Zookeeper), decided at M0 (mvp-implementation-plan.md
-  # §6 M0). Image verified empirically against what Testcontainers' own
-  # KafkaContainer (already a test dependency here) defaults to for KRaft mode,
-  # rather than guessed by symmetry with some other Kafka image.
+  # KRaft mode, no ZooKeeper; the same image family as Testcontainers' KafkaContainer.
   kafka:
     image: apache/kafka:4.3.1
     environment:
@@ -75,8 +67,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      # Decided at M0: a topic must be created explicitly (by kafka-init below),
-      # never implicitly on first publish.
+      # Topics are created by kafka-init, never on first publish.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
     ports:
@@ -88,10 +79,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # Short-lived: creates the topics this milestone needs and exits 0. Only
-  # `payments.transfers` has a producer in M2 (transfer-orchestrator);
-  # `payments.fraud.results` and both .DLT topics are created now anyway so
-  # M3's real consumer doesn't need this config touched again.
+  # Creates the topics, then exits.
   kafka-init:
     image: apache/kafka:4.3.1
     depends_on:

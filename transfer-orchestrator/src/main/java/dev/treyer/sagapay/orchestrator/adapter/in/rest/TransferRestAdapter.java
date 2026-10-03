@@ -7,6 +7,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
+import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
 import dev.treyer.sagapay.orchestrator.domain.RecipientNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
@@ -17,6 +18,8 @@ import dev.treyer.sagapay.transfer.model.ConfirmBlockedTransferRequest;
 import dev.treyer.sagapay.transfer.model.CreateTransferRequest;
 import dev.treyer.sagapay.transfer.model.ListTransfers200Response;
 import dev.treyer.sagapay.transfer.model.TransferDetail;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -48,6 +51,8 @@ import java.util.concurrent.Executor;
  */
 @RestController
 public class TransferRestAdapter implements V1Api {
+
+    private static final Logger log = LoggerFactory.getLogger(TransferRestAdapter.class);
 
     private static final String USER_ID_HEADER = "X-User-Id";
 
@@ -90,7 +95,15 @@ public class TransferRestAdapter implements V1Api {
             // dispatching it off-thread is this adapter's job, not the
             // domain's.
             UUID transferId = result.transfer().getId();
-            executor.execute(() -> advanceSagaUseCase.advance(transferId));
+            executor.execute(() -> {
+                try {
+                    advanceSagaUseCase.advance(transferId);
+                } catch (LedgerUnavailableException e) {
+                    // Nobody is waiting on this thread to report to: the
+                    // transfer stays INITIATED and SagaReprisePoller resumes it.
+                    log.warn("Ledger unavailable for transfer {}, left for the reprise poller", transferId, e);
+                }
+            });
         }
 
         HttpStatus status = result.created() ? HttpStatus.ACCEPTED : HttpStatus.CONFLICT;

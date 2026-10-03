@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
 import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -23,6 +24,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * First test in this project that starts the container of an *other* service
@@ -69,6 +71,7 @@ class LedgerGrpcClientAdapterTest {
     private static ManagedChannel channel;
     private static LedgerGrpcClientAdapter adapter;
     private static UUID bobAccountId;
+    private static UUID tomaszAccountId;
 
     // Repo-root build context: the ledger's Dockerfile does `COPY . .` and builds
     // the whole Maven reactor (-am), so it needs to see common/contracts/etc,
@@ -84,9 +87,15 @@ class LedgerGrpcClientAdapterTest {
                 .build();
         adapter = new LedgerGrpcClientAdapter(channel);
 
-        String lookupUrl = "http://%s:%d/v1/users/lookup?handle=bob".formatted(LEDGER.getHost(), LEDGER.getMappedPort(8081));
+        bobAccountId = lookupAccountId("bob");
+        tomaszAccountId = lookupAccountId("tomasz");
+    }
+
+    private static UUID lookupAccountId(String handle) {
+        String lookupUrl = "http://%s:%d/v1/users/lookup?handle=%s"
+                .formatted(LEDGER.getHost(), LEDGER.getMappedPort(8081), handle);
         Map<?, ?> response = RestClient.create().get().uri(lookupUrl).retrieve().body(Map.class);
-        bobAccountId = UUID.fromString((String) response.get("accountId"));
+        return UUID.fromString((String) response.get("accountId"));
     }
 
     @AfterAll
@@ -103,5 +112,16 @@ class LedgerGrpcClientAdapterTest {
                 UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
+    }
+
+    /** What the saga gets when a reservation expired before postTransfer: the
+     * ledger's definitive NOT_FOUND must surface as a rejection, not be confused
+     * with the ledger being down. */
+    @Test
+    void postTransferWithoutAMatchingReservationIsARejectionNotAnOutage() {
+        assertThatThrownBy(() -> adapter.postTransfer(
+                UUID.randomUUID().toString(), bobAccountId, tomaszAccountId, Money.of("1.00", "EUR")))
+                .isInstanceOfSatisfying(LedgerRejectedException.class,
+                        e -> assertThat(e.ledgerStatus()).isEqualTo("NOT_FOUND"));
     }
 }

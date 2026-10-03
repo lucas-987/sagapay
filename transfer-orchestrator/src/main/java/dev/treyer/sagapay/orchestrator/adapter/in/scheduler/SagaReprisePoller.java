@@ -7,13 +7,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Adapter in — triggers {@link SweepReprisePendingTransfersUseCase} on a clock,
- * not an RPC/endpoint. The crash-recovery half of the {@code RESERVED} ->
- * {@code POSTED} chain: proves a saga can resume without the eager direct call
- * (see {@code SagaReprisePollerTest}, which forces a transfer into {@code
- * RESERVED} without ever going through {@code advance()}). Same family as the
- * ledger's {@code ReservationExpirySweeper} — a reconciler, active in every
- * profile.
+ * Resumes transfers left in {@code INITIATED} or {@code RESERVED} by a crash, a
+ * lost background task or an unavailable ledger. Active in every profile: a
+ * stuck saga is a production concern.
  */
 @Component
 public class SagaReprisePoller {
@@ -30,9 +26,9 @@ public class SagaReprisePoller {
      * end of the previous one, so a slow sweep can't overlap with itself. */
     @Scheduled(fixedDelayString = "${saga.reprise.sweep-interval-ms:60000}")
     public void sweep() {
-        int resumed = sweepUseCase.sweepStuckReservedTransfers();
+        int resumed = sweepUseCase.sweepStuckTransfers();
         if (resumed > 0) {
-            log.info("Resumed {} transfer(s) stuck in RESERVED", resumed);
+            log.info("Resumed {} stuck transfer(s)", resumed);
         }
     }
 }

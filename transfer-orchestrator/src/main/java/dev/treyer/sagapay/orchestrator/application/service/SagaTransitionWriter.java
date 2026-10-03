@@ -3,6 +3,7 @@ package dev.treyer.sagapay.orchestrator.application.service;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -69,13 +72,31 @@ class SagaTransitionWriter {
     }
 
     @Transactional
-    boolean applyFailed(UUID transferId, Transfer transfer) {
+    boolean applyInsufficientFunds(UUID transferId, Transfer transfer) {
         int updated = transfers.transitionToFailed(
                 transferId, TransferStatus.INITIATED, TransferStatus.FAILED, "INSUFFICIENT_FUNDS");
         if (updated == 0) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, "RESERVE", "FAILED", null));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferFailed"));
+        return true;
+    }
+
+    /** The ledger definitively refused {@code step} for this transfer. The
+     * ledger's own answer goes into {@code saga_steps.detail}: {@code
+     * failureReason} only says which step was refused, the detail says why. */
+    @Transactional
+    boolean applyRejected(UUID transferId, Transfer transfer, TransferStatus fromStatus, String step,
+                          String failureReason, LedgerRejectedException rejection) {
+        int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
+        if (updated == 0) {
+            return false;
+        }
+        Map<String, String> detail = new LinkedHashMap<>();
+        detail.put("ledgerStatus", rejection.ledgerStatus());
+        detail.put("message", rejection.getMessage());
+        sagaSteps.save(new SagaStep(transferId, step, "FAILED", jsonMapper.writeValueAsString(detail)));
         outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferFailed"));
         return true;
     }

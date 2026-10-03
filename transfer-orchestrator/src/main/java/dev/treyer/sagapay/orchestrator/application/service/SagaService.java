@@ -12,12 +12,16 @@ import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCa
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.SweepReprisePendingTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
+import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -28,19 +32,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** One class for every use case, rather than one class per use case, same
- * reasoning as the ledger's {@code LedgerService}: they share the same out ports
- * and operate on the same aggregate (a transfer and its saga history).
- *
- * <p>Only {@link #initiateTransfer} is itself {@code @Transactional}: it does no
- * network call, its 2 writes (transfer + outbox) belong in one local
- * transaction. {@link #advance}/{@link #continueFromReserved}/{@link
- * #sweepStuckReservedTransfers} call {@link LedgerPort} outside of any open
- * transaction, then hand the actual writes to {@link SagaTransitionWriter} --
- * see its class comment for why. */
+/** Only {@link #initiateTransfer} is {@code @Transactional}: the other steps
+ * call the ledger outside any transaction, then hand their writes to {@link
+ * SagaTransitionWriter}, so no database transaction stays open across a network
+ * call. */
 @Service
 public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase, ContinueReservedTransferUseCase,
         SweepReprisePendingTransfersUseCase, ListTransfersUseCase, GetTransferUseCase, ConfirmTransferUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(SagaService.class);
 
     private final TransferRepository transfers;
     private final SagaStepRepository sagaSteps;
@@ -48,18 +48,18 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     private final LedgerPort ledger;
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
-    private final long reprisGracePeriodMs;
+    private final long repriseGracePeriodMs;
 
     public SagaService(TransferRepository transfers, SagaStepRepository sagaSteps, OutboxRepository outbox,
                         LedgerPort ledger, JsonMapper jsonMapper, SagaTransitionWriter writer,
-                        @Value("${saga.reprise.grace-period-ms:5000}") long reprisGracePeriodMs) {
+                        @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
         this.ledger = ledger;
         this.jsonMapper = jsonMapper;
         this.writer = writer;
-        this.reprisGracePeriodMs = reprisGracePeriodMs;
+        this.repriseGracePeriodMs = repriseGracePeriodMs;
     }
 
     @Override
@@ -84,13 +84,20 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     public void advance(UUID transferId) {
         Transfer transfer = requireTransfer(transferId);
         if (transfer.getStatus() != TransferStatus.INITIATED) {
-            // Already advanced by a concurrent caller (the reprise poller, or a
-            // replayed request) -- idempotent no-op, not an error.
+            // Already advanced by a concurrent caller (the eager path and the
+            // reprise poller racing on the same transfer) -- idempotent no-op,
+            // not an error.
             return;
         }
 
-        ReservationResult result = ledger.checkAndReserve(transferId.toString(), transfer.getSenderAccountId(),
-                Money.of(transfer.getAmount(), transfer.getCurrency()));
+        ReservationResult result;
+        try {
+            result = ledger.checkAndReserve(transferId.toString(), transfer.getSenderAccountId(),
+                    Money.of(transfer.getAmount(), transfer.getCurrency()));
+        } catch (LedgerRejectedException e) {
+            writer.applyRejected(transferId, transfer, TransferStatus.INITIATED, "RESERVE", "RESERVE_REJECTED", e);
+            return;
+        }
 
         switch (result) {
             case ReservationResult.Ok ok -> {
@@ -102,7 +109,7 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
                     continueFromReserved(transferId);
                 }
             }
-            case ReservationResult.InsufficientFunds ignored -> writer.applyFailed(transferId, transfer);
+            case ReservationResult.InsufficientFunds ignored -> writer.applyInsufficientFunds(transferId, transfer);
         }
     }
 
@@ -116,8 +123,19 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
             return;
         }
 
-        boolean posted = ledger.postTransfer(transferId.toString(), transfer.getSenderAccountId(),
-                transfer.getRecipientAccountId(), Money.of(transfer.getAmount(), transfer.getCurrency()));
+        boolean posted;
+        try {
+            posted = ledger.postTransfer(transferId.toString(), transfer.getSenderAccountId(),
+                    transfer.getRecipientAccountId(), Money.of(transfer.getAmount(), transfer.getCurrency()));
+        } catch (LedgerRejectedException e) {
+            // Typically the reservation expired on the ledger side while this
+            // transfer sat in RESERVED (crash, long outage): the ledger released
+            // the hold and will never post against it. No money moved -- the
+            // ledger rolls back the whole postTransfer on a rejection -- so
+            // FAILED is the true outcome, not a guess.
+            writer.applyRejected(transferId, transfer, TransferStatus.RESERVED, "POST", "POST_REJECTED", e);
+            return;
+        }
         if (!posted) {
             // The ledger never reports posted=false for a transfer it already
             // accepted a reservation for (see LedgerService.postTransfer) -- left
@@ -129,13 +147,28 @@ public class SagaService implements InitiateTransferUseCase, AdvanceSagaUseCase,
     }
 
     @Override
-    public int sweepStuckReservedTransfers() {
-        Instant cutoff = Instant.now().minusMillis(reprisGracePeriodMs);
-        List<Transfer> stuck = transfers.findByStatusAndUpdatedAtBefore(TransferStatus.RESERVED, cutoff);
-        for (Transfer transfer : stuck) {
-            continueFromReserved(transfer.getId());
+    public int sweepStuckTransfers() {
+        Instant cutoff = Instant.now().minusMillis(repriseGracePeriodMs);
+        int resumed = 0;
+        try {
+            // INITIATED first: advance() chains into continueFromReserved()
+            // itself, so a transfer resumed here is already past RESERVED by the
+            // time RESERVED is queried below.
+            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.INITIATED, cutoff)) {
+                advance(transfer.getId());
+                resumed++;
+            }
+            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.RESERVED, cutoff)) {
+                continueFromReserved(transfer.getId());
+                resumed++;
+            }
+        } catch (LedgerUnavailableException e) {
+            // Every remaining transfer needs the same ledger: stop here rather
+            // than hit it (or the open circuit) once per row. What's left keeps
+            // its current state for the next sweep.
+            log.warn("Ledger unavailable, saga reprise sweep stopped early ({} resumed so far)", resumed, e);
         }
-        return stuck.size();
+        return resumed;
     }
 
     @Override

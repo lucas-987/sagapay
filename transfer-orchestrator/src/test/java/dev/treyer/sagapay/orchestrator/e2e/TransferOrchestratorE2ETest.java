@@ -37,16 +37,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * DoD (mvp-implementation-plan.md §6 M2): a curl-equivalent actually moves
- * money end to end, and the conservation invariant is asserted, not just
- * assumed. 4 scenarios: happy path, idempotent replay, insufficient funds,
- * and crash-recovery via the reprise poller alone (§10 of the checklist).
- *
- * <p>A real ledger container (its own Dockerfile, its own Postgres) alongside
- * the orchestrator's full Spring context -- same "starts another service's
- * container" pattern as {@code LedgerGrpcClientAdapterTest}/{@code
- * LedgerCircuitBreakerTest}, this time exercising the whole stack through its
- * own REST API rather than a single adapter.
+ * The whole stack through the REST API, against a real ledger container: money
+ * actually moves and the sum of balances is asserted unchanged.
  */
 @Testcontainers
 @Import(TestcontainersConfiguration.class)
@@ -290,5 +282,42 @@ class TransferOrchestratorE2ETest {
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("40.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("40.00");
+    }
+
+    /** Crash after the ledger reserved but before the orchestrator recorded it:
+     * the ledger holds a reservation, the orchestrator still says INITIATED.
+     * The poller replays checkAndReserve -- idempotent on transferId, so it gets
+     * the same reservation back instead of holding the money twice -- then
+     * posts. Also covers the plainer crash before the ledger was ever called:
+     * same INITIATED row, just without the pre-existing reservation. */
+    @Test
+    void reprisePollerAloneCompletesATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
+        UUID senderId = lookupAccountId("julien");
+        UUID recipientId = lookupAccountId("tomasz");
+        BigDecimal senderBefore = balanceOf(senderId);
+        BigDecimal recipientBefore = balanceOf(recipientId);
+        UUID transferId = UUID.randomUUID();
+
+        CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                .setTransferId(transferId.toString())
+                .setFromAccountId(senderId.toString())
+                .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder().setCurrency("EUR").setAmount("15.00").build())
+                .build());
+        assertThat(reserved.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
+
+        jdbcTemplate.update("""
+                insert into transfers (id, idempotency_key, sender_id, sender_account_id,
+                    recipient_id, recipient_account_id, amount, currency, note, status)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED'::transfer_status)
+                """,
+                transferId, UUID.randomUUID(), senderId, senderId, recipientId, recipientId,
+                new BigDecimal("15.00"), "EUR", "crash before RESERVED e2e");
+
+        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+
+        assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("15.00");
+        assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("15.00");
+        assertThat(jdbcTemplate.queryForObject("select reservation_id from transfers where id = ?", UUID.class,
+                transferId)).isEqualTo(UUID.fromString(reserved.getReservationId()));
     }
 }

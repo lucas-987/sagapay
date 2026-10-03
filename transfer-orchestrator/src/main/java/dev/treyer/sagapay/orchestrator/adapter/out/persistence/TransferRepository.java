@@ -20,7 +20,7 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
     /** Used by {@code SagaReprisePoller} (§7) to find transfers the eager direct
      * path never finished -- {@code updatedAt} doubles as "since when has this
-     * been RESERVED" because nothing else touches a RESERVED row's timestamp. */
+     * been in this status" because only a status transition touches it. */
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
     /** Keyset pagination (createdAt, id), same reasoning as the ledger's {@code

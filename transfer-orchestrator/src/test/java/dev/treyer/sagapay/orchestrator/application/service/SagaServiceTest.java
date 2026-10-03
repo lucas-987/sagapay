@@ -4,10 +4,14 @@ import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
+import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
+import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Import({TestcontainersConfiguration.class, SagaServiceTest.FakeLedgerPortConfig.class})
 @SpringBootTest
@@ -32,7 +37,14 @@ class SagaServiceTest {
     @Autowired
     private OutboxRepository outboxRepository;
     @Autowired
+    private SagaStepRepository sagaStepRepository;
+    @Autowired
     private FakeLedgerPort fakeLedgerPort;
+
+    @BeforeEach
+    void resetFakeLedger() {
+        fakeLedgerPort.reset();
+    }
 
     private final UUID senderId = UUID.randomUUID();
     private final UUID senderAccountId = UUID.randomUUID();
@@ -110,6 +122,55 @@ class SagaServiceTest {
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
                 .isEqualTo(TransferStatus.INITIATED);
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+    }
+
+    @Test
+    void reserveRejectedByTheLedgerFailsTheTransferInsteadOfLeavingItInitiated() {
+        fakeLedgerPort.willFailReserve(new LedgerRejectedException("NOT_FOUND", "unknown account", null));
+
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+
+        Transfer after = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("RESERVE_REJECTED");
+        assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "TransferFailed");
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+    }
+
+    @Test
+    void postRejectedByTheLedgerFailsTheTransferInsteadOfLeavingItReserved() {
+        // e.g. the reservation expired on the ledger while this transfer sat in RESERVED
+        fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
+
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+
+        Transfer after = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("POST_REJECTED");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+        assertThat(sagaStepRepository.findByTransferIdOrderByAtAsc(transfer.getId()))
+                .last()
+                .satisfies(step -> {
+                    assertThat(step.getStep()).isEqualTo("POST");
+                    assertThat(step.getOutcome()).isEqualTo("FAILED");
+                    assertThat(step.getDetail()).contains("NOT_FOUND").contains("no matching reservation");
+                });
+    }
+
+    @Test
+    void ledgerUnavailableLeavesTheTransferInitiatedForTheReprisePoller() {
+        fakeLedgerPort.willFailReserve(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
+
+        Transfer transfer = initiate(UUID.randomUUID());
+
+        assertThatThrownBy(() -> sagaService.advance(transfer.getId()))
+                .isInstanceOf(LedgerUnavailableException.class);
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
+                .isEqualTo(TransferStatus.INITIATED);
+        assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated");
     }
 
     @TestConfiguration

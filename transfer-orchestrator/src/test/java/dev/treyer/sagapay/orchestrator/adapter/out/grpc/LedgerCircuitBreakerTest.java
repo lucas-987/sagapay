@@ -3,12 +3,16 @@ package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -33,13 +37,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Stretch (not required by the M2 DoD, per the checklist's own reasoning: forces
- * a real circuit-open by killing a real container mid-test), included because
- * the max scope was asked for. Unlike {@code LedgerGrpcClientAdapterTest}, this
- * one needs the real Spring-proxied bean (Resilience4j's @CircuitBreaker only
- * works via AOP on a managed bean), hence @SpringBootTest here.
+ * Needs the Spring-proxied bean: {@code @CircuitBreaker} is applied through AOP.
+ * Ordered because the last test stops the shared ledger container for good.
  */
 @Testcontainers
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class LedgerCircuitBreakerTest {
@@ -99,6 +101,23 @@ class LedgerCircuitBreakerTest {
     private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Test
+    @Order(1)
+    void ledgerRejectionsSurfaceAsIsAndNeverOpenTheCircuit() {
+        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("ledger");
+        // More rejections than minimum-number-of-calls (application.properties):
+        // enough to open the circuit if they were counted as failures.
+        for (int i = 0; i < 6; i++) {
+            assertThatThrownBy(() -> ledgerPort.postTransfer(
+                    UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
+                    .isInstanceOf(LedgerRejectedException.class);
+        }
+
+        assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(circuitBreaker.getMetrics().getNumberOfFailedCalls()).isZero();
+    }
+
+    @Test
+    @Order(2)
     void killingTheLedgerContainerOpensTheCircuitAndFallsBackToLedgerUnavailable() {
         // Sanity: works while the container is still up.
         ReservationResult before = ledgerPort.checkAndReserve(

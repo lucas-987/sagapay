@@ -27,9 +27,7 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
         </dependency>
-        <!-- Declared here rather than per-service: the shared logback config in
-             logback/sagapay-base.xml (below) references this encoder's classes, and
-             every service already depends on common anyway. -->
+        <!-- Needed by the shared logback configuration in this module. -->
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>

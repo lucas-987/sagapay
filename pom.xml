@@ -33,7 +33,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-cloud.version>2025.1.3</spring-cloud.version>
         <!-- Must stay aligned with the protobuf-java runtime pulled in by grpc-bom below. -->
-        <protobuf.version>4.31.1</protobuf.version>
+        <protobuf.version>4.36.2</protobuf.version>
         <grpc.version>1.83.1</grpc.version>
         <protobuf-plugin.version>5.1.8</protobuf-plugin.version>
         <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>

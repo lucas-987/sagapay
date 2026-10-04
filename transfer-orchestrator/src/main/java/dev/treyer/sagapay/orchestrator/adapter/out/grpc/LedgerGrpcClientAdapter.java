@@ -14,6 +14,7 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.grpc.Channel;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -30,16 +31,16 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class LedgerGrpcClientAdapter implements LedgerPort {
 
-    private static final long DEADLINE_MS = 500;
-
     /** Codes the ledger uses when the request itself is at fault. */
     private static final Set<Status.Code> REJECTION_CODES =
             Set.of(Status.Code.NOT_FOUND, Status.Code.INVALID_ARGUMENT, Status.Code.ALREADY_EXISTS);
 
     private final LedgerServiceGrpc.LedgerServiceBlockingStub stub;
+    private final long deadlineMs;
 
-    public LedgerGrpcClientAdapter(Channel ledgerChannel) {
+    public LedgerGrpcClientAdapter(Channel ledgerChannel, @Value("${ledger.grpc.deadline-ms:500}") long deadlineMs) {
         this.stub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
+        this.deadlineMs = deadlineMs;
     }
 
     @Override
@@ -47,7 +48,7 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
         CheckAndReserveResponse response;
         try {
-            response = stub.withDeadlineAfter(DEADLINE_MS, TimeUnit.MILLISECONDS)
+            response = stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
                     .checkAndReserve(CheckAndReserveRequest.newBuilder()
                             .setTransferId(transferId)
                             .setFromAccountId(fromAccountId.toString())
@@ -77,7 +78,7 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         PostTransferResponse response;
         try {
-            response = stub.withDeadlineAfter(DEADLINE_MS, TimeUnit.MILLISECONDS)
+            response = stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
                     .postTransfer(PostTransferRequest.newBuilder()
                             .setTransferId(transferId)
                             .setFromAccountId(fromAccountId.toString())

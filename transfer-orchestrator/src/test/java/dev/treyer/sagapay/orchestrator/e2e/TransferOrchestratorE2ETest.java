@@ -44,7 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("local-noauth")
 @TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=1000"})
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "ledger.grpc.deadline-ms=5000")
 class TransferOrchestratorE2ETest {
 
     private static final Network NETWORK = Network.newNetwork();

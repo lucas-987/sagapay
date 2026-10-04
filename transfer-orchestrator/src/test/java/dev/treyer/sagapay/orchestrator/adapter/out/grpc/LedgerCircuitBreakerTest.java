@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@SpringBootTest(properties = "ledger.grpc.deadline-ms=5000")
 class LedgerCircuitBreakerTest {
 
     private static final Network NETWORK = Network.newNetwork();

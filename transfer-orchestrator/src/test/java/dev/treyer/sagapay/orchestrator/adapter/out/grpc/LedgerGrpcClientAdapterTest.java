@@ -75,7 +75,7 @@ class LedgerGrpcClientAdapterTest {
         channel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        adapter = new LedgerGrpcClientAdapter(channel);
+        adapter = new LedgerGrpcClientAdapter(channel, 5000);
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");

@@ -15,7 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.kafka.KafkaContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -40,6 +42,13 @@ class OutboxPollerTest {
 
     @Autowired
     private OutboxRepository outboxRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private JsonMapper jsonMapper;
+
     // Not the bootstrap-servers property: @ServiceConnection bypasses it, so it
     // still holds the static default address.
     @Autowired
@@ -114,6 +123,23 @@ class OutboxPollerTest {
         assertThat(new String(traceparent.value(), StandardCharsets.UTF_8)).isNotBlank();
         // A transport header, not a payload field.
         assertThat(record.value()).doesNotContain("\"data\":{\"traceparent\"");
+    }
+
+    @Test
+    void aRowPublishedTwiceCarriesTheSameCloudEventIdEqualToTheRowId() {
+        UUID senderId = UUID.randomUUID();
+        OutboxRow row = newUnpublishedRow(senderId);
+
+        outboxPoller.drain();
+        jdbcTemplate.update("update outbox set published_at = null where id = ?", row.getId());
+        outboxPoller.drain();
+
+        List<ConsumerRecord<String, String>> found = pollFor(Set.of(senderId.toString()), Duration.ofSeconds(15));
+        assertThat(found).hasSize(2);
+        assertThat(found)
+                .allSatisfy(record -> assertThat(
+                                jsonMapper.readTree(record.value()).get("id").asString())
+                        .isEqualTo(row.getId().toString()));
     }
 
     @Test

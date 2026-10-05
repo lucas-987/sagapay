@@ -57,8 +57,12 @@ public class OutboxPoller {
     private void publish(OutboxRow row) {
         JsonNode payload = jsonMapper.readTree(row.getPayload());
         String key = payload.get("senderId").asString();
-        CloudEvent<JsonNode> event = CloudEvent.now(
-                SOURCE, row.getEventType() + ".v1", row.getAggregateId().toString(), payload);
+        CloudEvent<JsonNode> event = CloudEvent.of(
+                row.getId(),
+                SOURCE,
+                row.getEventType() + ".v1",
+                row.getAggregateId().toString(),
+                payload);
 
         // A new span per publish: the scheduler thread has no trace to inherit.
         // The W3C header is built by hand because the auto-configured Propagator

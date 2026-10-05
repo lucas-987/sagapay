@@ -13,8 +13,8 @@ import java.util.UUID;
 public record CloudEvent<T>(
         String id, String source, String type, Instant time, String subject, String traceparent, T data) {
 
-    public static <T> CloudEvent<T> now(String source, String type, String subject, T data) {
-        return new CloudEvent<>(UUID.randomUUID().toString(), source, type, Instant.now(), subject, null, data);
+    public static <T> CloudEvent<T> of(UUID id, String source, String type, String subject, T data) {
+        return new CloudEvent<>(id.toString(), source, type, Instant.now(), subject, null, data);
     }
 
     public CloudEvent<T> withTraceparent(String traceparent) {

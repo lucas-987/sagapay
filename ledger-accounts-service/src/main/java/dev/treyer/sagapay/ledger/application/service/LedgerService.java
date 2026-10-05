@@ -53,6 +53,8 @@ public class LedgerService
                 LookupAccountUseCase,
                 ExpireReservationsUseCase {
 
+    // The orchestrator's confirmation window must stay shorter than this TTL, so a
+    // confirmed transfer still finds its reservation ACTIVE.
     private static final long RESERVATION_TTL_MINUTES = 5;
 
     private final AccountPort accounts;

@@ -52,6 +52,11 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
+    public List<Transfer> findFailedWithPendingRelease(Instant cutoff) {
+        return repository.findFailedWithPendingRelease(cutoff);
+    }
+
+    @Override
     public List<Transfer> findPageForUser(
             UUID userId,
             boolean includeSent,

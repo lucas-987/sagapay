@@ -29,6 +29,10 @@ public interface TransferPort {
 
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
+    /** FAILED transfers whose latest RELEASE step is RETRY and which have been
+     * FAILED since before {@code cutoff}. */
+    List<Transfer> findFailedWithPendingRelease(Instant cutoff);
+
     /** Newest first, strictly after {@code (afterCreatedAt, afterId)} when given. */
     List<Transfer> findPageForUser(
             UUID userId,

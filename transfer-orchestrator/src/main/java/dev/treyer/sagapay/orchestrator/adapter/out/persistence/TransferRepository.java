@@ -22,6 +22,18 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
      * transitions touch it. */
     List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
 
+    /** The latest RELEASE step decides, by id: several steps written in one
+     * transaction share the same {@code now()}. */
+    @Query(nativeQuery = true, value = """
+            select t.* from transfers t
+            where t.status = 'FAILED'::transfer_status
+              and t.updated_at < :cutoff
+              and (select s.outcome from saga_steps s
+                   where s.transfer_id = t.id and s.step = 'RELEASE'
+                   order by s.id desc limit 1) = 'RETRY'
+            """)
+    List<Transfer> findFailedWithPendingRelease(@Param("cutoff") Instant cutoff);
+
     /** The casts type the optional filters: a parameter used only in
      * {@code ? is null} gives Postgres no type. */
     @Query("select t from Transfer t where "

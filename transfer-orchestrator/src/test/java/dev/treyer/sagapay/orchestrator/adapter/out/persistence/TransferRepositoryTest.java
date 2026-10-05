@@ -14,6 +14,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -164,5 +167,36 @@ class TransferRepositoryTest {
 
         assertThat(found.getFraudScore()).isNull();
         assertThat(found.getFraudReasons()).isNull();
+    }
+
+    private UUID transferWith(TransferStatus status, Instant updatedAt, String... releaseOutcomes) {
+        UUID id = newTransfer().getId();
+        jdbcTemplate.update(
+                "update transfers set status = ?::transfer_status, updated_at = ? where id = ?",
+                status.name(),
+                java.sql.Timestamp.from(updatedAt),
+                id);
+        for (String outcome : releaseOutcomes) {
+            jdbcTemplate.update(
+                    "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', ?)", id, outcome);
+        }
+        entityManager.clear();
+        return id;
+    }
+
+    @Test
+    void findFailedWithPendingReleaseReturnsFailedTransfersWhoseLastReleaseStepIsRetry() {
+        Instant old = Instant.now().minus(1, ChronoUnit.HOURS);
+        Instant cutoff = Instant.now().minus(1, ChronoUnit.MINUTES);
+        UUID pending = transferWith(TransferStatus.FAILED, old, "RETRY");
+        transferWith(TransferStatus.FAILED, old, "RETRY", "COMPENSATED");
+        transferWith(TransferStatus.FAILED, old, "RETRY", "FAILED");
+        transferWith(TransferStatus.FAILED, old);
+        transferWith(TransferStatus.FAILED, Instant.now(), "RETRY");
+        transferWith(TransferStatus.POSTED, old, "RETRY");
+
+        List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff);
+
+        assertThat(found).extracting(Transfer::getId).containsExactly(pending);
     }
 }

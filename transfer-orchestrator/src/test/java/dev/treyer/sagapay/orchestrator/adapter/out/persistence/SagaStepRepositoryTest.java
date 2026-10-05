@@ -62,12 +62,12 @@ class SagaStepRepositoryTest {
     }
 
     @Test
-    void findByTransferIdOrderByAtAscReturnsStepsInWriteOrder() {
+    void findByTransferIdOrderByAtAscIdAscReturnsStepsInWriteOrder() {
         UUID transferId = newTransfer();
         sagaSteps.saveAndFlush(new SagaStep(transferId, "RESERVE", "OK", null));
         sagaSteps.saveAndFlush(new SagaStep(transferId, "POST", "OK", null));
 
-        List<SagaStep> steps = sagaSteps.findByTransferIdOrderByAtAsc(transferId);
+        List<SagaStep> steps = sagaSteps.findByTransferIdOrderByAtAscIdAsc(transferId);
 
         assertThat(steps).extracting(SagaStep::getStep).containsExactly("RESERVE", "POST");
     }

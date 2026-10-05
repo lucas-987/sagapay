@@ -23,6 +23,6 @@ class SagaStepPersistenceAdapter implements SagaStepPort {
 
     @Override
     public List<SagaStep> findByTransferId(UUID transferId) {
-        return repository.findByTransferIdOrderByAtAsc(transferId);
+        return repository.findByTransferIdOrderByAtAscIdAsc(transferId);
     }
 }

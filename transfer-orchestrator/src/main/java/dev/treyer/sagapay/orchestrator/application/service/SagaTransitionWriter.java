@@ -23,6 +23,8 @@ import java.util.UUID;
 @Component
 class SagaTransitionWriter {
 
+    private static final String RELEASE_STEP = "RELEASE";
+
     private final TransferPort transfers;
     private final SagaStepPort sagaSteps;
     private final OutboxPort outbox;
@@ -82,15 +84,56 @@ class SagaTransitionWriter {
             String step,
             String failureReason,
             LedgerRejectedException rejection) {
+        return failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection);
+    }
+
+    /** Same as {@link #applyRejected}, plus the pending release of the reservation
+     * the transfer holds, so a crash after this transaction cannot lose it. */
+    @Transactional
+    boolean applyRejectedAndRelease(
+            UUID transferId,
+            Transfer transfer,
+            TransferStatus fromStatus,
+            String step,
+            String failureReason,
+            LedgerRejectedException rejection) {
+        if (!failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
+            return false;
+        }
+        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "RETRY", null));
+        return true;
+    }
+
+    @Transactional
+    void recordReleased(UUID transferId) {
+        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "COMPENSATED", null));
+    }
+
+    @Transactional
+    void recordReleaseRefused(UUID transferId, LedgerRejectedException rejection) {
+        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "FAILED", rejectionDetail(rejection)));
+    }
+
+    private boolean failOnRejection(
+            UUID transferId,
+            Transfer transfer,
+            TransferStatus fromStatus,
+            String step,
+            String failureReason,
+            LedgerRejectedException rejection) {
         int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;
         }
+        sagaSteps.save(new SagaStep(transferId, step, "FAILED", rejectionDetail(rejection)));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
+        return true;
+    }
+
+    private String rejectionDetail(LedgerRejectedException rejection) {
         Map<String, String> detail = new LinkedHashMap<>();
         detail.put("ledgerStatus", rejection.ledgerStatus());
         detail.put("message", rejection.getMessage());
-        sagaSteps.save(new SagaStep(transferId, step, "FAILED", jsonMapper.writeValueAsString(detail)));
-        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
-        return true;
+        return jsonMapper.writeValueAsString(detail);
     }
 }

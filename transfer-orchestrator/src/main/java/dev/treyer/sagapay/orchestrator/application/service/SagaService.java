@@ -153,7 +153,10 @@ public class SagaService
         } catch (LedgerRejectedException e) {
             // Typically an expired reservation: the ledger will never post it, and
             // a refused postTransfer moved no money, so FAILED is the outcome.
-            writer.applyRejected(transferId, transfer, TransferStatus.RESERVED, "POST", "POST_REJECTED", e);
+            if (writer.applyRejectedAndRelease(
+                    transferId, transfer, TransferStatus.RESERVED, "POST", "POST_REJECTED", e)) {
+                releaseReservation(transfer);
+            }
             return;
         }
         if (!posted) {
@@ -179,11 +182,28 @@ public class SagaService
                 continueFromReserved(transfer.getId());
                 resumed++;
             }
+            for (Transfer transfer : transfers.findFailedWithPendingRelease(cutoff)) {
+                releaseReservation(transfer);
+                resumed++;
+            }
         } catch (LedgerUnavailableException e) {
             // The remaining transfers need the same ledger: retry them next sweep.
             log.warn("Ledger unavailable, saga reprise sweep stopped early ({} resumed so far)", resumed, e);
         }
         return resumed;
+    }
+
+    /** A refusal ends the step; an unavailability propagates and leaves it
+     * pending for the reprise poller. */
+    private void releaseReservation(Transfer transfer) {
+        UUID transferId = transfer.getId();
+        try {
+            ledger.releaseReservation(transferId.toString(), transfer.getReservationId());
+        } catch (LedgerRejectedException e) {
+            writer.recordReleaseRefused(transferId, e);
+            return;
+        }
+        writer.recordReleased(transferId);
     }
 
     @Override

@@ -21,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,6 +76,37 @@ class SagaReprisePollerTest {
                 status.name(),
                 reservationId);
         return id;
+    }
+
+    private UUID forceFailedTransferWithRelease(String... releaseOutcomes) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                insert into transfers (id, idempotency_key, sender_id, sender_account_id,
+                    recipient_id, recipient_account_id, amount, currency, status, failure_reason, reservation_id)
+                values (?, ?, ?, ?, ?, ?, ?, ?, 'FAILED'::transfer_status, 'POST_REJECTED', ?)
+                """,
+                id,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                new BigDecimal("25.0000"),
+                "EUR",
+                UUID.randomUUID());
+        for (String outcome : releaseOutcomes) {
+            jdbcTemplate.update(
+                    "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', ?)", id, outcome);
+        }
+        return id;
+    }
+
+    private List<String> releaseOutcomes(UUID transferId) {
+        return jdbcTemplate.queryForList(
+                "select outcome from saga_steps where transfer_id = ? and step = 'RELEASE' order by id",
+                String.class,
+                transferId);
     }
 
     private Transfer reload(UUID transferId) {
@@ -142,6 +174,67 @@ class SagaReprisePollerTest {
         assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.POSTED);
         assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.POSTED);
         assertThat(reload(reserved).getStatus()).isEqualTo(TransferStatus.POSTED);
+    }
+
+    @Test
+    void pollerReleasesTheReservationOfAFailedTransferWhoseReleaseWasLeftPending() {
+        UUID transferId = forceFailedTransferWithRelease("RETRY");
+
+        reprisePoller.sweep();
+
+        assertThat(fakeLedgerPort.releaseCallCount()).isEqualTo(1);
+        assertThat(releaseOutcomes(transferId)).containsExactly("RETRY", "COMPENSATED");
+
+        reprisePoller.sweep();
+        assertThat(fakeLedgerPort.releaseCallCount()).isEqualTo(1);
+    }
+
+    @Test
+    void pollerKeepsRetryingTheReleaseWhileTheLedgerIsUnavailable() {
+        UUID transferId = forceFailedTransferWithRelease("RETRY");
+        fakeLedgerPort.willFailRelease(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
+
+        reprisePoller.sweep();
+
+        assertThat(releaseOutcomes(transferId)).containsExactly("RETRY");
+
+        fakeLedgerPort.reset(); // ledger back
+        reprisePoller.sweep();
+
+        assertThat(releaseOutcomes(transferId)).containsExactly("RETRY", "COMPENSATED");
+    }
+
+    @Test
+    void pollerDoesNotRetryAReleaseTheLedgerRefused() {
+        UUID transferId = forceFailedTransferWithRelease("RETRY");
+        fakeLedgerPort.willFailRelease(new LedgerRejectedException("INVALID_ARGUMENT", "bad id", null));
+
+        reprisePoller.sweep();
+        reprisePoller.sweep();
+
+        assertThat(fakeLedgerPort.releaseCallCount()).isEqualTo(1);
+        assertThat(releaseOutcomes(transferId)).containsExactly("RETRY", "FAILED");
+    }
+
+    @Test
+    void pollerIgnoresFailedTransfersWithNothingToRelease() {
+        forceFailedTransferWithRelease("RETRY", "COMPENSATED");
+        forceFailedTransferWithRelease();
+
+        reprisePoller.sweep();
+
+        assertThat(fakeLedgerPort.releaseCallCount()).isZero();
+    }
+
+    @Test
+    void pollerStopsReleasingAtTheFirstUnavailableLedgerCall() {
+        forceFailedTransferWithRelease("RETRY");
+        forceFailedTransferWithRelease("RETRY");
+        fakeLedgerPort.willFailRelease(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
+
+        reprisePoller.sweep();
+
+        assertThat(fakeLedgerPort.releaseCallCount()).isEqualTo(1);
     }
 
     @TestConfiguration

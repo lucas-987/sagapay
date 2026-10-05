@@ -49,6 +49,9 @@ class SagaServiceTest {
     @Autowired
     private JsonMapper jsonMapper;
 
+    @Autowired
+    private SagaTransitionWriter writer;
+
     @BeforeEach
     void resetFakeLedger() {
         fakeLedgerPort.reset();
@@ -161,8 +164,16 @@ class SagaServiceTest {
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
     }
 
+    private List<String> stepsFor(UUID transferId) {
+        return sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transferId).stream()
+                .map(step -> step.getStep() + " " + step.getOutcome())
+                .toList();
+    }
+
     @Test
-    void postRejectedByTheLedgerFailsTheTransferInsteadOfLeavingItReserved() {
+    void postRejectedByTheLedgerFailsTheTransferAndReleasesTheReservation() {
+        UUID reservationId = UUID.randomUUID();
+        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
         fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
 
         Transfer transfer = initiate(UUID.randomUUID());
@@ -174,13 +185,65 @@ class SagaServiceTest {
         assertThat(eventTypesFor(transfer.getId()))
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("POST_REJECTED");
-        assertThat(sagaStepRepository.findByTransferIdOrderByAtAsc(transfer.getId()))
+        assertThat(fakeLedgerPort.releaseCalls()).containsExactly(reservationId);
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "POST FAILED", "RELEASE RETRY", "RELEASE COMPENSATED");
+        assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
+                .filteredOn(step -> step.getStep().equals("POST"))
+                .singleElement()
+                .satisfies(step ->
+                        assertThat(step.getDetail()).contains("NOT_FOUND").contains("no matching reservation"));
+    }
+
+    @Test
+    void releaseUnavailableLeavesTheFailedTransferWithAPendingRelease() {
+        fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
+        fakeLedgerPort.willFailRelease(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
+
+        Transfer transfer = initiate(UUID.randomUUID());
+
+        assertThatThrownBy(() -> sagaService.advance(transfer.getId())).isInstanceOf(LedgerUnavailableException.class);
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
+                .isEqualTo(TransferStatus.FAILED);
+        assertThat(eventTypesFor(transfer.getId())).containsOnlyOnce("TransferFailed");
+        assertThat(stepsFor(transfer.getId())).last().isEqualTo("RELEASE RETRY");
+    }
+
+    @Test
+    void releaseRefusedEndsTheStepWithTheLedgersAnswer() {
+        fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
+        fakeLedgerPort.willFailRelease(new LedgerRejectedException("INVALID_ARGUMENT", "bad reservation id", null));
+
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
+                .isEqualTo(TransferStatus.FAILED);
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "POST FAILED", "RELEASE RETRY", "RELEASE FAILED");
+        assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
                 .last()
-                .satisfies(step -> {
-                    assertThat(step.getStep()).isEqualTo("POST");
-                    assertThat(step.getOutcome()).isEqualTo("FAILED");
-                    assertThat(step.getDetail()).contains("NOT_FOUND").contains("no matching reservation");
-                });
+                .satisfies(step -> assertThat(step.getDetail())
+                        .contains("INVALID_ARGUMENT")
+                        .contains("bad reservation id"));
+    }
+
+    @Test
+    void failAndReleaseDoesNothingWhenAnotherActorMovedTheTransferFirst() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId()); // POSTED
+
+        boolean applied = writer.applyRejectedAndRelease(
+                transfer.getId(),
+                transfer,
+                TransferStatus.RESERVED,
+                "POST",
+                "POST_REJECTED",
+                new LedgerRejectedException("NOT_FOUND", "gone", null));
+
+        assertThat(applied).isFalse();
+        assertThat(eventTypesFor(transfer.getId())).doesNotContain("TransferFailed");
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "POST OK");
     }
 
     @Test

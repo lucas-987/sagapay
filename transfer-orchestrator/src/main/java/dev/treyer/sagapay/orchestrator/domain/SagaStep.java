@@ -39,13 +39,21 @@ public class SagaStep {
     @Column(name = "detail", updatable = false, columnDefinition = "jsonb")
     private String detail;
 
+    @Column(name = "deadline", updatable = false)
+    private Instant deadline;
+
     protected SagaStep() {}
 
     public SagaStep(UUID transferId, String step, String outcome, String detail) {
+        this(transferId, step, outcome, detail, null);
+    }
+
+    public SagaStep(UUID transferId, String step, String outcome, String detail, Instant deadline) {
         this.transferId = Objects.requireNonNull(transferId, "transferId");
         this.step = Objects.requireNonNull(step, "step");
         this.outcome = Objects.requireNonNull(outcome, "outcome");
         this.detail = detail;
+        this.deadline = deadline;
         this.at = Instant.now();
     }
 
@@ -71,5 +79,9 @@ public class SagaStep {
 
     public String getDetail() {
         return detail;
+    }
+
+    public Instant getDeadline() {
+        return deadline;
     }
 }

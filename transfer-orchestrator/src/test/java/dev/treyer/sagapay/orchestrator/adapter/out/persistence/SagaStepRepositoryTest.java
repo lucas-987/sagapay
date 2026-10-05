@@ -8,6 +8,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -69,5 +70,19 @@ class SagaStepRepositoryTest {
         List<SagaStep> steps = sagaSteps.findByTransferIdOrderByAtAsc(transferId);
 
         assertThat(steps).extracting(SagaStep::getStep).containsExactly("RESERVE", "POST");
+    }
+
+    @Test
+    void deadlineRoundTripsAndIsAbsentByDefault() {
+        UUID transferId = newTransfer();
+        Instant deadline = Instant.parse("2026-01-01T10:15:30.123456Z");
+        SagaStep withDeadline = sagaSteps.saveAndFlush(new SagaStep(transferId, "SCREEN", "RETRY", null, deadline));
+        SagaStep without = sagaSteps.saveAndFlush(new SagaStep(transferId, "POST", "OK", null));
+        entityManager.clear();
+
+        assertThat(sagaSteps.findById(withDeadline.getId()).orElseThrow().getDeadline())
+                .isEqualTo(deadline);
+        assertThat(sagaSteps.findById(without.getId()).orElseThrow().getDeadline())
+                .isNull();
     }
 }

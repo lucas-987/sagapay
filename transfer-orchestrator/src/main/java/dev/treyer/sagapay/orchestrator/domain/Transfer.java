@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -58,6 +59,13 @@ public class Transfer {
 
     @Column(name = "failure_reason", length = 64)
     private String failureReason;
+
+    @Column(name = "fraud_score", precision = 5, scale = 4)
+    private BigDecimal fraudScore;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "fraud_reasons", columnDefinition = "text[]")
+    private List<String> fraudReasons;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -137,6 +145,14 @@ public class Transfer {
 
     public String getFailureReason() {
         return failureReason;
+    }
+
+    public BigDecimal getFraudScore() {
+        return fraudScore;
+    }
+
+    public List<String> getFraudReasons() {
+        return fraudReasons;
     }
 
     public Instant getCreatedAt() {

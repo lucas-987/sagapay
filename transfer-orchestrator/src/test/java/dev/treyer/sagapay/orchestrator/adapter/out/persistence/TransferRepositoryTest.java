@@ -4,6 +4,8 @@ import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
@@ -111,5 +113,56 @@ class TransferRepositoryTest {
                 .isPresent();
         assertThat(transfers.findBySenderIdAndIdempotencyKey(senderId, UUID.randomUUID()))
                 .isEmpty();
+    }
+
+    private Transfer newTransfer() {
+        return transfers.saveAndFlush(new Transfer(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                new BigDecimal("5.0000"),
+                "EUR",
+                null));
+    }
+
+    @ParameterizedTest
+    @EnumSource(TransferStatus.class)
+    void everyStatusRoundTripsThroughTheNativeEnumColumn(TransferStatus status) {
+        Transfer saved = newTransfer();
+        jdbcTemplate.update(
+                "update transfers set status = ?::transfer_status where id = ?", status.name(), saved.getId());
+        entityManager.clear();
+
+        assertThat(transfers.findById(saved.getId()).orElseThrow().getStatus()).isEqualTo(status);
+    }
+
+    @Test
+    void fraudScoreAndReasonsRoundTrip() {
+        Transfer saved = newTransfer();
+        jdbcTemplate.update(
+                "update transfers set fraud_score = ?, fraud_reasons = ?::text[] where id = ?",
+                new BigDecimal("0.8765"),
+                "{HIGH_AMOUNT,NEW_RECIPIENT}",
+                saved.getId());
+        entityManager.clear();
+
+        Transfer found = transfers.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getFraudScore()).isEqualByComparingTo("0.8765");
+        assertThat(found.getFraudReasons()).containsExactly("HIGH_AMOUNT", "NEW_RECIPIENT");
+    }
+
+    @Test
+    void fraudScoreAndReasonsAreAbsentByDefault() {
+        Transfer saved = newTransfer();
+        entityManager.clear();
+
+        Transfer found = transfers.findById(saved.getId()).orElseThrow();
+
+        assertThat(found.getFraudScore()).isNull();
+        assertThat(found.getFraudReasons()).isNull();
     }
 }

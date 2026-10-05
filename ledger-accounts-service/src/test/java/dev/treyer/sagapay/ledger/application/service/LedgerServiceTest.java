@@ -284,6 +284,63 @@ class LedgerServiceTest {
     }
 
     @Test
+    void releaseReservationOnAnAlreadyReleasedReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        releaseReservationUseCase.releaseReservation(transferId, reservationId);
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.RELEASED);
+    }
+
+    @Test
+    void releaseReservationOnAnExpiredReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        jdbcTemplate.update(
+                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?", transferId);
+        expireReservationsUseCase.expireOverdueReservations();
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.EXPIRED);
+    }
+
+    @Test
+    void releaseReservationOnAConsumedReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        postTransferUseCase.postTransfer(transferId, account.getId(), to.getId(), Money.of("40.00", "EUR"));
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.CONSUMED);
+    }
+
+    private UUID reserve(String transferId, Account account, String amount) {
+        CheckAndReserveResult result =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of(amount, "EUR"));
+        return ((CheckAndReserveResult.Ok) result).reservationId();
+    }
+
+    private void assertReleaseChangesNothing(
+            String transferId, UUID reservationId, Account account, ReservationStatus expectedStatus) {
+        WalletSnapshot before = getWalletUseCase.getWallet(account.getId());
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(expectedStatus);
+
+        releaseReservationUseCase.releaseReservation(transferId, reservationId);
+
+        WalletSnapshot after = getWalletUseCase.getWallet(account.getId());
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(expectedStatus);
+        assertThat(after.balance().amount())
+                .isEqualByComparingTo(before.balance().amount());
+        assertThat(after.available().amount())
+                .isEqualByComparingTo(before.available().amount());
+        assertThat(after.held().amount()).isEqualByComparingTo(before.held().amount());
+    }
+
+    @Test
     void getWalletAvailableIsBalanceMinusHeld() {
         Account account = newAccount("EUR", "200.0000");
         Money holdAmount = Money.of("50.00", "EUR");

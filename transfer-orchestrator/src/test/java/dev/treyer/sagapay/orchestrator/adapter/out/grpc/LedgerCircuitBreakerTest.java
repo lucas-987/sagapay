@@ -137,5 +137,7 @@ class LedgerCircuitBreakerTest {
         assertThatThrownBy(() ->
                         ledgerPort.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
                 .isInstanceOf(LedgerUnavailableException.class);
+        assertThatThrownBy(() -> ledgerPort.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))
+                .isInstanceOf(LedgerUnavailableException.class);
     }
 }

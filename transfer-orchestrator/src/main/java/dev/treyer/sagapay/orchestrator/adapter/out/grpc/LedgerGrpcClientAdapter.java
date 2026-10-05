@@ -6,6 +6,7 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
 import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
+import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -99,6 +100,25 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     @SuppressWarnings("unused")
     private boolean postTransferFallback(
             String transferId, UUID fromAccountId, UUID toAccountId, Money amount, Throwable t) {
+        throw toFallbackException(t);
+    }
+
+    @Override
+    @CircuitBreaker(name = "ledger", fallbackMethod = "releaseReservationFallback")
+    public void releaseReservation(String transferId, UUID reservationId) {
+        try {
+            stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
+                    .releaseReservation(ReleaseReservationRequest.newBuilder()
+                            .setTransferId(transferId)
+                            .setReservationId(reservationId.toString())
+                            .build());
+        } catch (StatusRuntimeException e) {
+            throw classify(e);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    private void releaseReservationFallback(String transferId, UUID reservationId, Throwable t) {
         throw toFallbackException(t);
     }
 

@@ -1,13 +1,23 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
 import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.common.v1.Empty;
+import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
+import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Server;
+import io.grpc.Status;
+import io.grpc.inprocess.InProcessChannelBuilder;
+import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -111,5 +121,52 @@ class LedgerGrpcClientAdapterTest {
                 .isInstanceOfSatisfying(
                         LedgerRejectedException.class,
                         e -> assertThat(e.ledgerStatus()).isEqualTo("NOT_FOUND"));
+    }
+
+    @Test
+    void releaseReservationRoundTripsToARealLedgerContainer() {
+        UUID transferId = UUID.randomUUID();
+        ReservationResult result =
+                adapter.checkAndReserve(transferId.toString(), bobAccountId, Money.of("1.00", "EUR"));
+        UUID reservationId = ((ReservationResult.Ok) result).reservationId();
+
+        adapter.releaseReservation(transferId.toString(), reservationId);
+        // The ledger answers success for a hold that is already released.
+        adapter.releaseReservation(transferId.toString(), reservationId);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = Status.Code.class,
+            names = {"NOT_FOUND", "INVALID_ARGUMENT", "ALREADY_EXISTS"})
+    void releaseReservationRefusalCodesBecomeALedgerRejection(Status.Code code) throws Exception {
+        String serverName = "ledger-refusing-" + code;
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new LedgerServiceGrpc.LedgerServiceImplBase() {
+                    @Override
+                    public void releaseReservation(
+                            ReleaseReservationRequest request, StreamObserver<Empty> responseObserver) {
+                        responseObserver.onError(
+                                code.toStatus().withDescription("refused").asRuntimeException());
+                    }
+                })
+                .build()
+                .start();
+        ManagedChannel inProcess =
+                InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try {
+            LedgerGrpcClientAdapter refusing = new LedgerGrpcClientAdapter(inProcess, 5000);
+
+            assertThatThrownBy(
+                            () -> refusing.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))
+                    .isInstanceOfSatisfying(LedgerRejectedException.class, e -> {
+                        assertThat(e.ledgerStatus()).isEqualTo(code.name());
+                        assertThat(e.getMessage()).isEqualTo("refused");
+                    });
+        } finally {
+            inProcess.shutdownNow();
+            server.shutdownNow();
+        }
     }
 }

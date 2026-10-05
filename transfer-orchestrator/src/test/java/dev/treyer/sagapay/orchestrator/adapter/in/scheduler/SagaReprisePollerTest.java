@@ -158,6 +158,16 @@ class SagaReprisePollerTest {
         private RuntimeException postFailure;
         private int checkAndReserveCallCount = 0;
         private int postTransferCallCount = 0;
+        private RuntimeException releaseFailure;
+        private int releaseCallCount = 0;
+
+        void willFailRelease(RuntimeException failure) {
+            this.releaseFailure = failure;
+        }
+
+        int releaseCallCount() {
+            return releaseCallCount;
+        }
 
         void willFailReserve(RuntimeException failure) {
             this.reserveFailure = failure;
@@ -170,6 +180,8 @@ class SagaReprisePollerTest {
         void reset() {
             reserveFailure = null;
             postFailure = null;
+            releaseFailure = null;
+            releaseCallCount = 0;
             checkAndReserveCallCount = 0;
             postTransferCallCount = 0;
         }
@@ -198,6 +210,14 @@ class SagaReprisePollerTest {
                 throw postFailure;
             }
             return true;
+        }
+
+        @Override
+        public void releaseReservation(String transferId, UUID reservationId) {
+            releaseCallCount++;
+            if (releaseFailure != null) {
+                throw releaseFailure;
+            }
         }
     }
 }

@@ -86,8 +86,8 @@ public class TransferRestAdapter implements V1Api {
                 try {
                     advanceSagaUseCase.advance(transferId);
                 } catch (LedgerUnavailableException e) {
-                    // Nobody to report to: the transfer stays INITIATED for the
-                    // reprise poller.
+                    // Nobody to report to: the reprise poller picks the transfer up
+                    // again, whether it is still in flight or a release is pending.
                     log.warn("Ledger unavailable for transfer {}, left for the reprise poller", transferId, e);
                 }
             });

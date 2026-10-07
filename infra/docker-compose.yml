@@ -121,6 +121,58 @@ services:
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
       LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
 
+  postgres-fraud:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      POSTGRES_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      POSTGRES_DB: fraud_svc
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-fraud:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d fraud_svc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  fraud-detection-service:
+    build:
+      context: ..
+      dockerfile: fraud-detection-service/Dockerfile
+    depends_on:
+      postgres-fraud:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-fraud:5432/fraud_svc
+      SPRING_DATASOURCE_USERNAME: ${FRAUD_APP_USERNAME:-fraud_app}
+      SPRING_DATASOURCE_PASSWORD: ${FRAUD_APP_PASSWORD}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres-fraud:5432/fraud_svc
+      SPRING_FLYWAY_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      SPRING_FLYWAY_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      SPRING_FLYWAY_PLACEHOLDERS_FRAUDAPPUSERNAME: ${FRAUD_APP_USERNAME:-fraud_app}
+      SPRING_FLYWAY_PLACEHOLDERS_FRAUDAPPPASSWORD: ${FRAUD_APP_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
 volumes:
   pgdata:
   pgdata-orchestrator:
+  pgdata-fraud:

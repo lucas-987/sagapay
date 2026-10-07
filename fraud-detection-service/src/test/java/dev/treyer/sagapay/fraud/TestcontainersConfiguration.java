@@ -11,7 +11,7 @@ import org.testcontainers.utility.DockerImageName;
 
 // Public: reused by tests in sub-packages.
 @TestConfiguration(proxyBeanMethods = false)
-public class TestcontainersConfiguration {
+class TestcontainersConfiguration {
 
     @Bean
     @ServiceConnection

@@ -8,7 +8,7 @@ COPY pom.xml .
 COPY common/pom.xml common/
 COPY contracts/pom.xml contracts/
 COPY ledger-accounts-service/pom.xml ledger-accounts-service/
-COPY fraud-detection-service/pom.xml fraud-detection-service/
+COPY transfer-orchestrator/pom.xml transfer-orchestrator/
 COPY fraud-detection-service/pom.xml fraud-detection-service/
 COPY api-gateway/pom.xml api-gateway/
 COPY notification-consumer/pom.xml notification-consumer/

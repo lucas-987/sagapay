@@ -59,7 +59,8 @@ class LedgerCircuitBreakerTest {
     @Container
     private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
                     .withFileFromPath(".", repoRoot())
-                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
+                    .withDockerfilePath("ledger-accounts-service/Dockerfile")
+                    .withBuildArg("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")))
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)

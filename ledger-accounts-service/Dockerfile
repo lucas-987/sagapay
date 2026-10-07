@@ -12,6 +12,11 @@ COPY transfer-orchestrator/pom.xml transfer-orchestrator/
 COPY fraud-detection-service/pom.xml fraud-detection-service/
 COPY api-gateway/pom.xml api-gateway/
 COPY notification-consumer/pom.xml notification-consumer/
+# Optional Maven mirror, for builds without direct access to Maven Central.
+ARG MAVEN_MIRROR_URL=
+RUN if [ -n "$MAVEN_MIRROR_URL" ]; then \
+      mkdir -p /root/.m2 && printf '<settings><mirrors><mirror><id>build-mirror</id><mirrorOf>*</mirrorOf><url>%s</url></mirror></mirrors></settings>' "$MAVEN_MIRROR_URL" > /root/.m2/settings.xml; \
+    fi
 # Dependencies resolve in their own layer, so a source change does not download them again.
 RUN mvn -q -B -pl ledger-accounts-service -am dependency:go-offline -DexcludeGroupIds=dev.treyer.sagapay
 COPY . .

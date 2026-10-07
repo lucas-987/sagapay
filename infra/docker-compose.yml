@@ -20,6 +20,8 @@ services:
     build:
       context: ..
       dockerfile: ledger-accounts-service/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,6 +103,8 @@ services:
     build:
       context: ..
       dockerfile: transfer-orchestrator/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
     depends_on:
       postgres-orchestrator:
         condition: service_healthy
@@ -151,6 +155,8 @@ services:
     build:
       context: ..
       dockerfile: fraud-detection-service/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
     depends_on:
       postgres-fraud:
         condition: service_healthy

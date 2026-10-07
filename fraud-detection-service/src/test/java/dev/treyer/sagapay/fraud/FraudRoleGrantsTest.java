@@ -17,8 +17,8 @@ class FraudRoleGrantsTest {
             + " values ('t-1', 's-1', 10, 0.5, array['VELOCITY_1H'])";
     private static final String INSERT_OUTBOX = "insert into outbox (aggregate_type, aggregate_id, event_type, payload)"
             + " values ('FraudCase', 't-1', 'TransferCleared', '{}'::jsonb)";
-    private static final String INSERT_PROCESSED = "insert into processed_events (event_id, consumer)"
-            + " values ('e-1', 'transfers')";
+    private static final String INSERT_PROCESSED =
+            "insert into processed_events (event_id, consumer)" + " values ('e-1', 'transfers')";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

@@ -28,6 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- A floor just under the current coverage: it may only go up. -->
+		<jacoco.minimum.line>0.80</jacoco.minimum.line>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -141,6 +143,11 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
+			<groupId>com.tngtech.archunit</groupId>
+			<artifactId>archunit-junit5</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers-kafka</artifactId>
 			<scope>test</scope>
@@ -159,6 +166,16 @@
 
 	<build>
 		<plugins>
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<configuration>
+					<!-- Only bootstraps Spring: nothing to cover beyond the context-loads test. -->
+					<excludes>
+						<exclude>**/FraudDetectionServiceApplication.class</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

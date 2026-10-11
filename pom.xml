@@ -42,7 +42,7 @@
         <palantir-java-format.version>2.101.0</palantir-java-format.version>
         <jacoco.version>0.8.15</jacoco.version>
         <jacoco.minimum.line>0.00</jacoco.minimum.line>
-        <openapi-generator.version>7.25.0</openapi-generator.version>
+        <openapi-generator.version>7.26.0</openapi-generator.version>
         <logstash-logback.version>8.0</logstash-logback.version>
     </properties>
 

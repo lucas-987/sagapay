@@ -2,7 +2,9 @@ package dev.treyer.sagapay.fraud.config;
 
 import dev.treyer.sagapay.fraud.adapter.in.kafka.MalformedTransferEventException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
@@ -15,14 +17,18 @@ import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.kafka.support.serializer.StringOrBytesSerializer;
 import org.springframework.util.backoff.FixedBackOff;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Configuration
-class KafkaErrorHandlingConfig {
+class KafkaErrorHandlingConfig implements DisposableBean {
 
     private static final long RETRY_INTERVAL_MS = 1000;
     private static final long RETRIES = 3;
+
+    private final List<DefaultKafkaProducerFactory<?, ?>> deadLetterProducers = new ArrayList<>();
 
     /**
      * An unreadable record reaches the recoverer as raw bytes, a readable one as the decoded
@@ -33,10 +39,10 @@ class KafkaErrorHandlingConfig {
     @Bean
     DefaultErrorHandler transferEventsErrorHandler(ProducerFactory<?, ?> producerFactory) {
         Map<String, Object> producerProperties = producerFactory.getConfigurationProperties();
-        KafkaTemplate<Object, Object> rawTemplate = new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(
+        KafkaTemplate<Object, Object> rawTemplate = new KafkaTemplate<>(deadLetterProducerFactory(
                 producerProperties, new StringOrBytesSerializer(), new StringOrBytesSerializer()));
-        KafkaTemplate<String, Object> jsonTemplate = new KafkaTemplate<>(new DefaultKafkaProducerFactory<
-                String, Object>(producerProperties, new StringSerializer(), new JacksonJsonSerializer<Object>()));
+        KafkaTemplate<String, Object> jsonTemplate = new KafkaTemplate<>(deadLetterProducerFactory(
+                producerProperties, new StringSerializer(), new JacksonJsonSerializer<Object>()));
         Map<Class<?>, KafkaOperations<?, ?>> templates = new LinkedHashMap<>();
         templates.put(byte[].class, rawTemplate);
         templates.put(Object.class, jsonTemplate);
@@ -48,5 +54,22 @@ class KafkaErrorHandlingConfig {
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(RETRY_INTERVAL_MS, RETRIES));
         handler.addNotRetryableExceptions(MalformedTransferEventException.class);
         return handler;
+    }
+
+    @Override
+    public void destroy() {
+        deadLetterProducers.forEach(DefaultKafkaProducerFactory::destroy);
+    }
+
+    private <K, V> DefaultKafkaProducerFactory<K, V> deadLetterProducerFactory(
+            Map<String, Object> properties, Serializer<K> keySerializer, Serializer<V> valueSerializer) {
+        DefaultKafkaProducerFactory<K, V> factory = newProducerFactory(properties, keySerializer, valueSerializer);
+        deadLetterProducers.add(factory);
+        return factory;
+    }
+
+    <K, V> DefaultKafkaProducerFactory<K, V> newProducerFactory(
+            Map<String, Object> properties, Serializer<K> keySerializer, Serializer<V> valueSerializer) {
+        return new DefaultKafkaProducerFactory<>(properties, keySerializer, valueSerializer);
     }
 }

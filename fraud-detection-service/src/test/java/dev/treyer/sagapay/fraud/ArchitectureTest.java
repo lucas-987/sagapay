@@ -7,7 +7,7 @@ import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
-/** Hexagonal dependency rules; a layer holding no class yet is not an error. */
+/** Hexagonal dependency rules. */
 @AnalyzeClasses(packages = "dev.treyer.sagapay.fraud", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
 
@@ -18,8 +18,7 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage(
-                    "..fraud.application..", "..fraud.adapter..", "..fraud.config..", "org.springframework..")
-            .allowEmptyShould(true);
+                    "..fraud.application..", "..fraud.adapter..", "..fraud.config..", "org.springframework..");
 
     @ArchTest
     static final ArchRule applicationDependsOnPortsNotAdapters = noClasses()
@@ -33,8 +32,7 @@ class ArchitectureTest {
                     "org.springframework.data..",
                     "org.springframework.web..",
                     "org.springframework.kafka..",
-                    "jakarta.servlet..")
-            .allowEmptyShould(true);
+                    "jakarta.servlet..");
 
     @ArchTest
     static final ArchRule inboundAdaptersDoNotCallOutboundAdapters = noClasses()
@@ -42,6 +40,5 @@ class ArchitectureTest {
             .resideInAPackage("..fraud.adapter.in..")
             .should()
             .dependOnClassesThat()
-            .resideInAPackage("..fraud.adapter.out..")
-            .allowEmptyShould(true);
+            .resideInAPackage("..fraud.adapter.out..");
 }

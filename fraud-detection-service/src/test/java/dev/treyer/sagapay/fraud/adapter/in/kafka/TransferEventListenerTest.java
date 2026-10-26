@@ -51,6 +51,15 @@ class TransferEventListenerTest {
         assertThat(screened).isEmpty();
     }
 
+    @Test
+    void aTombstoneIsRefusedAsMalformedWithoutBeingScreened() {
+        assertThatThrownBy(() -> listener.onTransferEvent(null))
+                .isExactlyInstanceOf(MalformedTransferEventException.class)
+                .hasMessage("transfer event is empty");
+
+        assertThat(screened).isEmpty();
+    }
+
     static Stream<Arguments> malformedReservations() {
         return Stream.of(
                 malformed("no data", "event-1", null, "transfer event has no data"),

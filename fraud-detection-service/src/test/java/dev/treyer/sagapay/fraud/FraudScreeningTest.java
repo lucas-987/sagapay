@@ -8,6 +8,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.RetryListener;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
@@ -28,6 +31,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -56,9 +64,23 @@ class FraudScreeningTest {
     @Autowired
     private ScreenTransferUseCase screening;
 
+    @Autowired
+    private DefaultErrorHandler errorHandler;
+
+    private final List<String> failedDeliveries = new CopyOnWriteArrayList<>();
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final UUID sender = UUID.randomUUID();
     private final UUID recipient = UUID.randomUUID();
+
+    @BeforeEach
+    void recordFailedDeliveries() {
+        errorHandler.setRetryListeners(new RetryListener() {
+            @Override
+            public void failedDelivery(ConsumerRecord<?, ?> record, Exception exception, int deliveryAttempt) {
+                failedDeliveries.add(record.key() + " attempt " + deliveryAttempt);
+            }
+        });
+    }
 
     private static String event(
             String eventId, String eventType, UUID transfer, UUID sender, UUID recipient, String amount) {
@@ -84,6 +106,11 @@ class FraudScreeningTest {
         await().atMost(PATIENCE)
                 .untilAsserted(() -> assertThat(countOf("outbox", "aggregate_id", transfer.toString()))
                         .isGreaterThanOrEqualTo(1));
+    }
+
+    private String outboxEventTypeOf(UUID transfer) {
+        return jdbc.queryForObject(
+                "select event_type from outbox where aggregate_id = ?", String.class, transfer.toString());
     }
 
     private String resultOf(UUID transfer) {
@@ -119,6 +146,7 @@ class FraudScreeningTest {
         assertThat(flagged.get("transfer_outcome")).isNull();
         assertThat(flagged.get("score")).isEqualTo("0.7000");
         assertThat(flagged.get("reasons")).isEqualTo("NEW_RECIPIENT,AMOUNT_ROUND");
+        assertThat(outboxEventTypeOf(transfer)).isEqualTo("TransferFlagged");
     }
 
     @Test
@@ -182,6 +210,7 @@ class FraudScreeningTest {
         List<ConsumerRecord<String, String>> deadLetters = deadLettersOf(sender.toString());
         assertThat(deadLetters).hasSize(1);
         assertThat(deadLetters.getFirst().value()).isEqualTo("{not json");
+        assertThat(outboxEventTypeOf(transfer)).isEqualTo("TransferCleared");
     }
 
     @Test
@@ -225,6 +254,70 @@ class FraudScreeningTest {
             assertThat(countOf("fraud_cases", "transfer_id", e.getValue().toString()))
                     .isZero();
         }
+        assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("1");
+        assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(recipient.toString());
+    }
+
+    @Test
+    @DisplayName("A failing screening is retried three times, then set aside as dead letter")
+    void aFailingScreeningIsRetriedThreeTimesThenDeadLettered() {
+        UUID transfer = UUID.randomUUID();
+        String eventId = UUID.randomUUID().toString();
+        jdbc.update(
+                "insert into fraud_cases (transfer_id, sender_id, amount, score, reasons)"
+                        + " values (?, ?, 1, 0.5, array['VELOCITY_1H'])",
+                transfer.toString(),
+                sender.toString());
+
+        sendReserved(eventId, transfer, recipient, "500.00");
+        List<ConsumerRecord<String, String>> deadLetters = deadLettersOf(sender.toString());
+
+        assertThat(deadLetters).hasSize(1);
+        String key = sender.toString();
+        assertThat(failedDeliveries)
+                .containsExactly(key + " attempt 1", key + " attempt 2", key + " attempt 3", key + " attempt 4");
+        assertThat(countOf("processed_events", "event_id", eventId)).isZero();
+    }
+
+    @Test
+    @DisplayName("A malformed reservation goes to the dead letters at its first failure")
+    void aMalformedReservationIsNotRetried() {
+        send("""
+                {"id":"%s","data":{"eventType":"FundsReserved","transferId":"%s","senderId":"%s","amount":"20.00","currency":"EUR"}}""".formatted(UUID.randomUUID(), UUID.randomUUID(), sender));
+
+        deadLettersOf(sender.toString());
+
+        assertThat(failedDeliveries).containsExactly(sender + " attempt 1");
+    }
+
+    @Test
+    @DisplayName("The same FundsReserved delivered at the same time is screened once")
+    void sameEventScreenedConcurrentlyIsScreenedOnce() throws Exception {
+        UUID transfer = UUID.randomUUID();
+        String eventId = UUID.randomUUID().toString();
+        ReservedTransfer reserved =
+                new ReservedTransfer(eventId, transfer, sender, recipient, Money.of("500.00", "EUR"));
+        CyclicBarrier bothReady = new CyclicBarrier(2);
+        ExecutorService threads = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<?>> deliveries = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                deliveries.add(threads.submit(() -> {
+                    bothReady.await();
+                    screening.screen(reserved);
+                    return null;
+                }));
+            }
+            for (Future<?> delivery : deliveries) {
+                delivery.get();
+            }
+        } finally {
+            threads.shutdown();
+        }
+
+        assertThat(countOf("outbox", "aggregate_id", transfer.toString())).isEqualTo(1);
+        assertThat(countOf("fraud_cases", "transfer_id", transfer.toString())).isEqualTo(1);
+        assertThat(countOf("processed_events", "event_id", eventId)).isEqualTo(1);
         assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("1");
         assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(recipient.toString());
     }

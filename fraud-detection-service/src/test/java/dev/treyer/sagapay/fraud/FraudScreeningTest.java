@@ -102,6 +102,14 @@ class FraudScreeningTest {
         return jdbc.queryForObject("select count(*) from " + table + " where " + column + " = ?", Integer.class, value);
     }
 
+    private int processedEvents() {
+        return jdbc.queryForObject("select count(*) from processed_events", Integer.class);
+    }
+
+    private int outboxRows() {
+        return jdbc.queryForObject("select count(*) from outbox", Integer.class);
+    }
+
     private void awaitResultFor(UUID transfer) {
         await().atMost(PATIENCE)
                 .untilAsserted(() -> assertThat(countOf("outbox", "aggregate_id", transfer.toString()))
@@ -288,6 +296,26 @@ class FraudScreeningTest {
         deadLettersOf(sender.toString());
 
         assertThat(failedDeliveries).containsExactly(sender + " attempt 1");
+    }
+
+    @Test
+    @DisplayName("A record with no value goes to the dead letters at its first delivery")
+    void aTombstoneIsDeadLetteredAtOnceAndTheNextReservationIsScreened() {
+        UUID transfer = UUID.randomUUID();
+        int processedBefore = processedEvents();
+        int outboxBefore = outboxRows();
+        kafka.send(TOPIC, sender.toString(), null).join();
+        sendReserved(UUID.randomUUID().toString(), transfer, recipient, "20.00");
+
+        List<ConsumerRecord<String, String>> deadLetters = deadLettersOf(sender.toString());
+        awaitResultFor(transfer);
+
+        assertThat(deadLetters).hasSize(1);
+        assertThat(deadLetters.getFirst().value()).isNull();
+        assertThat(failedDeliveries).containsExactly(sender + " attempt 1");
+        assertThat(processedEvents()).isEqualTo(processedBefore + 1);
+        assertThat(outboxRows()).isEqualTo(outboxBefore + 1);
+        assertThat(outboxEventTypeOf(transfer)).isEqualTo("TransferCleared");
     }
 
     @Test

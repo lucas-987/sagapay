@@ -21,9 +21,6 @@ public class TransferEventListener {
 
     @KafkaListener(topics = "payments.transfers", groupId = "fraud-screening")
     public void onTransferEvent(TransferEventMessage message) {
-        if (message == null) {
-            throw new MalformedTransferEventException("transfer event is empty");
-        }
         TransferEventMessage.Data data = message.data();
         if (data == null) {
             throw new MalformedTransferEventException("transfer event has no data");

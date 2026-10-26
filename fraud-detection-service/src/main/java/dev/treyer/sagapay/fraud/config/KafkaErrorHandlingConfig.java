@@ -68,6 +68,7 @@ class KafkaErrorHandlingConfig implements DisposableBean {
         return factory;
     }
 
+    // Package-private so that a test can substitute the factories and observe that they are closed.
     <K, V> DefaultKafkaProducerFactory<K, V> newProducerFactory(
             Map<String, Object> properties, Serializer<K> keySerializer, Serializer<V> valueSerializer) {
         return new DefaultKafkaProducerFactory<>(properties, keySerializer, valueSerializer);

@@ -13,6 +13,9 @@ import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
 import dev.treyer.sagapay.fraud.domain.SenderActivity;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
@@ -27,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(OutputCaptureExtension.class)
 class ScreeningServiceTest {
 
     private static final UUID SENDER = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -42,6 +46,7 @@ class ScreeningServiceTest {
     private SenderActivity history = new SenderActivity(1, Set.of(KNOWN_RECIPIENT));
     private boolean alreadyProcessed;
     private RuntimeException outboxFailure;
+    private RuntimeException recordFailure;
 
     private final SenderHistoryPort historyPort = new SenderHistoryPort() {
         @Override
@@ -53,6 +58,9 @@ class ScreeningServiceTest {
         @Override
         public void record(UUID senderId, UUID recipientId) {
             calls.add("history.record " + senderId + " " + recipientId);
+            if (recordFailure != null) {
+                throw recordFailure;
+            }
         }
     };
     private final ProcessedEventPort processedPort = (eventId, consumer) -> {
@@ -193,6 +201,23 @@ class ScreeningServiceTest {
 
         service.screen(reserved(KNOWN_RECIPIENT, "20.00"));
 
-        assertThat(savedMessages.getFirst().payload()).contains("\"score\":0.40,\"reasons\":[\"VELOCITY_1H\"]");
+        assertThat(savedMessages.getFirst().payload())
+                .isEqualTo("{\"transferId\":\"" + TRANSFER + "\",\"senderId\":\"" + SENDER
+                        + "\",\"decision\":\"CLEARED\",\"score\":0.40,\"reasons\":[\"VELOCITY_1H\"],"
+                        + "\"modelVersion\":\"rules-v1\",\"ts\":\"2026-03-01T10:15:30Z\"}");
+    }
+
+    @Test
+    void aHistoryUpdateThatFailsAfterTheCommitIsLoggedAndNotRaised(CapturedOutput output) {
+        recordFailure = new IllegalStateException("redis down");
+
+        service.screen(reserved(NEW_RECIPIENT, "500.00"));
+
+        assertThat(savedMessages).hasSize(1);
+        assertThat(output.getOut())
+                .contains("WARN")
+                .contains("History update failed after the decision of transfer " + TRANSFER
+                        + " was committed; the sender's history misses this transfer")
+                .contains("java.lang.IllegalStateException: redis down");
     }
 }

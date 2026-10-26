@@ -1,8 +1,10 @@
 package dev.treyer.sagapay.fraud;
 
+import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.kafka.KafkaContainer;
@@ -28,6 +30,21 @@ public class TestcontainersConfiguration {
     @ServiceConnection(name = "redis")
     GenericContainer<?> redisContainer() {
         return new GenericContainer<>(DockerImageName.parse("redis:7.4")).withExposedPorts(6379);
+    }
+
+    // The partition counts of the real topics: the dead-letter topic has fewer partitions than
+    // the one it shadows.
+    @Bean
+    NewTopic transfersTopic() {
+        return TopicBuilder.name("payments.transfers").partitions(6).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic transfersDeadLetterTopic() {
+        return TopicBuilder.name("payments.transfers.DLT")
+                .partitions(1)
+                .replicas(1)
+                .build();
     }
 
     // spring.flyway.url is set in application.properties, so it wins over the service

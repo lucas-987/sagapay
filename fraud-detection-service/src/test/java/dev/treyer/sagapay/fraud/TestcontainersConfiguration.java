@@ -40,6 +40,14 @@ public class TestcontainersConfiguration {
     }
 
     @Bean
+    NewTopic fraudResultsTopic() {
+        return TopicBuilder.name("payments.fraud.results")
+                .partitions(6)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
     NewTopic transfersDeadLetterTopic() {
         return TopicBuilder.name("payments.transfers.DLT")
                 .partitions(1)

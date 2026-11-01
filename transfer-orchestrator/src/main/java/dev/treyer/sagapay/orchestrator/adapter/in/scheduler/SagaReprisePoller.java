@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Resumes transfers left in {@code INITIATED} or {@code RESERVED} by a crash, a
+ * Resumes transfers left in {@code INITIATED} or {@code CLEARED} by a crash, a
  * lost background task or an unavailable ledger, and releases the reservation of
  * {@code FAILED} transfers whose release is still pending. Active in every profile: a
  * stuck saga is a production concern.

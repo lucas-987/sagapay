@@ -10,6 +10,8 @@ import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,7 +61,7 @@ class SagaReprisePollerTest {
         UUID id = UUID.randomUUID();
         UUID senderAccountId = UUID.randomUUID();
         UUID recipientAccountId = UUID.randomUUID();
-        UUID reservationId = status == TransferStatus.RESERVED ? UUID.randomUUID() : null;
+        UUID reservationId = status == TransferStatus.INITIATED ? null : UUID.randomUUID();
         jdbcTemplate.update(
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
@@ -114,33 +117,40 @@ class SagaReprisePollerTest {
     }
 
     @Test
-    void pollerAloneCompletesATransferStuckInReservedPastTheGracePeriod() {
-        UUID transferId = forceTransferInto(TransferStatus.RESERVED);
+    @Tag("M3-S05")
+    @DisplayName("A cleared transfer whose posting was interrupted is posted by recovery")
+    void pollerPostsAClearedTransferOnceAndNeverAReservedOrScreeningOne() {
+        UUID cleared = forceTransferInto(TransferStatus.CLEARED);
+        UUID reserved = forceTransferInto(TransferStatus.RESERVED);
+        UUID screening = forceTransferInto(TransferStatus.SCREENING);
 
         reprisePoller.sweep();
+        reprisePoller.sweep();
 
-        assertThat(reload(transferId).getStatus()).isEqualTo(TransferStatus.POSTED);
-        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
+        assertThat(reload(cleared).getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(reload(reserved).getStatus()).isEqualTo(TransferStatus.RESERVED);
+        assertThat(reload(screening).getStatus()).isEqualTo(TransferStatus.SCREENING);
+        assertThat(fakeLedgerPort.postedTransferIds()).containsExactly(cleared.toString());
         assertThat(fakeLedgerPort.checkAndReserveCallCount()).isZero();
     }
 
     /** The eager call runs on a background task after the 202, so a crash can
      * leave the transfer INITIATED before the ledger is ever called. */
     @Test
-    void pollerAloneCompletesATransferStuckInInitiatedPastTheGracePeriod() {
+    void pollerAloneReservesATransferStuckInInitiatedPastTheGracePeriodAndHoldsItForScreening() {
         UUID transferId = forceTransferInto(TransferStatus.INITIATED);
 
         reprisePoller.sweep();
 
-        assertThat(reload(transferId).getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(reload(transferId).getStatus()).isEqualTo(TransferStatus.SCREENING);
         assertThat(fakeLedgerPort.checkAndReserveCallCount()).isEqualTo(1);
-        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
     }
 
     /** For instance an expired reservation: retrying can never succeed. */
     @Test
-    void pollerFailsAReservedTransferTheLedgerRefusesToPost() {
-        UUID transferId = forceTransferInto(TransferStatus.RESERVED);
+    void pollerFailsAClearedTransferTheLedgerRefusesToPost() {
+        UUID transferId = forceTransferInto(TransferStatus.CLEARED);
         fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
 
         reprisePoller.sweep();
@@ -156,7 +166,7 @@ class SagaReprisePollerTest {
     void pollerStopsAtTheFirstUnavailableLedgerCallAndLeavesTransfersForTheNextSweep() {
         UUID first = forceTransferInto(TransferStatus.INITIATED);
         UUID second = forceTransferInto(TransferStatus.INITIATED);
-        UUID reserved = forceTransferInto(TransferStatus.RESERVED);
+        UUID cleared = forceTransferInto(TransferStatus.CLEARED);
         fakeLedgerPort.willFailReserve(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
 
         reprisePoller.sweep();
@@ -165,15 +175,15 @@ class SagaReprisePollerTest {
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
         assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.INITIATED);
         assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.INITIATED);
-        assertThat(reload(reserved).getStatus()).isEqualTo(TransferStatus.RESERVED);
+        assertThat(reload(cleared).getStatus()).isEqualTo(TransferStatus.CLEARED);
 
         fakeLedgerPort.reset(); // ledger back
 
         reprisePoller.sweep();
 
-        assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.POSTED);
-        assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.POSTED);
-        assertThat(reload(reserved).getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.SCREENING);
+        assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.SCREENING);
+        assertThat(reload(cleared).getStatus()).isEqualTo(TransferStatus.POSTED);
     }
 
     @Test
@@ -250,7 +260,7 @@ class SagaReprisePollerTest {
         private RuntimeException reserveFailure;
         private RuntimeException postFailure;
         private int checkAndReserveCallCount = 0;
-        private int postTransferCallCount = 0;
+        private final List<String> postedTransferIds = new ArrayList<>();
         private RuntimeException releaseFailure;
         private int releaseCallCount = 0;
 
@@ -276,7 +286,7 @@ class SagaReprisePollerTest {
             releaseFailure = null;
             releaseCallCount = 0;
             checkAndReserveCallCount = 0;
-            postTransferCallCount = 0;
+            postedTransferIds.clear();
         }
 
         int checkAndReserveCallCount() {
@@ -284,7 +294,11 @@ class SagaReprisePollerTest {
         }
 
         int postTransferCallCount() {
-            return postTransferCallCount;
+            return postedTransferIds.size();
+        }
+
+        List<String> postedTransferIds() {
+            return postedTransferIds;
         }
 
         @Override
@@ -298,7 +312,7 @@ class SagaReprisePollerTest {
 
         @Override
         public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
-            postTransferCallCount++;
+            postedTransferIds.add(transferId);
             if (postFailure != null) {
                 throw postFailure;
             }

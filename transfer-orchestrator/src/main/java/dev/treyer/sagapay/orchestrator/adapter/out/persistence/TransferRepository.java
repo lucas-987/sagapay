@@ -92,6 +92,14 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("toStatus") TransferStatus toStatus);
 
     @Modifying
+    @Query("update Transfer t set t.status = 'CLEARED', t.fraudScore = :fraudScore, t.fraudReasons = :fraudReasons, "
+            + "t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and t.status = 'SCREENING'")
+    int transitionToCleared(
+            @Param("id") UUID id,
+            @Param("fraudScore") BigDecimal fraudScore,
+            @Param("fraudReasons") List<String> fraudReasons);
+
+    @Modifying
     @Query(
             "update Transfer t set t.status = :toStatus, t.failureReason = :failureReason, t.updatedAt = CURRENT_TIMESTAMP "
                     + "where t.id = :id and t.status = :fromStatus")

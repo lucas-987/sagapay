@@ -1,16 +1,20 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.ProcessedEventPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -24,35 +28,68 @@ import java.util.UUID;
 class SagaTransitionWriter {
 
     private static final String RELEASE_STEP = "RELEASE";
+    private static final String SCREEN_STEP = "SCREEN";
+    private static final String FRAUD_CONSUMER = "orchestrator-fraud";
 
     private final TransferPort transfers;
     private final SagaStepPort sagaSteps;
     private final OutboxPort outbox;
+    private final ProcessedEventPort processedEvents;
     private final JsonMapper jsonMapper;
+    private final long screeningTimeoutMs;
 
-    SagaTransitionWriter(TransferPort transfers, SagaStepPort sagaSteps, OutboxPort outbox, JsonMapper jsonMapper) {
+    SagaTransitionWriter(
+            TransferPort transfers,
+            SagaStepPort sagaSteps,
+            OutboxPort outbox,
+            ProcessedEventPort processedEvents,
+            JsonMapper jsonMapper,
+            @Value("${saga.screening.timeout-ms:10000}") long screeningTimeoutMs) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
+        this.processedEvents = processedEvents;
         this.jsonMapper = jsonMapper;
+        this.screeningTimeoutMs = screeningTimeoutMs;
     }
 
     /** @return false when a concurrent caller already moved the transfer on. */
     @Transactional
     boolean applyReserved(UUID transferId, Transfer transfer, UUID reservationId) {
         int updated = transfers.transitionWithReservation(
-                transferId, TransferStatus.INITIATED, TransferStatus.RESERVED, reservationId);
+                transferId, TransferStatus.INITIATED, TransferStatus.SCREENING, reservationId);
         if (updated == 0) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, "RESERVE", "OK", null));
         outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "FundsReserved"));
+        sagaSteps.save(new SagaStep(
+                transferId, SCREEN_STEP, "RETRY", null, Instant.now().plusMillis(screeningTimeoutMs)));
+        return true;
+    }
+
+    /** The event is recorded even when the transfer is not being screened, whatever the reason.
+     * @return true when this call moved the transfer to {@code CLEARED}. */
+    @Transactional
+    boolean applyCleared(FraudResult result) {
+        if (!processedEvents.markProcessed(result.eventId(), FRAUD_CONSUMER)) {
+            return false;
+        }
+        int updated = transfers.transitionToCleared(result.transferId(), result.score(), result.reasons());
+        if (updated == 0) {
+            return false;
+        }
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("decision", result.decision().name());
+        detail.put("score", result.score());
+        detail.put("reasons", result.reasons());
+        sagaSteps.save(new SagaStep(result.transferId(), SCREEN_STEP, "OK", jsonMapper.writeValueAsString(detail)));
         return true;
     }
 
     @Transactional
     boolean applyPosted(UUID transferId, Transfer transfer) {
-        int updated = transfers.transitionStatus(transferId, TransferStatus.RESERVED, TransferStatus.POSTED);
+        int updated = transfers.transitionStatus(transferId, TransferStatus.CLEARED, TransferStatus.POSTED);
         if (updated == 0) {
             return false;
         }

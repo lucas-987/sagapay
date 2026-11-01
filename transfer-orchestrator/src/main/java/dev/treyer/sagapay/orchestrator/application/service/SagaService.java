@@ -2,16 +2,19 @@ package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.application.port.in.AdvanceSagaUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.ApplyFraudResultUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.in.ContinueReservedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.SweepReprisePendingTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
+import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -39,7 +42,8 @@ import java.util.UUID;
 public class SagaService
         implements InitiateTransferUseCase,
                 AdvanceSagaUseCase,
-                ContinueReservedTransferUseCase,
+                ApplyFraudResultUseCase,
+                PostClearedTransferUseCase,
                 SweepReprisePendingTransfersUseCase,
                 ListTransfersUseCase,
                 GetTransferUseCase,
@@ -125,21 +129,31 @@ public class SagaService
         }
 
         switch (result) {
-            case ReservationResult.Ok ok -> {
-                boolean applied = writer.applyReserved(transferId, transfer, ok.reservationId());
-                if (applied) {
-                    // No fraud screening yet: reserved funds are posted at once.
-                    continueFromReserved(transferId);
-                }
-            }
+            case ReservationResult.Ok ok -> writer.applyReserved(transferId, transfer, ok.reservationId());
             case ReservationResult.InsufficientFunds ignored -> writer.applyInsufficientFunds(transferId, transfer);
         }
     }
 
     @Override
-    public void continueFromReserved(UUID transferId) {
+    public void applyFraudResult(FraudResult result) {
+        if (result.decision() != FraudDecision.CLEARED) {
+            return;
+        }
+        if (!writer.applyCleared(result)) {
+            return;
+        }
+        try {
+            postCleared(result.transferId());
+        } catch (LedgerUnavailableException e) {
+            // CLEARED is durable: the reprise poller posts it once the ledger is back.
+            log.warn("Ledger unavailable, transfer {} stays CLEARED for the reprise poller", result.transferId(), e);
+        }
+    }
+
+    @Override
+    public void postCleared(UUID transferId) {
         Transfer transfer = requireTransfer(transferId);
-        if (transfer.getStatus() != TransferStatus.RESERVED) {
+        if (transfer.getStatus() != TransferStatus.CLEARED) {
             return;
         }
 
@@ -154,13 +168,13 @@ public class SagaService
             // Typically an expired reservation: the ledger will never post it, and
             // a refused postTransfer moved no money, so FAILED is the outcome.
             if (writer.applyRejectedAndRelease(
-                    transferId, transfer, TransferStatus.RESERVED, "POST", "POST_REJECTED", e)) {
+                    transferId, transfer, TransferStatus.CLEARED, "POST", "POST_REJECTED", e)) {
                 releaseReservation(transfer);
             }
             return;
         }
         if (!posted) {
-            // Not expected once reserved: left RESERVED for the poller to retry.
+            // Not expected once cleared: left CLEARED for the poller to retry.
             return;
         }
 
@@ -172,14 +186,12 @@ public class SagaService
         Instant cutoff = Instant.now().minusMillis(repriseGracePeriodMs);
         int resumed = 0;
         try {
-            // INITIATED first: advance() goes on to post, so those transfers are
-            // done before RESERVED is queried.
             for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.INITIATED, cutoff)) {
                 advance(transfer.getId());
                 resumed++;
             }
-            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.RESERVED, cutoff)) {
-                continueFromReserved(transfer.getId());
+            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.CLEARED, cutoff)) {
+                postCleared(transfer.getId());
                 resumed++;
             }
             for (Transfer transfer : transfers.findFailedWithPendingRelease(cutoff)) {

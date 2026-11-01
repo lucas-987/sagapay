@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -95,6 +96,9 @@ class TransferOrchestratorE2ETest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private KafkaTemplate<String, String> kafka;
+
     private RestClient orchestratorClient;
     private RestClient ledgerClient;
     private static ManagedChannel ledgerChannel;
@@ -170,6 +174,23 @@ class TransferOrchestratorE2ETest {
                 "transfer " + transferId + " never reached " + expectedStatus + ", last seen: " + last);
     }
 
+    /** The fraud service's published result, built by hand: only the fields the orchestrator reads matter. */
+    private void publishClearedResult(UUID transferId) {
+        String event = """
+                {"id":"%s","source":"fraud-detection-service","type":"TransferCleared.v1",\
+                "time":"2026-11-01T10:00:00Z","subject":"%s","traceparent":null,\
+                "data":{"transferId":"%s","senderId":"%s","decision":"CLEARED","score":0.1500,\
+                "reasons":["AMOUNT_ROUND"],"modelVersion":"v1","ts":"2026-11-01T10:00:00Z"}}""".formatted(UUID.randomUUID(), transferId, transferId, UUID.randomUUID());
+        kafka.send("payments.fraud.results", transferId.toString(), event).join();
+    }
+
+    /** A result that arrives before the screening step is recorded and ignored, so the transfer must be
+     * screened first. */
+    private void clearOnceScreening(UUID transferId) {
+        waitForStatus(transferId, "SCREENING", Duration.ofSeconds(15));
+        publishClearedResult(transferId);
+    }
+
     @Test
     void postedTransferMovesMoneyAndKeepsTheSumOfBalancesUnchanged() {
         UUID senderId = lookupAccountId("gina"); // seeded 1200.00 EUR
@@ -190,6 +211,7 @@ class TransferOrchestratorE2ETest {
         UUID transferId = UUID.fromString((String) created.get("id"));
         assertThat(created.get("status")).isEqualTo("INITIATED");
 
+        clearOnceScreening(transferId);
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
         BigDecimal senderAfter = balanceOf(senderId);
@@ -219,6 +241,7 @@ class TransferOrchestratorE2ETest {
                 .retrieve()
                 .body(Map.class);
         UUID transferId = UUID.fromString((String) first.get("id"));
+        clearOnceScreening(transferId);
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
         try {
@@ -266,7 +289,7 @@ class TransferOrchestratorE2ETest {
     }
 
     @Test
-    void reprisePollerAloneCompletesATransferForcedIntoReservedWithoutTheEagerPath() {
+    void reprisePollerAlonePostsATransferForcedIntoClearedWithoutTheEagerPath() {
         UUID senderId = lookupAccountId("julien"); // seeded 15000.00 EUR
         UUID recipientId = lookupAccountId("tomasz");
         BigDecimal senderBefore = balanceOf(senderId);
@@ -290,7 +313,7 @@ class TransferOrchestratorE2ETest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED'::transfer_status, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLEARED'::transfer_status, ?)
                 """,
                 transferId,
                 UUID.randomUUID(),
@@ -309,10 +332,10 @@ class TransferOrchestratorE2ETest {
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("40.00");
     }
 
-    /** Crash after the ledger reserved, before RESERVED was recorded: the replayed
+    /** Crash after the ledger reserved, before the reservation was recorded: the replayed
      * checkAndReserve returns the same reservation instead of holding twice. */
     @Test
-    void reprisePollerAloneCompletesATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
+    void reprisePollerAloneScreensATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
         UUID senderId = lookupAccountId("julien");
         UUID recipientId = lookupAccountId("tomasz");
         BigDecimal senderBefore = balanceOf(senderId);
@@ -343,8 +366,9 @@ class TransferOrchestratorE2ETest {
                 recipientId,
                 new BigDecimal("15.00"),
                 "EUR",
-                "crash before RESERVED e2e");
+                "crash before the reservation was recorded e2e");
 
+        clearOnceScreening(transferId);
         waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("15.00");

@@ -25,7 +25,6 @@ import java.util.List;
 class OutboxPoller {
 
     static final String TOPIC = "payments.fraud.results";
-    static final String SOURCE = "fraud-detection-service";
     private static final int BATCH_SIZE = 100;
     private static final String TRACEPARENT_VERSION = "00";
 
@@ -42,7 +41,10 @@ class OutboxPoller {
         this.tracer = tracer;
     }
 
-    @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:500}")
+    // The first run waits one interval too, so that a test setting a long interval is the only caller.
+    @Scheduled(
+            fixedDelayString = "${outbox.poll-interval-ms:500}",
+            initialDelayString = "${outbox.poll-interval-ms:500}")
     @Transactional
     public void drain() {
         List<OutboxMessage> batch = outbox.findUnpublishedForUpdateSkipLocked(BATCH_SIZE);
@@ -53,12 +55,7 @@ class OutboxPoller {
     }
 
     private void publish(OutboxMessage message) {
-        CloudEvent<JsonNode> event = CloudEvent.of(
-                message.id(),
-                SOURCE,
-                message.eventType() + ".v1",
-                message.aggregateId(),
-                jsonMapper.readTree(message.payload()));
+        CloudEvent<JsonNode> event = FraudResultEvents.of(message, jsonMapper);
 
         // A new span per publish: the scheduler thread has no trace to inherit. The W3C header is
         // built by hand because the auto-configured Propagator injects no field in this tracing setup.
@@ -72,6 +69,9 @@ class OutboxPoller {
                     new ProducerRecord<>(TOPIC, message.aggregateId(), jsonMapper.writeValueAsString(event));
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
+        } catch (RuntimeException e) {
+            span.error(e);
+            throw e;
         } finally {
             span.end();
         }

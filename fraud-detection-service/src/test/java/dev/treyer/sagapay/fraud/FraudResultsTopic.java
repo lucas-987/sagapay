@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Reads {@code payments.fraud.results} from its first offset up to the end it has when the read starts. */
+/** Reads {@code payments.fraud.results} from its start up to its end at the time of the call. */
 public final class FraudResultsTopic {
 
     public static final String NAME = "payments.fraud.results";

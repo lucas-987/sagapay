@@ -216,8 +216,9 @@ class ScreeningServiceTest {
         assertThat(savedMessages).hasSize(1);
         assertThat(output.getOut())
                 .contains("WARN")
-                .contains("History update failed after the decision of transfer " + TRANSFER
-                        + " was committed; the sender's history misses this transfer")
+                .contains("sender history update failed after the decision was committed")
+                .contains("\"transfer.id\":\"" + TRANSFER + "\"")
+                .contains("\"sender.id\":\"" + SENDER + "\"")
                 .contains("java.lang.IllegalStateException: redis down");
     }
 }

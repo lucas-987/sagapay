@@ -11,13 +11,10 @@ import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.grpc.Channel;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -34,8 +31,6 @@ import java.util.concurrent.TimeUnit;
  */
 @Component
 public class LedgerGrpcClientAdapter implements LedgerPort {
-
-    private static final Logger log = LoggerFactory.getLogger(LedgerGrpcClientAdapter.class);
 
     /** Codes the ledger uses when the request itself is at fault. */
     private static final Set<Status.Code> REJECTION_CODES =
@@ -134,9 +129,8 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         if (t instanceof LedgerRejectedException rejected) {
             return rejected;
         }
-        if (!(t instanceof CallNotPermittedException)) {
-            log.warn("Ledger call failed, reported as unavailable", t);
-        }
+        // Not logged here: the cause travels in the exception and is logged once, by the
+        // caller that handles it.
         return new LedgerUnavailableException(t);
     }
 

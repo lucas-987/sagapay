@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /**
  * {@code POST /v1/requests} keeps the generated 501: money requests are out of the
  * MVP. {@code X-User-Id} stands in for the token subject until authentication is
@@ -88,7 +90,10 @@ public class TransferRestAdapter implements V1Api {
                 } catch (LedgerUnavailableException e) {
                     // Nobody to report to: the reprise poller picks the transfer up
                     // again, whether it is still in flight or a release is pending.
-                    log.warn("Ledger unavailable for transfer {}, left for the reprise poller", transferId, e);
+                    log.warn(
+                            "ledger unavailable, transfer left for the reprise poller",
+                            kv("transfer.id", transferId),
+                            e);
                 }
             });
         }

@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /**
  * Reads the history, decides, commits, and only then updates the history: a crash between
  * the commit and the update under-counts one transfer, which is the safe side. A history
@@ -47,9 +49,9 @@ class ScreeningService implements ScreenTransferUseCase {
             history.record(transfer.senderId(), transfer.recipientId());
         } catch (RuntimeException e) {
             LOG.warn(
-                    "History update failed after the decision of transfer {} was committed;"
-                            + " the sender's history misses this transfer",
-                    transfer.transferId(),
+                    "sender history update failed after the decision was committed",
+                    kv("transfer.id", transfer.transferId()),
+                    kv("sender.id", transfer.senderId()),
                     e);
         }
     }

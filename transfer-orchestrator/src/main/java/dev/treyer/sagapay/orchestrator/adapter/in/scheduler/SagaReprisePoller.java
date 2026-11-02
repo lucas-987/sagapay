@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /**
  * Resumes transfers left in {@code INITIATED} or {@code CLEARED} by a crash, a
  * lost background task or an unavailable ledger, and releases the reservation of
@@ -28,7 +30,7 @@ public class SagaReprisePoller {
     public void sweep() {
         int resumed = sweepUseCase.sweepStuckTransfers();
         if (resumed > 0) {
-            log.info("Resumed {} stuck transfer(s)", resumed);
+            log.info("stuck transfers resumed", kv("transfer.resumed.count", resumed));
         }
     }
 }

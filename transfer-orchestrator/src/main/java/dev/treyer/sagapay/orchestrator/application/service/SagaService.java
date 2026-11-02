@@ -34,6 +34,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /** Only {@link #initiateTransfer} is {@code @Transactional}: the other steps
  * call the ledger outside any transaction, then hand their writes to {@link
  * SagaTransitionWriter}, so no database transaction stays open across a network
@@ -146,7 +148,10 @@ public class SagaService
             postCleared(result.transferId());
         } catch (LedgerUnavailableException e) {
             // CLEARED is durable: the reprise poller posts it once the ledger is back.
-            log.warn("Ledger unavailable, transfer {} stays CLEARED for the reprise poller", result.transferId(), e);
+            log.warn(
+                    "ledger unavailable, transfer stays cleared for the reprise poller",
+                    kv("transfer.id", result.transferId()),
+                    e);
         }
     }
 
@@ -200,7 +205,7 @@ public class SagaService
             }
         } catch (LedgerUnavailableException e) {
             // The remaining transfers need the same ledger: retry them next sweep.
-            log.warn("Ledger unavailable, saga reprise sweep stopped early ({} resumed so far)", resumed, e);
+            log.warn("ledger unavailable, saga reprise sweep stopped early", kv("transfer.resumed.count", resumed), e);
         }
         return resumed;
     }

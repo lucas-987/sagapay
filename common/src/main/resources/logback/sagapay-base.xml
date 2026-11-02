@@ -2,9 +2,12 @@
 <included>
     <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <!-- Constant fields, not MDC: they never vary per request (single tenant).
+            <!-- ISO 8601 in UTC, whatever the host zone. -->
+            <timeZone>UTC</timeZone>
+            <!-- Constant fields, not MDC: they never vary per request (single tenant), and the
+                 service and version let a line be traced to a deployment.
                  traceId/spanId come from the MDC, filled by Micrometer Tracing. -->
-            <customFields>{"service":"${SERVICE_NAME:-unknown}","tenant":"default"}</customFields>
+            <customFields>{"service":"${SERVICE_NAME:-unknown}","version":"${SERVICE_VERSION:-unknown}","tenant":"default"}</customFields>
         </encoder>
     </appender>
 

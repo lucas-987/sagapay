@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /** Active in every profile: an abandoned reservation is a production concern. */
 @Component
 public class ReservationExpirySweeper {
@@ -23,7 +25,7 @@ public class ReservationExpirySweeper {
     public void sweep() {
         int expired = expireReservationsUseCase.expireOverdueReservations();
         if (expired > 0) {
-            log.info("Expired {} overdue reservation(s)", expired);
+            log.info("overdue reservations expired", kv("reservation.expired.count", expired));
         }
     }
 }

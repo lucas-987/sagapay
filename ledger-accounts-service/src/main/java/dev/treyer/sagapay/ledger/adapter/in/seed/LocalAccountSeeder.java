@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /**
  * Sample accounts for local runs. A profile-gated bean rather than a seed endpoint:
  * outside the {@code local} profile it does not exist at all, so nothing is reachable
@@ -54,23 +56,20 @@ class LocalAccountSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        log.info("Seeding {} sample accounts (profile 'local')...", ACCOUNTS.size());
+        log.info("seeding sample accounts", kv("seed.accounts.count", ACCOUNTS.size()));
         for (SeedAccount seed : ACCOUNTS) {
             // The local database survives restarts and handle is unique:
             // re-inserting would make startup fail.
             if (accounts.findByHandle(seed.handle()).isPresent()) {
-                log.info("  {} already seeded, skipping", seed.handle());
+                log.info("sample account already seeded, skipped", kv("account.handle", seed.handle()));
                 continue;
             }
             Account account = accounts.create(
                     new Account(seed.handle(), seed.displayName(), seed.currency(), new BigDecimal(seed.balance())));
             log.info(
-                    "  {} ({}) — {} {} — accountId={}",
-                    account.getHandle(),
-                    account.getDisplayName(),
-                    account.getBalance(),
-                    account.getCurrency(),
-                    account.getId());
+                    "sample account seeded",
+                    kv("account.id", account.getId()),
+                    kv("account.handle", account.getHandle()));
         }
     }
 

@@ -33,6 +33,10 @@ public interface TransferPort {
      * FAILED since before {@code cutoff}. */
     List<Transfer> findFailedWithPendingRelease(Instant cutoff);
 
+    /** At most {@code limit} transfers in {@code status} whose latest open SCREEN step has a
+     * deadline before {@code now}, the oldest deadline first, then by id. */
+    List<Transfer> findOverdue(TransferStatus status, Instant now, int limit);
+
     /** Newest first, strictly after {@code (afterCreatedAt, afterId)} when given. */
     List<Transfer> findPageForUser(
             UUID userId,

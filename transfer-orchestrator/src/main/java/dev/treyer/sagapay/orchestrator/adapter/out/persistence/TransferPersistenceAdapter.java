@@ -57,6 +57,11 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
+    public List<Transfer> findOverdue(TransferStatus status, Instant now, int limit) {
+        return repository.findOverdue(status.name(), now, limit);
+    }
+
+    @Override
     public List<Transfer> findPageForUser(
             UUID userId,
             boolean includeSent,

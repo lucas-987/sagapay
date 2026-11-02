@@ -5,6 +5,7 @@ import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -18,6 +19,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -198,5 +200,74 @@ class TransferRepositoryTest {
         List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff);
 
         assertThat(found).extracting(Transfer::getId).containsExactly(pending);
+    }
+
+    private UUID transferWithScreenDeadlines(TransferStatus status, Instant... screenRetryDeadlines) {
+        UUID id = transferWith(status, Instant.now());
+        for (Instant deadline : screenRetryDeadlines) {
+            jdbcTemplate.update(
+                    "insert into saga_steps (transfer_id, step, outcome, deadline) values (?, 'SCREEN', 'RETRY', ?)",
+                    id,
+                    java.sql.Timestamp.from(deadline));
+        }
+        return id;
+    }
+
+    @Test
+    void findOverdueReturnsExactlyTheTransfersInThatStatusWhoseLatestScreenDeadlineIsPast() {
+        Instant now = Instant.now();
+        Instant past = now.minus(5, ChronoUnit.SECONDS);
+        Instant future = now.plus(5, ChronoUnit.SECONDS);
+        UUID screeningOverdue = transferWithScreenDeadlines(TransferStatus.SCREENING, past);
+        transferWithScreenDeadlines(TransferStatus.SCREENING, future);
+        transferWithScreenDeadlines(TransferStatus.SCREENING);
+        transferWithScreenDeadlines(TransferStatus.BLOCKED, past, past);
+        transferWithScreenDeadlines(TransferStatus.CLEARED, past);
+        // The confirmation window of a blocked transfer replaces its screening deadline.
+        transferWithScreenDeadlines(TransferStatus.BLOCKED, past, future);
+
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10);
+
+        assertThat(found).extracting(Transfer::getId).containsExactly(screeningOverdue);
+    }
+
+    @Test
+    void findOverdueReturnsABlockedTransferWhoseConfirmationWindowIsPast() {
+        Instant now = Instant.now();
+        Instant past = now.minus(5, ChronoUnit.SECONDS);
+        UUID blockedOverdue = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plus(1, ChronoUnit.HOURS), past);
+        transferWithScreenDeadlines(TransferStatus.SCREENING, past);
+
+        List<Transfer> found = transfers.findOverdue(TransferStatus.BLOCKED.name(), now, 10);
+
+        assertThat(found).extracting(Transfer::getId).containsExactly(blockedOverdue);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-1, true", "0, false", "1, false"})
+    void findOverdueIsStrictlyBeforeNow(long deadlineOffsetMillis, boolean returned) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        UUID id = transferWithScreenDeadlines(TransferStatus.SCREENING, now.plusMillis(deadlineOffsetMillis));
+
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10);
+
+        assertThat(found).extracting(Transfer::getId).isEqualTo(returned ? List.of(id) : List.of());
+    }
+
+    @Test
+    void findOverdueReturnsTheOldestDeadlinesFirstThenByIdAndStopsAtTheLimit() {
+        Instant now = Instant.now();
+        Instant older = now.minus(10, ChronoUnit.SECONDS);
+        Instant newer = now.minus(5, ChronoUnit.SECONDS);
+        UUID newest = transferWithScreenDeadlines(TransferStatus.SCREENING, newer);
+        UUID oldest = transferWithScreenDeadlines(TransferStatus.SCREENING, older);
+        UUID tieA = transferWithScreenDeadlines(TransferStatus.SCREENING, newer);
+        List<UUID> tied = Stream.of(newest, tieA)
+                .sorted(java.util.Comparator.comparing(UUID::toString))
+                .toList();
+
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 2);
+
+        assertThat(found).extracting(Transfer::getId).containsExactly(oldest, tied.get(0));
     }
 }

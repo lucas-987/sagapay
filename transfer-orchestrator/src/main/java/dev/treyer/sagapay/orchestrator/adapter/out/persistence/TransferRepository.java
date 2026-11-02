@@ -51,6 +51,21 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("afterId") UUID afterId,
             Pageable pageable);
 
+    /** The latest open SCREEN step decides, by id: a blocked transfer keeps its
+     * screening deadline step, then gets the confirmation window's. Oldest deadline
+     * first, then by id, so the order is the same on every call. */
+    @Query(nativeQuery = true, value = """
+            select t.* from transfers t
+            join lateral (select s.deadline from saga_steps s
+                          where s.transfer_id = t.id and s.step = 'SCREEN' and s.outcome = 'RETRY'
+                          order by s.id desc limit 1) d on true
+            where t.status = cast(:status as transfer_status)
+              and d.deadline < :now
+            order by d.deadline, t.id
+            limit :limit
+            """)
+    List<Transfer> findOverdue(@Param("status") String status, @Param("now") Instant now, @Param("limit") int limit);
+
     /** @return 0 when a replay already created the transfer. Unlike a caught
      * constraint violation, {@code ON CONFLICT DO NOTHING} leaves the transaction
      * usable for the read-back. */

@@ -50,5 +50,7 @@ public interface TransferPort {
 
     int transitionToCleared(UUID id, BigDecimal fraudScore, List<String> fraudReasons);
 
+    int transitionToBlocked(UUID id, BigDecimal fraudScore, List<String> fraudReasons);
+
     int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, String failureReason);
 }

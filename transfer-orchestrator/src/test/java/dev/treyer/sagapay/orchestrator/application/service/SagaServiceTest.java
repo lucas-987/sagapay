@@ -212,21 +212,75 @@ class SagaServiceTest {
         assertThat(processedEventCount(eventId)).isEqualTo(1);
     }
 
+    private static FraudResult flagged(UUID transferId, UUID eventId) {
+        return new FraudResult(
+                eventId,
+                transferId,
+                FraudDecision.FLAGGED,
+                new BigDecimal("0.9000"),
+                List.of("VELOCITY_1H", "NEW_RECIPIENT"));
+    }
+
     @Test
-    void aFlaggedResultIsNotHandledYetAndNotRecorded() {
+    @Tag("M3-S21")
+    @DisplayName("A flagged transfer is blocked with its money held")
+    void flaggedTransferIsBlockedWithItsMoneyHeld() {
+        UUID reservationId = UUID.randomUUID();
+        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
+
+        Instant before = Instant.now();
+        sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
+        Instant after = Instant.now();
+
+        Transfer reloaded = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(reloaded.getReservationId()).isEqualTo(reservationId);
+        assertThat(reloaded.getFraudScore()).isEqualByComparingTo("0.9000");
+        assertThat(reloaded.getFraudReasons()).containsExactly("VELOCITY_1H", "NEW_RECIPIENT");
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+        SagaStep blockStep = sagaStepRepository
+                .findByTransferIdOrderByAtAscIdAsc(transfer.getId())
+                .get(2);
+        // The column keeps microseconds: one microsecond of rounding either way.
+        assertThat(blockStep.getDeadline())
+                .isBetween(
+                        before.plusMillis(120_000).minus(1, ChronoUnit.MICROS),
+                        after.plusMillis(120_000).plus(1, ChronoUnit.MICROS));
+        assertThat(jsonMapper.readTree(blockStep.getDetail())).isEqualTo(jsonMapper.readTree("""
+                {"decision": "FLAGGED", "score": 0.9000, "reasons": ["VELOCITY_1H", "NEW_RECIPIENT"]}"""));
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
+        assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "FundsReserved");
+    }
+
+    @Test
+    void theSameFlaggedResultAppliedTwiceIsHandledOnce() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        FraudResult result = flagged(transfer.getId(), UUID.randomUUID());
+
+        sagaService.applyFraudResult(result);
+        sagaService.applyFraudResult(result);
+
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
+                .isEqualTo(TransferStatus.BLOCKED);
+    }
+
+    @Test
+    void aFlaggedResultForATransferNoLongerScreenedIsRecordedAndIgnored() {
+        Transfer transfer = initiate(UUID.randomUUID()); // INITIATED, never reserved
         UUID eventId = UUID.randomUUID();
 
-        sagaService.applyFraudResult(new FraudResult(
-                eventId, transfer.getId(), FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H")));
+        sagaService.applyFraudResult(flagged(transfer.getId(), eventId));
 
-        Transfer after = transferRepository.findById(transfer.getId()).orElseThrow();
-        assertThat(after.getStatus()).isEqualTo(TransferStatus.SCREENING);
-        assertThat(after.getFraudScore()).isNull();
-        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY");
-        assertThat(processedEventCount(eventId)).isZero();
-        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        Transfer reloaded = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.INITIATED);
+        assertThat(reloaded.getFraudScore()).isNull();
+        assertThat(stepsFor(transfer.getId())).isEmpty();
+        assertThat(processedEventCount(eventId)).isEqualTo(1);
     }
 
     @Test

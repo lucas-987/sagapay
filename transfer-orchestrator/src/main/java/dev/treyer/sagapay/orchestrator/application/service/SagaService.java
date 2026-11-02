@@ -138,7 +138,8 @@ public class SagaService
 
     @Override
     public void applyFraudResult(FraudResult result) {
-        if (result.decision() != FraudDecision.CLEARED) {
+        if (result.decision() == FraudDecision.FLAGGED) {
+            writer.applyFlagged(result);
             return;
         }
         if (!writer.applyCleared(result)) {

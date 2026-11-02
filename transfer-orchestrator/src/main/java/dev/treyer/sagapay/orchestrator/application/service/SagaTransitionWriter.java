@@ -28,7 +28,7 @@ import java.util.UUID;
 class SagaTransitionWriter {
 
     private static final String RELEASE_STEP = "RELEASE";
-    private static final String SCREEN_STEP = "SCREEN";
+    static final String SCREEN_STEP = "SCREEN";
     private static final String FRAUD_CONSUMER = "orchestrator-fraud";
 
     private final TransferPort transfers;
@@ -37,6 +37,7 @@ class SagaTransitionWriter {
     private final ProcessedEventPort processedEvents;
     private final JsonMapper jsonMapper;
     private final long screeningTimeoutMs;
+    private final long confirmationWindowMs;
 
     SagaTransitionWriter(
             TransferPort transfers,
@@ -44,13 +45,15 @@ class SagaTransitionWriter {
             OutboxPort outbox,
             ProcessedEventPort processedEvents,
             JsonMapper jsonMapper,
-            @Value("${saga.screening.timeout-ms:10000}") long screeningTimeoutMs) {
+            @Value("${saga.screening.timeout-ms:10000}") long screeningTimeoutMs,
+            @Value("${saga.confirmation.window-ms:120000}") long confirmationWindowMs) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
         this.processedEvents = processedEvents;
         this.jsonMapper = jsonMapper;
         this.screeningTimeoutMs = screeningTimeoutMs;
+        this.confirmationWindowMs = confirmationWindowMs;
     }
 
     /** @return false when a concurrent caller already moved the transfer on. */
@@ -79,12 +82,36 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
+        sagaSteps.save(new SagaStep(result.transferId(), SCREEN_STEP, "OK", fraudDetail(result)));
+        return true;
+    }
+
+    /** Same rule as {@link #applyCleared}; the reservation stays held, so the ledger is not called.
+     * @return true when this call moved the transfer to {@code BLOCKED}. */
+    @Transactional
+    boolean applyFlagged(FraudResult result) {
+        if (!processedEvents.markProcessed(result.eventId(), FRAUD_CONSUMER)) {
+            return false;
+        }
+        int updated = transfers.transitionToBlocked(result.transferId(), result.score(), result.reasons());
+        if (updated == 0) {
+            return false;
+        }
+        sagaSteps.save(new SagaStep(
+                result.transferId(),
+                SCREEN_STEP,
+                "RETRY",
+                fraudDetail(result),
+                Instant.now().plusMillis(confirmationWindowMs)));
+        return true;
+    }
+
+    private String fraudDetail(FraudResult result) {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("decision", result.decision().name());
         detail.put("score", result.score());
         detail.put("reasons", result.reasons());
-        sagaSteps.save(new SagaStep(result.transferId(), SCREEN_STEP, "OK", jsonMapper.writeValueAsString(detail)));
-        return true;
+        return jsonMapper.writeValueAsString(detail);
     }
 
     @Transactional

@@ -7,9 +7,12 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
+import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -27,6 +30,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -184,12 +189,51 @@ class TransferRestAdapterTest {
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
         when(getTransferUseCase.getTransfer(transfer.getId()))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of()));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
 
         mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(transfer.getId().toString()))
-                .andExpect(jsonPath("$.fraud").doesNotExist());
+                .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
+    }
+
+    @Test
+    @Tag("M3-S22")
+    @DisplayName("The transfer shows its fraud result once screened")
+    void transferShowsItsFraudResultOnceScreened() throws Exception {
+        UUID senderId = UUID.randomUUID();
+        Transfer notScreened = newTransfer(senderId, UUID.randomUUID());
+        Transfer cleared = newTransfer(senderId, UUID.randomUUID());
+        Transfer flagged = newTransfer(senderId, UUID.randomUUID());
+        when(getTransferUseCase.getTransfer(notScreened.getId()))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(notScreened, List.of(), null));
+        when(getTransferUseCase.getTransfer(cleared.getId()))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        cleared,
+                        List.of(),
+                        new GetTransferUseCase.ScreeningVerdict(
+                                FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND"))));
+        when(getTransferUseCase.getTransfer(flagged.getId()))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        flagged,
+                        List.of(),
+                        new GetTransferUseCase.ScreeningVerdict(
+                                FraudDecision.FLAGGED,
+                                new BigDecimal("0.9000"),
+                                List.of("VELOCITY_1H", "NEW_RECIPIENT"))));
+
+        mockMvc.perform(get("/v1/transfers/{id}", notScreened.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fraud").value(nullValue()));
+        mockMvc.perform(get("/v1/transfers/{id}", cleared.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fraud.decision").value("CLEARED"))
+                .andExpect(jsonPath("$.fraud.score").value(0.15))
+                .andExpect(jsonPath("$.fraud.reasons").value(contains("AMOUNT_ROUND")));
+        mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fraud.decision").value("FLAGGED"))
+                .andExpect(jsonPath("$.fraud.score").value(0.9))
+                .andExpect(jsonPath("$.fraud.reasons").value(contains("VELOCITY_1H", "NEW_RECIPIENT")));
     }
 
     @TestConfiguration

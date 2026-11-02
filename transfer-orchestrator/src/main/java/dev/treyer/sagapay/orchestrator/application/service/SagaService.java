@@ -18,6 +18,7 @@ import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
+import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
@@ -139,7 +140,11 @@ public class SagaService
     @Override
     public void applyFraudResult(FraudResult result) {
         if (result.decision() == FraudDecision.FLAGGED) {
-            writer.applyFlagged(result);
+            if (writer.applyFlagged(result)) {
+                log.info("transfer blocked on fraud flag", kv("transfer.id", result.transferId()));
+            } else {
+                log.info("flagged fraud result skipped", kv("transfer.id", result.transferId()));
+            }
             return;
         }
         if (!writer.applyCleared(result)) {
@@ -244,7 +249,26 @@ public class SagaService
     @Override
     public TransferWithSteps getTransfer(UUID transferId) {
         Transfer transfer = transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
-        return new TransferWithSteps(transfer, sagaSteps.findByTransferId(transferId));
+        List<SagaStep> steps = sagaSteps.findByTransferId(transferId);
+        return new TransferWithSteps(transfer, steps, screeningVerdict(transfer, steps));
+    }
+
+    /** The decision is read from the first SCREEN step that carries one: the
+     * transfer keeps the score and reasons, not the decision, and a later
+     * confirmation changes its status but not what fraud decided. */
+    private ScreeningVerdict screeningVerdict(Transfer transfer, List<SagaStep> steps) {
+        if (transfer.getFraudScore() == null) {
+            return null;
+        }
+        FraudDecision decision = steps.stream()
+                .filter(step -> step.getStep().equals(SagaTransitionWriter.SCREEN_STEP) && step.getDetail() != null)
+                .map(step -> jsonMapper.readTree(step.getDetail()).get("decision"))
+                .filter(node -> node != null)
+                .map(node -> FraudDecision.valueOf(node.asString()))
+                .findFirst()
+                .orElseThrow(() ->
+                        new IllegalStateException("screened transfer " + transfer.getId() + " has no verdict step"));
+        return new ScreeningVerdict(decision, transfer.getFraudScore(), transfer.getFraudReasons());
     }
 
     @Override

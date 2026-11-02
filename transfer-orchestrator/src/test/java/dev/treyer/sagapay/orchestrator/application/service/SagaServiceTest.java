@@ -5,6 +5,7 @@ import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
+import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
@@ -240,9 +241,10 @@ class SagaServiceTest {
         assertThat(reloaded.getFraudScore()).isEqualByComparingTo("0.9000");
         assertThat(reloaded.getFraudReasons()).containsExactly("VELOCITY_1H", "NEW_RECIPIENT");
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
-        SagaStep blockStep = sagaStepRepository
-                .findByTransferIdOrderByAtAscIdAsc(transfer.getId())
-                .get(2);
+        SagaStep blockStep = sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()).stream()
+                .filter(step -> step.getDetail() != null)
+                .findFirst()
+                .orElseThrow();
         // The column keeps microseconds: one microsecond of rounding either way.
         assertThat(blockStep.getDeadline())
                 .isBetween(
@@ -253,6 +255,57 @@ class SagaServiceTest {
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
         assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "FundsReserved");
+    }
+
+    @Test
+    void aTransferNotScreenedYetHasNoVerdict() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+
+        assertThat(sagaService.getTransfer(transfer.getId()).fraud()).isNull();
+    }
+
+    @Test
+    void aClearedTransferHasItsVerdict() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
+
+        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
+                        FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND")));
+    }
+
+    @Test
+    void aScoredTransferWithoutAVerdictStepIsAnInconsistency() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
+
+        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
+    }
+
+    @Test
+    void aScreenStepWithoutADecisionIsAnInconsistency() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
+        sagaStepRepository.save(new SagaStep(transfer.getId(), "SCREEN", "OK", "{}"));
+
+        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
+    }
+
+    @Test
+    void aFlaggedTransferHasItsVerdict() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
+
+        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
+                        FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
     }
 
     @Test
@@ -267,6 +320,40 @@ class SagaServiceTest {
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
                 .isEqualTo(TransferStatus.BLOCKED);
+    }
+
+    @Test
+    void aClearedResultAfterAFlaggedOneChangesNothing() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
+        UUID laterEventId = UUID.randomUUID();
+
+        sagaService.applyFraudResult(cleared(transfer.getId(), laterEventId));
+
+        Transfer reloaded = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(reloaded.getFraudScore()).isEqualByComparingTo("0.9000");
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(processedEventCount(laterEventId)).isEqualTo(1);
+    }
+
+    @Test
+    void aFlaggedResultAfterAClearedOneChangesNothing() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
+        UUID laterEventId = UUID.randomUUID();
+
+        sagaService.applyFraudResult(flagged(transfer.getId(), laterEventId));
+
+        Transfer reloaded = transferRepository.findById(transfer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(reloaded.getFraudScore()).isEqualByComparingTo("0.1500");
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN OK", "POST OK");
+        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
+        assertThat(processedEventCount(laterEventId)).isEqualTo(1);
     }
 
     @Test

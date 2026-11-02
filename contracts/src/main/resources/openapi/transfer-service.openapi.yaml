@@ -178,8 +178,10 @@ components:
           properties:
             steps: { type: array, items: { $ref: '#/components/schemas/SagaStep' } }
             fraud:
+              description: Fraud screening verdict; null until the transfer has been screened.
               type: object
               nullable: true
+              required: [decision, score, reasons]
               properties:
                 decision: { type: string, enum: [CLEARED, FLAGGED] }
                 score: { type: number }

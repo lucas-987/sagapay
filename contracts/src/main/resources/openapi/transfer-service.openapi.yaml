@@ -82,7 +82,10 @@ paths:
         '202':
           description: saga resumes
           content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
-        '410': { description: confirmation window expired -> transfer FAILED }
+        '404': { $ref: '#/components/responses/Problem' }   # TRANSFER_NOT_FOUND
+        '409': { $ref: '#/components/responses/Problem' }   # TRANSFER_NOT_BLOCKED
+        '410': { $ref: '#/components/responses/Problem' }   # VERIFICATION_EXPIRED
+        '422': { $ref: '#/components/responses/Problem' }   # INVALID_VERIFICATION_CODE
 
   /v1/requests:
     post:

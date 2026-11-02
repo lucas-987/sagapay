@@ -8,6 +8,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.SweepOverdueTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.SweepReprisePendingTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
@@ -48,11 +49,21 @@ public class SagaService
                 ApplyFraudResultUseCase,
                 PostClearedTransferUseCase,
                 SweepReprisePendingTransfersUseCase,
+                SweepOverdueTransfersUseCase,
                 ListTransfersUseCase,
                 GetTransferUseCase,
                 ConfirmTransferUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(SagaService.class);
+
+    /** Per waiting status and sweep: a long outage leaves a backlog the next sweeps take in turn. */
+    private static final int OVERDUE_BATCH_SIZE = 100;
+
+    private record Deadline(TransferStatus waitingStatus, String failureReason) {}
+
+    private static final List<Deadline> DEADLINES = List.of(
+            new Deadline(TransferStatus.SCREENING, "SCREENING_TIMEOUT"),
+            new Deadline(TransferStatus.BLOCKED, "VERIFICATION_EXPIRED"));
 
     private final TransferPort transfers;
     private final SagaStepPort sagaSteps;
@@ -214,6 +225,40 @@ public class SagaService
             log.warn("ledger unavailable, saga reprise sweep stopped early", kv("transfer.resumed.count", resumed), e);
         }
         return resumed;
+    }
+
+    @Override
+    public int sweepOverdueTransfers() {
+        Instant now = Instant.now();
+        int ended = 0;
+        try {
+            for (Deadline deadline : DEADLINES) {
+                for (Transfer transfer : transfers.findOverdue(deadline.waitingStatus(), now, OVERDUE_BATCH_SIZE)) {
+                    try {
+                        if (!writer.applyTimedOut(
+                                transfer.getId(), transfer, deadline.waitingStatus(), deadline.failureReason())) {
+                            continue;
+                        }
+                        ended++;
+                        log.info(
+                                "overdue transfer failed",
+                                kv("transfer.id", transfer.getId()),
+                                kv("transfer.failure_reason", deadline.failureReason()));
+                        releaseReservation(transfer);
+                    } catch (LedgerUnavailableException e) {
+                        throw e;
+                    } catch (RuntimeException e) {
+                        // One bad transfer must not keep the others' reservations held.
+                        log.error("overdue transfer could not be failed", kv("transfer.id", transfer.getId()), e);
+                    }
+                }
+            }
+        } catch (LedgerUnavailableException e) {
+            // The pending release is left to the reprise poller; the remaining transfers
+            // need the same ledger and stay overdue for the next sweep.
+            log.warn("ledger unavailable, overdue sweep stopped early", kv("transfer.failed.count", ended), e);
+        }
+        return ended;
     }
 
     /** A refusal ends the step; an unavailability propagates and leaves it

@@ -19,6 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -579,6 +581,170 @@ class SagaServiceTest {
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
                 .isEqualTo(TransferStatus.INITIATED);
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated");
+    }
+
+    /** Reserved, then the deadline of its open SCREEN step moved {@code offsetSeconds} from now. */
+    private Transfer screeningTransferWithDeadline(UUID reservationId, long offsetSeconds) {
+        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        moveLatestScreenDeadline(transfer.getId(), offsetSeconds);
+        return transfer;
+    }
+
+    private Transfer blockedTransferWithDeadline(UUID reservationId, long offsetSeconds) {
+        Transfer transfer = screeningTransferWithDeadline(reservationId, 3600);
+        sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
+        moveLatestScreenDeadline(transfer.getId(), offsetSeconds);
+        return transfer;
+    }
+
+    private void moveLatestScreenDeadline(UUID transferId, long offsetSeconds) {
+        jdbcTemplate.update("""
+                update saga_steps set deadline = now() + make_interval(secs => ?)
+                where id = (select max(id) from saga_steps where transfer_id = ? and step = 'SCREEN')
+                """, offsetSeconds, transferId);
+    }
+
+    private Transfer reload(Transfer transfer) {
+        return transferRepository.findById(transfer.getId()).orElseThrow();
+    }
+
+    @Test
+    @Tag("M3-S30")
+    @DisplayName("A transfer fraud never answers fails and its reservation is released")
+    void screeningTransferPastItsDeadlineFailsAndItsReservationIsReleased() {
+        UUID reservationId = UUID.randomUUID();
+        Transfer transfer = screeningTransferWithDeadline(reservationId, -1);
+
+        int ended = sagaService.sweepOverdueTransfers();
+
+        Transfer after = reload(transfer);
+        assertThat(ended).isEqualTo(1);
+        assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("SCREENING_TIMEOUT");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+        assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("SCREENING_TIMEOUT");
+        assertThat(fakeLedgerPort.releaseCalls()).containsExactly(reservationId);
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "RELEASE RETRY", "RELEASE COMPENSATED");
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+    }
+
+    @Test
+    @Tag("M3-S31")
+    @DisplayName("A blocked transfer left past its window fails and its reservation is released")
+    void blockedTransferPastItsWindowFailsAndItsReservationIsReleased() {
+        UUID reservationId = UUID.randomUUID();
+        Transfer transfer = blockedTransferWithDeadline(reservationId, -1);
+
+        int ended = sagaService.sweepOverdueTransfers();
+
+        Transfer after = reload(transfer);
+        assertThat(ended).isEqualTo(1);
+        assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("VERIFICATION_EXPIRED");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+        assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("VERIFICATION_EXPIRED");
+        assertThat(fakeLedgerPort.releaseCalls()).containsExactly(reservationId);
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY", "RELEASE RETRY", "RELEASE COMPENSATED");
+    }
+
+    @Test
+    @Tag("M3-S32")
+    @DisplayName("Transfers before their deadline are left alone")
+    void transfersBeforeTheirDeadlineAreLeftAlone() {
+        Transfer screening = screeningTransferWithDeadline(UUID.randomUUID(), 3600);
+        Transfer blocked = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        int ended = sagaService.sweepOverdueTransfers();
+
+        assertThat(ended).isZero();
+        assertThat(reload(screening).getStatus()).isEqualTo(TransferStatus.SCREENING);
+        assertThat(reload(blocked).getStatus()).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(stepsFor(screening.getId())).containsExactly("RESERVE OK", "SCREEN RETRY");
+        assertThat(stepsFor(blocked.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+        assertThat(eventTypesFor(screening.getId())).doesNotContain("TransferFailed");
+        assertThat(eventTypesFor(blocked.getId())).doesNotContain("TransferFailed");
+        assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(
+            value = FraudDecision.class,
+            names = {"CLEARED", "FLAGGED"})
+    @Tag("M3-S33")
+    @DisplayName("A screening result arriving after the timeout is ignored")
+    void screeningResultAfterTheTimeoutIsRecordedAndIgnored(FraudDecision decision) {
+        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+        sagaService.sweepOverdueTransfers();
+        UUID eventId = UUID.randomUUID();
+        FraudResult late = decision == FraudDecision.CLEARED
+                ? cleared(transfer.getId(), eventId)
+                : flagged(transfer.getId(), eventId);
+
+        sagaService.applyFraudResult(late);
+
+        Transfer after = reload(transfer);
+        assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("SCREENING_TIMEOUT");
+        assertThat(after.getFraudScore()).isNull();
+        assertThat(processedEventCount(eventId)).isEqualTo(1);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "RELEASE RETRY", "RELEASE COMPENSATED");
+        assertThat(eventTypesFor(transfer.getId())).containsOnlyOnce("TransferFailed");
+    }
+
+    @Test
+    void sweepStopsAtTheFirstUnavailableLedgerCallAndTheNextSweepEndsTheRest() {
+        Transfer first = screeningTransferWithDeadline(UUID.randomUUID(), -2);
+        Transfer second = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+        fakeLedgerPort.willFailRelease(new LedgerUnavailableException(new RuntimeException("deadline exceeded")));
+
+        int ended = sagaService.sweepOverdueTransfers();
+
+        assertThat(ended).isEqualTo(1);
+        assertThat(fakeLedgerPort.releaseCalls()).hasSize(1);
+        assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(stepsFor(first.getId())).last().isEqualTo("RELEASE RETRY");
+        assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.SCREENING);
+
+        fakeLedgerPort.reset(); // ledger back
+        int endedNext = sagaService.sweepOverdueTransfers();
+
+        assertThat(endedNext).isEqualTo(1);
+        assertThat(reload(first).getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(reload(second).getStatus()).isEqualTo(TransferStatus.FAILED);
+    }
+
+    @Test
+    void releaseRefusedAfterATimeoutEndsTheReleaseStepWithTheLedgersAnswer() {
+        fakeLedgerPort.willFailRelease(new LedgerRejectedException("NOT_FOUND", "reservation expired", null));
+        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+
+        sagaService.sweepOverdueTransfers();
+
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "RELEASE RETRY", "RELEASE FAILED");
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.FAILED);
+    }
+
+    @Test
+    void timingOutATransferAnotherActorMovedOnChangesNothing() {
+        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+        sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID())); // POSTED
+
+        boolean applied =
+                writer.applyTimedOut(transfer.getId(), transfer, TransferStatus.SCREENING, "SCREENING_TIMEOUT");
+
+        assertThat(applied).isFalse();
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(eventTypesFor(transfer.getId())).doesNotContain("TransferFailed");
+        assertThat(stepsFor(transfer.getId())).doesNotContain("RELEASE RETRY");
     }
 
     @TestConfiguration

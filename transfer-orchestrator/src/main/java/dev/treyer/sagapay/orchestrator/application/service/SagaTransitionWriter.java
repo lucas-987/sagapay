@@ -168,6 +168,17 @@ class SagaTransitionWriter {
         return true;
     }
 
+    /** The transfer holds a reservation whatever the waiting status it leaves.
+     * @return false when a concurrent caller already moved the transfer on. */
+    @Transactional
+    boolean applyTimedOut(UUID transferId, Transfer transfer, TransferStatus fromStatus, String failureReason) {
+        if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
+            return false;
+        }
+        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "RETRY", null));
+        return true;
+    }
+
     @Transactional
     void recordReleased(UUID transferId) {
         sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "COMPENSATED", null));
@@ -185,11 +196,20 @@ class SagaTransitionWriter {
             String step,
             String failureReason,
             LedgerRejectedException rejection) {
+        if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
+            return false;
+        }
+        sagaSteps.save(new SagaStep(transferId, step, "FAILED", rejectionDetail(rejection)));
+        return true;
+    }
+
+    /** The compare-and-set to {@code FAILED} and its {@code TransferFailed} event.
+     * @return false when a concurrent caller already moved the transfer on. */
+    private boolean failTransfer(UUID transferId, Transfer transfer, TransferStatus fromStatus, String failureReason) {
         int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, step, "FAILED", rejectionDetail(rejection)));
         outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
         return true;
     }

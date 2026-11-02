@@ -124,6 +124,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
       LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
+      SAGAPAY_FRAUD_VERIFICATION_CODE: ${SAGAPAY_FRAUD_VERIFICATION_CODE}
 
   postgres-fraud:
     image: postgres:17

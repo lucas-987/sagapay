@@ -16,6 +16,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -25,6 +26,7 @@ import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +34,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +76,7 @@ public class SagaService
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
     private final long repriseGracePeriodMs;
+    private final byte[] verificationCode;
 
     public SagaService(
             TransferPort transfers,
@@ -80,7 +85,11 @@ public class SagaService
             LedgerPort ledger,
             JsonMapper jsonMapper,
             SagaTransitionWriter writer,
-            @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs) {
+            @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs,
+            @Value("${sagapay.fraud.verification-code}") String verificationCode) {
+        if (verificationCode.isBlank()) {
+            throw new IllegalArgumentException("sagapay.fraud.verification-code must not be blank");
+        }
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
@@ -88,6 +97,7 @@ public class SagaService
         this.jsonMapper = jsonMapper;
         this.writer = writer;
         this.repriseGracePeriodMs = repriseGracePeriodMs;
+        this.verificationCode = verificationCode.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -317,10 +327,55 @@ public class SagaService
     }
 
     @Override
-    public void confirmTransfer(UUID transferId, String verificationToken) {
-        // No transfer can be blocked yet.
-        transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
-        throw new TransferNotBlockedException(transferId);
+    public Transfer confirmTransfer(UUID transferId, String code) {
+        Transfer transfer = transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
+        if (isExpired(transfer)) {
+            throw new VerificationExpiredException(transferId);
+        }
+        if (transfer.getStatus() != TransferStatus.BLOCKED) {
+            throw new TransferNotBlockedException(transferId);
+        }
+        if (!MessageDigest.isEqual(code.getBytes(StandardCharsets.UTF_8), verificationCode)) {
+            log.warn("verification code rejected", kv("transfer.id", transferId));
+            throw new InvalidVerificationCodeException(transferId);
+        }
+        if (!writer.applyConfirmed(transferId, Instant.now())) {
+            throw lostConfirmation(transferId);
+        }
+        log.info("transfer confirmed by sender", kv("transfer.id", transferId));
+        return requireTransfer(transferId);
+    }
+
+    /** The compare-and-set found no BLOCKED transfer inside its window: the expiry job or another
+     * confirmation won. Still BLOCKED means the deadline passed after the read. */
+    private RuntimeException lostConfirmation(UUID transferId) {
+        Transfer current = requireTransfer(transferId);
+        if (failedAsExpired(current) || current.getStatus() == TransferStatus.BLOCKED) {
+            return new VerificationExpiredException(transferId);
+        }
+        return new TransferNotBlockedException(transferId);
+    }
+
+    private static boolean failedAsExpired(Transfer transfer) {
+        return transfer.getStatus() == TransferStatus.FAILED
+                && "VERIFICATION_EXPIRED".equals(transfer.getFailureReason());
+    }
+
+    private boolean isExpired(Transfer transfer) {
+        if (failedAsExpired(transfer)) {
+            return true;
+        }
+        if (transfer.getStatus() != TransferStatus.BLOCKED) {
+            return false;
+        }
+        Instant deadline = sagaSteps.findByTransferId(transfer.getId()).stream()
+                .filter(step -> step.getStep().equals(SagaTransitionWriter.SCREEN_STEP)
+                        && step.getOutcome().equals("RETRY"))
+                .reduce((first, second) -> second)
+                .map(SagaStep::getDeadline)
+                .orElseThrow(() -> new IllegalStateException(
+                        "blocked transfer " + transfer.getId() + " has no open confirmation window"));
+        return deadline.isBefore(Instant.now());
     }
 
     private Transfer requireTransfer(UUID transferId) {

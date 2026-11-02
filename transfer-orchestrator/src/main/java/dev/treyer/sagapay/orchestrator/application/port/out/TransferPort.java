@@ -56,5 +56,8 @@ public interface TransferPort {
 
     int transitionToBlocked(UUID id, BigDecimal fraudScore, List<String> fraudReasons);
 
+    /** Only while the confirmation deadline is not past at {@code now}. */
+    int transitionBlockedToCleared(UUID id, Instant now);
+
     int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, String failureReason);
 }

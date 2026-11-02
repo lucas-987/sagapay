@@ -3,11 +3,13 @@ package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 import dev.treyer.sagapay.common.error.AppErrorCode;
 import dev.treyer.sagapay.common.error.Problems;
 import dev.treyer.sagapay.orchestrator.domain.InvalidCursorException;
+import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
 import dev.treyer.sagapay.orchestrator.domain.RecipientNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
+import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,6 +26,16 @@ public class TransferRestExceptionHandler {
     @ExceptionHandler(TransferNotBlockedException.class)
     public ProblemDetail handleTransferNotBlocked(TransferNotBlockedException e) {
         return Problems.of(HttpStatus.CONFLICT, AppErrorCode.TRANSFER_NOT_BLOCKED, e.getMessage());
+    }
+
+    @ExceptionHandler(VerificationExpiredException.class)
+    public ProblemDetail handleVerificationExpired(VerificationExpiredException e) {
+        return Problems.of(HttpStatus.GONE, AppErrorCode.VERIFICATION_EXPIRED, e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidVerificationCodeException.class)
+    public ProblemDetail handleInvalidVerificationCode(InvalidVerificationCodeException e) {
+        return Problems.of(HttpStatus.UNPROCESSABLE_ENTITY, AppErrorCode.INVALID_VERIFICATION_CODE, e.getMessage());
     }
 
     @ExceptionHandler(RecipientNotFoundException.class)

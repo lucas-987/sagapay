@@ -131,4 +131,17 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("fromStatus") TransferStatus fromStatus,
             @Param("toStatus") TransferStatus toStatus,
             @Param("failureReason") String failureReason);
+
+    /** The latest open SCREEN step holds the confirmation deadline. Clearing the persistence
+     * context makes the next read of the transfer see the new status, also inside an
+     * open-session-in-view request that already loaded it. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            update transfers t set status = 'CLEARED'::transfer_status, updated_at = now()
+            where t.id = :id and t.status = 'BLOCKED'::transfer_status
+              and (select s.deadline from saga_steps s
+                   where s.transfer_id = t.id and s.step = 'SCREEN' and s.outcome = 'RETRY'
+                   order by s.id desc limit 1) >= :now
+            """)
+    int transitionBlockedToCleared(@Param("id") UUID id, @Param("now") Instant now);
 }

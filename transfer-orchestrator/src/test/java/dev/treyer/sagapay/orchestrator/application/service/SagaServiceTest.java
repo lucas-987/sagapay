@@ -8,22 +8,31 @@ import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepositor
 import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
+import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
+import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
@@ -41,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Import({TestcontainersConfiguration.class, SagaServiceTest.FakeLedgerPortConfig.class})
 @SpringBootTest
+@ExtendWith(OutputCaptureExtension.class)
 class SagaServiceTest {
 
     @Autowired
@@ -745,6 +755,250 @@ class SagaServiceTest {
         assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.POSTED);
         assertThat(eventTypesFor(transfer.getId())).doesNotContain("TransferFailed");
         assertThat(stepsFor(transfer.getId())).doesNotContain("RELEASE RETRY");
+    }
+
+    private final List<UUID> windowsClosedByTheTest = new java.util.ArrayList<>();
+
+    private static final String VERIFICATION_CODE = "test-verification-code";
+
+    private Instant latestScreenDeadline(UUID transferId) {
+        return jdbcTemplate
+                .queryForObject(
+                        "select deadline from saga_steps where id = (select max(id) from saga_steps"
+                                + " where transfer_id = ? and step = 'SCREEN')",
+                        java.sql.Timestamp.class,
+                        transferId)
+                .toInstant();
+    }
+
+    /** The sweep tests expect no other overdue transfer: {@link #reopenWindowsClosedByTheTest} undoes it. */
+    private Transfer blockedPastItsDeadline() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), -1);
+        windowsClosedByTheTest.add(transfer.getId());
+        return transfer;
+    }
+
+    @AfterEach
+    void reopenWindowsClosedByTheTest() {
+        windowsClosedByTheTest.forEach(id -> moveLatestScreenDeadline(id, 3600));
+        windowsClosedByTheTest.clear();
+    }
+
+    private Transfer transferInState(String state) {
+        return switch (state) {
+            case "FAILED_EXPIRED" -> {
+                Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+                writer.applyTimedOut(transfer.getId(), transfer, TransferStatus.BLOCKED, "VERIFICATION_EXPIRED");
+                yield transfer;
+            }
+            case "BLOCKED_PAST_DEADLINE" -> blockedPastItsDeadline();
+            case "POSTED" -> {
+                Transfer transfer = clearedTransfer();
+                sagaService.postCleared(transfer.getId());
+                yield transfer;
+            }
+            case "SCREENING" -> screeningTransferWithDeadline(UUID.randomUUID(), 3600);
+            case "FAILED_INSUFFICIENT_FUNDS" -> {
+                fakeLedgerPort.willReserve(new ReservationResult.InsufficientFunds());
+                Transfer transfer = initiate(UUID.randomUUID());
+                sagaService.advance(transfer.getId());
+                yield transfer;
+            }
+            default -> throw new IllegalArgumentException(state);
+        };
+    }
+
+    @Test
+    @Tag("M3-S23")
+    @DisplayName("Confirming in time posts the transfer on the same reservation")
+    void confirmingInTimePostsTheTransferOnTheSameReservation() {
+        UUID reservationId = UUID.randomUUID();
+        Transfer transfer = blockedTransferWithDeadline(reservationId, 3600);
+
+        Transfer confirmed = sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+
+        assertThat(confirmed.getStatus()).isEqualTo(TransferStatus.CLEARED);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY", "SCREEN OK");
+
+        sagaService.postCleared(transfer.getId());
+
+        Transfer posted = reload(transfer);
+        assertThat(posted.getStatus()).isEqualTo(TransferStatus.POSTED);
+        assertThat(posted.getReservationId()).isEqualTo(reservationId);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
+        assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
+        assertThat(stepsFor(transfer.getId()))
+                .containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY", "SCREEN OK", "POST OK");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferPosted");
+    }
+
+    @Test
+    void theConfirmationIsRecordedAsASenderVerificationStep() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+
+        assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
+                .filteredOn(step ->
+                        step.getStep().equals("SCREEN") && step.getOutcome().equals("OK"))
+                .singleElement()
+                .satisfies(step ->
+                        assertThat(jsonMapper.readTree(step.getDetail())).isEqualTo(jsonMapper.readTree("""
+                                {"verification": "SENDER_CONFIRMED"}""")));
+    }
+
+    @Test
+    void aConfirmedTransferStillShowsTheDecisionFraudTook() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+
+        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
+                        FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
+    }
+
+    @Test
+    @Tag("M3-S24")
+    @DisplayName("A wrong code leaves the transfer blocked and its window unchanged")
+    void wrongCodeLeavesTheTransferBlockedAndItsWindowUnchanged() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+        Instant deadline = latestScreenDeadline(transfer.getId());
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "000000"))
+                .isInstanceOf(InvalidVerificationCodeException.class)
+                .hasMessage("wrong verification code for transfer " + transfer.getId());
+
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(latestScreenDeadline(transfer.getId())).isEqualTo(deadline);
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+        assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
+    }
+
+    @Test
+    void aRejectedCodeIsLoggedWithTheTransferIdAndNeverTheCodes(CapturedOutput output) {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "submitted-guess"))
+                .isInstanceOf(InvalidVerificationCodeException.class);
+
+        assertThat(output.getOut())
+                .contains("WARN")
+                .contains("verification code rejected")
+                .contains("\"transfer.id\":\"" + transfer.getId() + "\"")
+                .doesNotContain("submitted-guess")
+                .doesNotContain(VERIFICATION_CODE);
+    }
+
+    @ParameterizedTest(name = "\"{0}\" is refused")
+    @ValueSource(strings = {"", "test-verification-cod", "test-verification-code ", "TEST-VERIFICATION-CODE"})
+    void aCodeThatDiffersInAnyWayFromTheConfiguredOneIsRefused(String code) {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), code))
+                .isInstanceOf(InvalidVerificationCodeException.class);
+
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.BLOCKED);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"FAILED_EXPIRED", "BLOCKED_PAST_DEADLINE"})
+    @Tag("M3-S25")
+    @DisplayName("Confirming after the window closed is refused as expired")
+    void confirmingAfterTheWindowClosedIsRefusedAsExpired(String state) {
+        Transfer transfer = transferInState(state);
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+                .isInstanceOf(VerificationExpiredException.class)
+                .hasMessage("the confirmation window of transfer " + transfer.getId() + " has closed");
+
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"POSTED", "SCREENING", "FAILED_INSUFFICIENT_FUNDS"})
+    @Tag("M3-S26")
+    @DisplayName("Confirming a transfer not waiting for the sender is refused")
+    void confirmingATransferNotWaitingForTheSenderIsRefused(String state) {
+        Transfer transfer = transferInState(state);
+        TransferStatus before = reload(transfer).getStatus();
+        int postsBefore = fakeLedgerPort.postTransferCallCount();
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+                .isInstanceOf(TransferNotBlockedException.class)
+                .hasMessage("transfer " + transfer.getId() + " is not BLOCKED");
+
+        assertThat(reload(transfer).getStatus()).isEqualTo(before);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(postsBefore);
+    }
+
+    @Test
+    @Tag("M3-S27")
+    @DisplayName("Confirming an unknown transfer is not found")
+    void confirmingAnUnknownTransferIsNotFound() {
+        UUID unknown = UUID.randomUUID();
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(unknown, VERIFICATION_CODE))
+                .isInstanceOf(TransferNotFoundException.class)
+                .hasMessage("unknown transfer " + unknown);
+    }
+
+    @Test
+    void anExpiredTransferIsReportedExpiredWhateverTheCode() {
+        Transfer transfer = transferInState("BLOCKED_PAST_DEADLINE");
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "wrong"))
+                .isInstanceOf(VerificationExpiredException.class);
+    }
+
+    @Test
+    void aTransferNotBlockedIsReportedNotBlockedWhateverTheCode() {
+        Transfer transfer = transferInState("POSTED");
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "wrong"))
+                .isInstanceOf(TransferNotBlockedException.class);
+    }
+
+    @Test
+    void anUnknownTransferIsReportedNotFoundWhateverTheCode() {
+        assertThatThrownBy(() -> sagaService.confirmTransfer(UUID.randomUUID(), "wrong"))
+                .isInstanceOf(TransferNotFoundException.class);
+    }
+
+    @Test
+    void theConfirmationOfABlockedTransferPastItsDeadlineChangesNothing() {
+        Transfer transfer = blockedPastItsDeadline();
+
+        boolean confirmed = writer.applyConfirmed(transfer.getId(), Instant.now());
+
+        assertThat(confirmed).isFalse();
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
+    }
+
+    @Test
+    void theConfirmationOfATransferNoLongerBlockedChangesNothing() {
+        Transfer transfer = transferInState("POSTED");
+
+        boolean confirmed = writer.applyConfirmed(transfer.getId(), Instant.now());
+
+        assertThat(confirmed).isFalse();
+        assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN OK", "POST OK");
+    }
+
+    @Test
+    void aTransferConfirmedTwiceIsPostedOnce() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+                .isInstanceOf(TransferNotBlockedException.class);
+        sagaService.postCleared(transfer.getId());
+
+        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
     }
 
     @TestConfiguration

@@ -96,6 +96,11 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
+    public int transitionBlockedToCleared(UUID id, Instant now) {
+        return repository.transitionBlockedToCleared(id, now);
+    }
+
+    @Override
     public int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, String failureReason) {
         return repository.transitionToFailed(id, fromStatus, toStatus, failureReason);
     }

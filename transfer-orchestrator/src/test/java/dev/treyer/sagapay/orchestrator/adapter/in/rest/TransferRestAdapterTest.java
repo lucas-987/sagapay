@@ -6,11 +6,15 @@ import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCas
 import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
+import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
+import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
+import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,6 +43,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -69,6 +74,9 @@ class TransferRestAdapterTest {
 
     @MockitoBean
     private ConfirmTransferUseCase confirmTransferUseCase;
+
+    @MockitoBean
+    private PostClearedTransferUseCase postClearedTransferUseCase;
 
     @MockitoBean
     private AccountLookupPort accountLookupPort;
@@ -158,19 +166,126 @@ class TransferRestAdapterTest {
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
 
-    @Test
-    void confirmBlockedTransferAlwaysReturns409WithTransferNotBlockedCode() throws Exception {
-        UUID transferId = UUID.randomUUID();
-        org.mockito.Mockito.doThrow(new TransferNotBlockedException(transferId))
-                .when(confirmTransferUseCase)
-                .confirmTransfer(eq(transferId), eq("tok"));
+    private static final String CONFIRM_BODY = """
+            {"verificationToken": "tok"}""";
 
-        mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"verificationToken": "tok"}"""))
+    private org.springframework.test.web.servlet.ResultActions confirm(UUID transferId) throws Exception {
+        return mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONFIRM_BODY));
+    }
+
+    private static String confirmProblem(int status, String title, String detail, String code, UUID transferId) {
+        return """
+                {"title": "%s", "status": %d, "detail": "%s",
+                 "instance": "/v1/transfers/%s/confirm", "code": "%s"}""".formatted(title, status, detail, transferId, code);
+    }
+
+    @Test
+    void confirmBlockedTransferReturns202AndPostsTheTransferInTheBackground() throws Exception {
+        Transfer transfer = newTransfer(UUID.randomUUID(), UUID.randomUUID());
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), "tok")).thenReturn(transfer);
+
+        confirm(transfer.getId())
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
+
+        verify(postClearedTransferUseCase).postCleared(transfer.getId());
+    }
+
+    @Test
+    void aLedgerUnavailableWhilePostingDoesNotChangeTheAcceptedAnswer() throws Exception {
+        Transfer transfer = newTransfer(UUID.randomUUID(), UUID.randomUUID());
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), "tok")).thenReturn(transfer);
+        org.mockito.Mockito.doThrow(new LedgerUnavailableException(new RuntimeException("down")))
+                .when(postClearedTransferUseCase)
+                .postCleared(transfer.getId());
+
+        confirm(transfer.getId()).andExpect(status().isAccepted());
+    }
+
+    @Test
+    void confirmingAnUnknownTransferReturns404WithTransferNotFoundCode() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+                .thenThrow(new TransferNotFoundException(transferId));
+
+        confirm(transferId)
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content()
+                        .json(
+                                confirmProblem(
+                                        404,
+                                        "Not Found",
+                                        "unknown transfer " + transferId,
+                                        "TRANSFER_NOT_FOUND",
+                                        transferId),
+                                true));
+        verify(postClearedTransferUseCase, never()).postCleared(any());
+    }
+
+    @Test
+    void confirmingATransferNotBlockedReturns409WithTransferNotBlockedCode() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+                .thenThrow(new TransferNotBlockedException(transferId));
+
+        confirm(transferId)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("TRANSFER_NOT_BLOCKED"));
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content()
+                        .json(
+                                confirmProblem(
+                                        409,
+                                        "Conflict",
+                                        "transfer " + transferId + " is not BLOCKED",
+                                        "TRANSFER_NOT_BLOCKED",
+                                        transferId),
+                                true));
+        verify(postClearedTransferUseCase, never()).postCleared(any());
+    }
+
+    @Test
+    void confirmingAfterTheWindowClosedReturns410WithVerificationExpiredCode() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+                .thenThrow(new VerificationExpiredException(transferId));
+
+        confirm(transferId)
+                .andExpect(status().isGone())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content()
+                        .json(
+                                confirmProblem(
+                                        410,
+                                        "Gone",
+                                        "the confirmation window of transfer " + transferId + " has closed",
+                                        "VERIFICATION_EXPIRED",
+                                        transferId),
+                                true));
+        verify(postClearedTransferUseCase, never()).postCleared(any());
+    }
+
+    @Test
+    void confirmingWithAWrongCodeReturns422WithInvalidVerificationCodeCode() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+                .thenThrow(new InvalidVerificationCodeException(transferId));
+
+        confirm(transferId)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(content()
+                        .json(
+                                confirmProblem(
+                                        422,
+                                        "Unprocessable Content",
+                                        "wrong verification code for transfer " + transferId,
+                                        "INVALID_VERIFICATION_CODE",
+                                        transferId),
+                                true));
+        verify(postClearedTransferUseCase, never()).postCleared(any());
     }
 
     @Test

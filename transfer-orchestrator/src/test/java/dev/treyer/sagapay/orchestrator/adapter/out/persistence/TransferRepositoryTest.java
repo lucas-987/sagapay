@@ -270,4 +270,62 @@ class TransferRepositoryTest {
 
         assertThat(found).extracting(Transfer::getId).containsExactly(oldest, tied.get(0));
     }
+
+    private TransferStatus statusOf(UUID id) {
+        return TransferStatus.valueOf(
+                jdbcTemplate.queryForObject("select status::text from transfers where id = ?", String.class, id));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-1, 0, BLOCKED", "0, 1, CLEARED", "1, 1, CLEARED"})
+    void transitionBlockedToClearedHoldsWhileTheDeadlineIsNotPast(
+            long deadlineOffsetMillis, int updated, TransferStatus expected) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plusMillis(deadlineOffsetMillis));
+
+        assertThat(transfers.transitionBlockedToCleared(id, now)).isEqualTo(updated);
+
+        assertThat(statusOf(id)).isEqualTo(expected);
+    }
+
+    @Test
+    void transitionBlockedToClearedFollowsTheLatestScreenDeadline() {
+        Instant now = Instant.now();
+        UUID id = transferWithScreenDeadlines(
+                TransferStatus.BLOCKED, now.minus(1, ChronoUnit.HOURS), now.plus(1, ChronoUnit.HOURS));
+
+        assertThat(transfers.transitionBlockedToCleared(id, now)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = TransferStatus.class,
+            names = {"BLOCKED"},
+            mode = EnumSource.Mode.EXCLUDE)
+    void transitionBlockedToClearedLeavesAnyOtherStatusAlone(TransferStatus status) {
+        Instant now = Instant.now();
+        UUID id = transferWithScreenDeadlines(status, now.plus(1, ChronoUnit.HOURS));
+
+        assertThat(transfers.transitionBlockedToCleared(id, now)).isZero();
+
+        assertThat(statusOf(id)).isEqualTo(status);
+    }
+
+    @Test
+    void transitionBlockedToClearedLeavesATransferWithoutAnOpenWindowAlone() {
+        UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED);
+
+        assertThat(transfers.transitionBlockedToCleared(id, Instant.now())).isZero();
+    }
+
+    @Test
+    void aTransferAlreadyLoadedIsReadAsClearedAfterTheTransition() {
+        Instant now = Instant.now();
+        UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plus(1, ChronoUnit.HOURS));
+        assertThat(transfers.findById(id).orElseThrow().getStatus()).isEqualTo(TransferStatus.BLOCKED);
+
+        transfers.transitionBlockedToCleared(id, now);
+
+        assertThat(transfers.findById(id).orElseThrow().getStatus()).isEqualTo(TransferStatus.CLEARED);
+    }
 }

@@ -6,6 +6,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCas
 import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
@@ -52,6 +53,7 @@ public class TransferRestAdapter implements V1Api {
     private final ListTransfersUseCase listTransfersUseCase;
     private final GetTransferUseCase getTransferUseCase;
     private final ConfirmTransferUseCase confirmTransferUseCase;
+    private final PostClearedTransferUseCase postClearedTransferUseCase;
     private final AccountLookupPort accountLookupPort;
     private final Executor executor;
 
@@ -61,6 +63,7 @@ public class TransferRestAdapter implements V1Api {
             ListTransfersUseCase listTransfersUseCase,
             GetTransferUseCase getTransferUseCase,
             ConfirmTransferUseCase confirmTransferUseCase,
+            PostClearedTransferUseCase postClearedTransferUseCase,
             AccountLookupPort accountLookupPort,
             @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
         this.initiateTransferUseCase = initiateTransferUseCase;
@@ -68,6 +71,7 @@ public class TransferRestAdapter implements V1Api {
         this.listTransfersUseCase = listTransfersUseCase;
         this.getTransferUseCase = getTransferUseCase;
         this.confirmTransferUseCase = confirmTransferUseCase;
+        this.postClearedTransferUseCase = postClearedTransferUseCase;
         this.accountLookupPort = accountLookupPort;
         this.executor = applicationTaskExecutor;
     }
@@ -152,9 +156,17 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> confirmBlockedTransfer(
             UUID id, ConfirmBlockedTransferRequest request) {
-        confirmTransferUseCase.confirmTransfer(id, request.getVerificationToken());
-        throw new IllegalStateException(
-                "unreachable: confirmTransfer always throws in M2 (no BLOCKED transfer exists yet)");
+        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, request.getVerificationToken());
+        // The 202 means the transfer will be posted: it is CLEARED already, and the
+        // reprise poller posts it if this task is lost.
+        executor.execute(() -> {
+            try {
+                postClearedTransferUseCase.postCleared(id);
+            } catch (LedgerUnavailableException e) {
+                log.warn("ledger unavailable, cleared transfer left for the reprise poller", kv("transfer.id", id), e);
+            }
+        });
+        return ResponseEntity.accepted().body(toRestTransfer(transfer));
     }
 
     private UUID requireUserId() {

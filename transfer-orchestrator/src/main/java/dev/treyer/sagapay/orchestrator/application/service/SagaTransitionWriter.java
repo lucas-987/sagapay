@@ -106,6 +106,19 @@ class SagaTransitionWriter {
         return true;
     }
 
+    /** The sender's verification closes the open SCREEN step, so the transfer is cleared on its
+     * existing reservation and the ledger is not called here.
+     * @return true when this call moved the transfer to {@code CLEARED}. */
+    @Transactional
+    boolean applyConfirmed(UUID transferId, Instant now) {
+        int updated = transfers.transitionBlockedToCleared(transferId, now);
+        if (updated == 0) {
+            return false;
+        }
+        sagaSteps.save(new SagaStep(transferId, SCREEN_STEP, "OK", "{\"verification\":\"SENDER_CONFIRMED\"}"));
+        return true;
+    }
+
     private String fraudDetail(FraudResult result) {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("decision", result.decision().name());

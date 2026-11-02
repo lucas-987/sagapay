@@ -32,7 +32,14 @@ class SagaServiceOverdueSweepTest {
     private final LedgerPort ledger = mock(LedgerPort.class);
     private final SagaTransitionWriter writer = mock(SagaTransitionWriter.class);
     private final SagaService service = new SagaService(
-            transfers, mock(SagaStepPort.class), mock(OutboxPort.class), ledger, new JsonMapper(), writer, 5000);
+            transfers,
+            mock(SagaStepPort.class),
+            mock(OutboxPort.class),
+            ledger,
+            new JsonMapper(),
+            writer,
+            5000,
+            "code");
 
     private Transfer transfer() {
         return new Transfer(

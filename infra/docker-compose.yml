@@ -29,6 +29,8 @@ services:
       - "8081:8081"
       - "9091:9091"
     environment:
+      # `local` seeds the sample accounts; `local-noauth` opens REST and gRPC until auth lands.
+      SPRING_PROFILES_ACTIVE: local,local-noauth
       # Same DB as the postgres service above, addressed by its network hostname.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc
       SPRING_DATASOURCE_USERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
@@ -71,6 +73,12 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       # Topics are created by kafka-init, never on first publish.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # A single broker: the internal topics cannot keep their default of three replicas, and
+      # without __consumer_offsets no consumer group ever gets a coordinator.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
     ports:
       - "29092:29092"
@@ -113,6 +121,7 @@ services:
     ports:
       - "8082:8082"
     environment:
+      SPRING_PROFILES_ACTIVE: local,local-noauth
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-orchestrator:5432/orchestrator_svc
       SPRING_DATASOURCE_USERNAME: ${ORCHESTRATOR_APP_USERNAME:-orchestrator_app}
       SPRING_DATASOURCE_PASSWORD: ${ORCHESTRATOR_APP_PASSWORD}
@@ -124,7 +133,11 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
       LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
+      # The deadline also covers connecting: the first call on a cold channel needs more than the 500 ms default.
+      LEDGER_GRPC_DEADLINE_MS: ${LEDGER_GRPC_DEADLINE_MS:-5000}
       SAGAPAY_FRAUD_VERIFICATION_CODE: ${SAGAPAY_FRAUD_VERIFICATION_CODE}
+      SAGA_CONFIRMATION_WINDOW_MS: ${SAGA_CONFIRMATION_WINDOW_MS:-120000}
+      SAGA_SCREENING_TIMEOUT_MS: ${SAGA_SCREENING_TIMEOUT_MS:-10000}
 
   postgres-fraud:
     image: postgres:17

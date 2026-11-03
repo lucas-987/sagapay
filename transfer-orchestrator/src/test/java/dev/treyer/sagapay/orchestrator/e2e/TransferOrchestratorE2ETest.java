@@ -22,15 +22,11 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
@@ -51,43 +47,14 @@ class TransferOrchestratorE2ETest {
     private static final Network NETWORK = Network.newNetwork();
 
     @Container
-    private static final PostgreSQLContainer LEDGER_POSTGRES = new PostgreSQLContainer("postgres:17")
-            .withNetwork(NETWORK)
-            .withNetworkAliases("ledger-postgres")
-            .withDatabaseName("ledger_svc")
-            .withUsername("sagapay")
-            .withPassword("sagapay-test");
+    private static final PostgreSQLContainer LEDGER_POSTGRES = E2ESupport.ledgerPostgres(NETWORK);
 
     @Container
-    private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-                    .withFileFromPath(".", repoRoot())
-                    .withDockerfilePath("ledger-accounts-service/Dockerfile")
-                    .withBuildArg("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")))
-            .withNetwork(NETWORK)
-            .dependsOn(LEDGER_POSTGRES)
-            .withExposedPorts(8081, 9091)
-            .withEnv(Map.of(
-                    "SPRING_PROFILES_ACTIVE", "local,local-noauth",
-                    "SPRING_DATASOURCE_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_DATASOURCE_USERNAME", "ledger_app",
-                    "SPRING_DATASOURCE_PASSWORD", "ledger-app-test",
-                    "SPRING_FLYWAY_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_FLYWAY_USER", "sagapay",
-                    "SPRING_FLYWAY_PASSWORD", "sagapay-test",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
-            .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
-
-    private static Path repoRoot() {
-        return Paths.get(System.getProperty("user.dir")).getParent();
-    }
+    private static final GenericContainer<?> LEDGER = E2ESupport.ledger(NETWORK, LEDGER_POSTGRES);
 
     @DynamicPropertySource
     static void ledgerGrpcTarget(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.grpc.client.channel.ledger.target",
-                () -> "static://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(9091));
-        registry.add("ledger.rest.base-url", () -> "http://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(8081));
+        E2ESupport.pointOrchestratorAt(registry, LEDGER);
     }
 
     @LocalServerPort
@@ -134,61 +101,19 @@ class TransferOrchestratorE2ETest {
     }
 
     private UUID lookupAccountId(String handle) {
-        Map<?, ?> response = ledger().get()
-                .uri("/v1/users/lookup?handle={handle}", handle)
-                .retrieve()
-                .body(Map.class);
-        return UUID.fromString((String) response.get("accountId"));
+        return E2ESupport.lookupAccountId(ledger(), handle);
     }
 
     private BigDecimal balanceOf(UUID accountId) {
-        Map<?, ?> response = ledger().get()
-                .uri("/v1/wallet?accountId={id}", accountId)
-                .retrieve()
-                .body(Map.class);
-        Map<?, ?> balance = (Map<?, ?>) response.get("balance");
-        return new BigDecimal((String) balance.get("amount"));
+        return E2ESupport.balanceOf(ledger(), accountId);
     }
 
     private Map<?, ?> waitForStatus(UUID transferId, String expectedStatus, Duration timeout) {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        Map<?, ?> last = null;
-        while (System.nanoTime() < deadline) {
-            last = orchestrator()
-                    .get()
-                    .uri("/v1/transfers/{id}", transferId)
-                    .header("X-User-Id", UUID.randomUUID().toString())
-                    .retrieve()
-                    .body(Map.class);
-            if (expectedStatus.equals(last.get("status"))) {
-                return last;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
-        }
-        throw new AssertionError(
-                "transfer " + transferId + " never reached " + expectedStatus + ", last seen: " + last);
+        return E2ESupport.waitForStatus(orchestrator(), transferId, expectedStatus, timeout);
     }
 
-    /** The fraud service's published result, built by hand: only the fields the orchestrator reads matter. */
-    private void publishClearedResult(UUID transferId) {
-        String event = """
-                {"id":"%s","source":"fraud-detection-service","type":"TransferCleared.v1",\
-                "time":"2026-11-01T10:00:00Z","subject":"%s","traceparent":null,\
-                "data":{"transferId":"%s","senderId":"%s","decision":"CLEARED","score":0.1500,\
-                "reasons":["AMOUNT_ROUND"],"modelVersion":"v1","ts":"2026-11-01T10:00:00Z"}}""".formatted(UUID.randomUUID(), transferId, transferId, UUID.randomUUID());
-        kafka.send("payments.fraud.results", transferId.toString(), event).join();
-    }
-
-    /** A result that arrives before the screening step is recorded and ignored, so the transfer must be
-     * screened first. */
     private void clearOnceScreening(UUID transferId) {
-        waitForStatus(transferId, "SCREENING", Duration.ofSeconds(15));
-        publishClearedResult(transferId);
+        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, "CLEARED");
     }
 
     @Test

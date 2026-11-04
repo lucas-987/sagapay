@@ -4,6 +4,40 @@ Maven multi-module: `common`, `contracts`, `ledger-accounts-service`,
 `transfer-orchestrator`, `fraud-detection-service`, `api-gateway`,
 `notification-consumer`.
 
+## Repository
+
+Part of **SagaPay**. Specification, milestones and design decisions:
+[sagapay-spec](https://github.com/lucas-987/sagapay-spec). Specified and delivered with
+[specwrit](https://github.com/lucas-987/specwrit).
+
+| | |
+|---|---|
+| Role | backend services, contracts, local infrastructure |
+| Stack | Java 21, Spring Boot 4, Maven multi-module |
+| Related repositories | — |
+
+## Package layout
+
+The three service modules (`ledger-accounts-service`, `transfer-orchestrator`,
+`fraud-detection-service`) are hexagonal, under `dev.treyer.sagapay.ledger`,
+`.orchestrator` and `.fraud`:
+
+```
+domain/         entities, value objects, pure logic
+application/
+  port/in/      use cases the domain exposes
+  port/out/     what the application needs from the outside
+  service/      implements the in ports, owns the transaction
+adapter/
+  in/           grpc, rest, kafka, scheduler: call the in ports
+  out/          persistence, grpc, rest, redis, messaging: implement the out ports
+config/
+```
+
+Dependencies point inwards only: adapters depend on the application, the application on
+the domain. JPA entities live in `domain/` and are not duplicated as pure domain classes
+behind a mapper.
+
 ## Contracts (`contracts`)
 
 The `contracts` module is the source of truth for the interfaces (gRPC proto +

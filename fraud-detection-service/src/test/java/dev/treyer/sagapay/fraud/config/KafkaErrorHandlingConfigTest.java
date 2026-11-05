@@ -14,7 +14,7 @@ class KafkaErrorHandlingConfigTest {
 
     private final List<String> destroyed = new ArrayList<>();
 
-    private final KafkaErrorHandlingConfig config = new KafkaErrorHandlingConfig() {
+    private final KafkaErrorHandlingConfig config = new KafkaErrorHandlingConfig(new KafkaRetryProperties(3, 1000)) {
         @Override
         <K, V> DefaultKafkaProducerFactory<K, V> newProducerFactory(
                 Map<String, Object> properties, Serializer<K> keySerializer, Serializer<V> valueSerializer) {

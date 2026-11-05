@@ -2,6 +2,7 @@ package dev.treyer.sagapay.fraud.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
 import dev.treyer.sagapay.fraud.application.port.out.OutboxRelayPort;
+import dev.treyer.sagapay.fraud.config.OutboxProperties;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
@@ -25,20 +26,25 @@ import java.util.List;
 class OutboxPoller {
 
     static final String TOPIC = "payments.fraud.results";
-    private static final int BATCH_SIZE = 100;
     private static final String TRACEPARENT_VERSION = "00";
 
     private final OutboxRelayPort outbox;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
+    private final int batchSize;
 
     OutboxPoller(
-            OutboxRelayPort outbox, KafkaTemplate<String, String> kafkaTemplate, JsonMapper jsonMapper, Tracer tracer) {
+            OutboxRelayPort outbox,
+            KafkaTemplate<String, String> kafkaTemplate,
+            JsonMapper jsonMapper,
+            Tracer tracer,
+            OutboxProperties properties) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
         this.tracer = tracer;
+        this.batchSize = properties.batchSize();
     }
 
     // The first run waits one interval too, so that a test setting a long interval is the only caller.
@@ -47,7 +53,7 @@ class OutboxPoller {
             initialDelayString = "${outbox.poll-interval-ms:500}")
     @Transactional
     public void drain() {
-        List<OutboxMessage> batch = outbox.findUnpublishedForUpdateSkipLocked(BATCH_SIZE);
+        List<OutboxMessage> batch = outbox.findUnpublishedForUpdateSkipLocked(batchSize);
         for (OutboxMessage message : batch) {
             publish(message);
             outbox.markPublished(message.id());

@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties(FraudRulesProperties.class)
+@EnableConfigurationProperties({FraudRulesProperties.class, OutboxProperties.class, KafkaRetryProperties.class})
 class FraudRulesConfig {
 
     @Bean

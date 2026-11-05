@@ -25,10 +25,12 @@ import java.util.Map;
 @Configuration
 class KafkaErrorHandlingConfig implements DisposableBean {
 
-    private static final long RETRY_INTERVAL_MS = 1000;
-    private static final long RETRIES = 3;
-
+    private final KafkaRetryProperties retry;
     private final List<DefaultKafkaProducerFactory<?, ?>> deadLetterProducers = new ArrayList<>();
+
+    KafkaErrorHandlingConfig(KafkaRetryProperties retry) {
+        this.retry = retry;
+    }
 
     /**
      * An unreadable record reaches the recoverer as raw bytes, a readable one as the decoded
@@ -51,7 +53,8 @@ class KafkaErrorHandlingConfig implements DisposableBean {
         // fewer partitions than the topic it shadows: -1 lets the producer pick one.
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 templates, (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(RETRY_INTERVAL_MS, RETRIES));
+        DefaultErrorHandler handler =
+                new DefaultErrorHandler(recoverer, new FixedBackOff(retry.intervalMs(), retry.attempts()));
         handler.addNotRetryableExceptions(MalformedTransferEventException.class);
         return handler;
     }

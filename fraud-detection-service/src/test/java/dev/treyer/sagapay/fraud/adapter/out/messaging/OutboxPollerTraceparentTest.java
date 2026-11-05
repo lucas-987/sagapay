@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.fraud.adapter.out.messaging;
 
 import dev.treyer.sagapay.fraud.application.port.out.OutboxRelayPort;
+import dev.treyer.sagapay.fraud.config.OutboxProperties;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
@@ -41,7 +42,7 @@ class OutboxPollerTraceparentTest {
     private final TraceContext context = mock(TraceContext.class);
 
     private final OutboxPoller poller =
-            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer);
+            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer, new OutboxProperties(500, 100));
 
     private void oneRowToPublish() {
         when(tracer.nextSpan()).thenReturn(span);

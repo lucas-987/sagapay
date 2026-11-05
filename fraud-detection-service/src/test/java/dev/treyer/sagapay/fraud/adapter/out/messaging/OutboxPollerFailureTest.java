@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.fraud.adapter.out.messaging;
 
 import dev.treyer.sagapay.fraud.application.port.out.OutboxRelayPort;
+import dev.treyer.sagapay.fraud.config.OutboxProperties;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -30,7 +31,7 @@ class OutboxPollerFailureTest {
     private final Tracer tracer = Tracer.NOOP;
 
     private final OutboxPoller poller =
-            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer);
+            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer, new OutboxProperties(500, 100));
 
     private static OutboxMessage message(UUID id) {
         return new OutboxMessage(id, "Transfer", UUID.randomUUID(), "TransferCleared", "{}");

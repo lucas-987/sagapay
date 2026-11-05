@@ -6,6 +6,7 @@ import dev.treyer.sagapay.fraud.application.port.out.ProcessedEventPort;
 import dev.treyer.sagapay.fraud.domain.FraudAssessment;
 import dev.treyer.sagapay.fraud.domain.FraudCase;
 import dev.treyer.sagapay.fraud.domain.FraudDecision;
+import dev.treyer.sagapay.fraud.domain.FraudResultEventType;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
 import dev.treyer.sagapay.fraud.domain.SenderActivity;
@@ -66,7 +67,9 @@ class DecisionWriter {
     }
 
     private OutboxMessage resultOf(ReservedTransfer transfer, FraudAssessment assessment) {
-        String eventType = assessment.decision() == FraudDecision.FLAGGED ? "TransferFlagged" : "TransferCleared";
+        FraudResultEventType eventType = assessment.decision() == FraudDecision.FLAGGED
+                ? FraudResultEventType.TRANSFER_FLAGGED
+                : FraudResultEventType.TRANSFER_CLEARED;
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("transferId", transfer.transferId().toString());
         payload.put("senderId", transfer.senderId().toString());
@@ -79,7 +82,7 @@ class DecisionWriter {
                 UUID.randomUUID(),
                 "Transfer",
                 transfer.transferId(),
-                eventType,
+                eventType.wireName(),
                 jsonMapper.writeValueAsString(payload));
     }
 }

@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.fraud.adapter.in.kafka;
 
 import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.fraud.application.port.in.ScreenTransferUseCase;
 import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -29,7 +30,7 @@ public class TransferEventListener {
         if (data.eventType() == null) {
             throw new MalformedTransferEventException("transfer event has no eventType");
         }
-        if (FUNDS_RESERVED.equals(data.eventType())) {
+        if (TransferEventType.FUNDS_RESERVED.wireName().equals(data.eventType())) {
             screening.screen(toReservedTransfer(message.id(), data));
         }
     }

@@ -10,6 +10,7 @@ import dev.treyer.sagapay.orchestrator.domain.RecipientNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,6 +46,12 @@ public class TransferRestExceptionHandler {
 
     @ExceptionHandler(MalformedRequestException.class)
     public ProblemDetail handleMalformedRequest(MalformedRequestException e) {
+        return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.MALFORMED_REQUEST, e.getMessage());
+    }
+
+    /** The bounds the contract declares on a parameter, applied by the generated interface. */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ProblemDetail handleConstraintViolation(ConstraintViolationException e) {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.MALFORMED_REQUEST, e.getMessage());
     }
 

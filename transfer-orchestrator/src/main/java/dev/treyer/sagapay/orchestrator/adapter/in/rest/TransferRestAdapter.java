@@ -111,7 +111,7 @@ public class TransferRestAdapter implements V1Api {
     public ResponseEntity<ListTransfers200Response> listTransfers(
             String direction, dev.treyer.sagapay.transfer.model.TransferStatus status, String cursor, Integer limit) {
         UUID userId = requireUserId();
-        ListTransfersUseCase.Direction dir = ListTransfersUseCase.Direction.valueOf(direction);
+        ListTransfersUseCase.Direction dir = toDirection(direction);
         TransferCursor after = cursor == null ? null : TransferCursor.decode(cursor);
 
         dev.treyer.sagapay.orchestrator.domain.TransferStatus domainStatus;
@@ -182,6 +182,14 @@ public class TransferRestAdapter implements V1Api {
             return UUID.fromString(value);
         } catch (IllegalArgumentException e) {
             throw new MalformedRequestException(USER_ID_HEADER, value, e);
+        }
+    }
+
+    private static ListTransfersUseCase.Direction toDirection(String direction) {
+        try {
+            return ListTransfersUseCase.Direction.valueOf(direction);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedRequestException("direction", direction, e);
         }
     }
 

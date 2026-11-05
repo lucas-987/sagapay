@@ -7,11 +7,10 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
+import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
-import dev.treyer.sagapay.orchestrator.domain.RecipientNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
@@ -55,7 +54,7 @@ public class TransferRestAdapter implements V1Api {
     private final GetTransferUseCase getTransferUseCase;
     private final ConfirmTransferUseCase confirmTransferUseCase;
     private final PostClearedTransferUseCase postClearedTransferUseCase;
-    private final AccountLookupPort accountLookupPort;
+    private final ResolveRecipientUseCase resolveRecipientUseCase;
     private final Executor executor;
 
     public TransferRestAdapter(
@@ -65,7 +64,7 @@ public class TransferRestAdapter implements V1Api {
             GetTransferUseCase getTransferUseCase,
             ConfirmTransferUseCase confirmTransferUseCase,
             PostClearedTransferUseCase postClearedTransferUseCase,
-            AccountLookupPort accountLookupPort,
+            ResolveRecipientUseCase resolveRecipientUseCase,
             @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
         this.initiateTransferUseCase = initiateTransferUseCase;
         this.advanceSagaUseCase = advanceSagaUseCase;
@@ -73,7 +72,7 @@ public class TransferRestAdapter implements V1Api {
         this.getTransferUseCase = getTransferUseCase;
         this.confirmTransferUseCase = confirmTransferUseCase;
         this.postClearedTransferUseCase = postClearedTransferUseCase;
-        this.accountLookupPort = accountLookupPort;
+        this.resolveRecipientUseCase = resolveRecipientUseCase;
         this.executor = applicationTaskExecutor;
     }
 
@@ -195,12 +194,7 @@ public class TransferRestAdapter implements V1Api {
             }
         }
         if (request.getToHandle() != null) {
-            String handle = request.getToHandle().startsWith("@")
-                    ? request.getToHandle().substring(1)
-                    : request.getToHandle();
-            return accountLookupPort
-                    .lookupByHandle(handle)
-                    .orElseThrow(() -> new RecipientNotFoundException(request.getToHandle()));
+            return resolveRecipientUseCase.resolveByHandle(request.getToHandle());
         }
         throw new MalformedRequestException("must provide either toUserId or toHandle");
     }

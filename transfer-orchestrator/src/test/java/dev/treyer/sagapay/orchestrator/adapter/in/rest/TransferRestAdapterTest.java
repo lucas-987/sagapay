@@ -7,7 +7,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
+import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -82,7 +82,7 @@ class TransferRestAdapterTest {
     private PostClearedTransferUseCase postClearedTransferUseCase;
 
     @MockitoBean
-    private AccountLookupPort accountLookupPort;
+    private ResolveRecipientUseCase resolveRecipientUseCase;
 
     private static Transfer newTransfer(UUID senderId, UUID recipientId) {
         return new Transfer(

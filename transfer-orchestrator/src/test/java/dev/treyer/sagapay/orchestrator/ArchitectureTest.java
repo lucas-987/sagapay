@@ -44,4 +44,12 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..orchestrator.adapter.out..");
+
+    @ArchTest
+    static final ArchRule inboundAdaptersGoThroughUseCases = noClasses()
+            .that()
+            .resideInAPackage("..orchestrator.adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..orchestrator.application.port.out..");
 }

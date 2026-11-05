@@ -5,10 +5,13 @@ import dev.treyer.sagapay.ledger.domain.Account;
 import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
@@ -18,6 +21,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @Import(TestcontainersConfiguration.class)
@@ -167,5 +172,22 @@ class ReservationRepositoryTest {
         entityManager.clear();
         assertThat(reservations.findById(reservation.getId()).orElseThrow().getStatus())
                 .isEqualTo(ReservationStatus.RELEASED);
+    }
+
+    private void writeStatus(String status) {
+        Reservation reservation = newReservation(newAccount(), UUID.randomUUID().toString(), "10.0000");
+        jdbcTemplate.update("update reservations set status = ? where id = ?", status, reservation.getId());
+    }
+
+    // A status added to the enum without its migration would otherwise only fail at runtime.
+    @ParameterizedTest
+    @EnumSource(ReservationStatus.class)
+    void everyStatusIsAccepted(ReservationStatus status) {
+        assertThatCode(() -> writeStatus(status.name())).doesNotThrowAnyException();
+    }
+
+    @Test
+    void anUnknownStatusIsRefused() {
+        assertThatThrownBy(() -> writeStatus("PENDING")).isInstanceOf(DataIntegrityViolationException.class);
     }
 }

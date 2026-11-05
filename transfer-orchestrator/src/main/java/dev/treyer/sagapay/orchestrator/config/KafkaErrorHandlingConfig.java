@@ -16,10 +16,13 @@ import org.springframework.util.backoff.FixedBackOff;
 @Configuration
 class KafkaErrorHandlingConfig implements DisposableBean {
 
-    private static final long RETRY_INTERVAL_MS = 1000;
-    private static final long RETRIES = 3;
+    private final KafkaRetryProperties retry;
 
     private DefaultKafkaProducerFactory<Object, Object> deadLetterProducers;
+
+    KafkaErrorHandlingConfig(KafkaRetryProperties retry) {
+        this.retry = retry;
+    }
 
     /**
      * A record the deserialiser rejected reaches the recoverer as raw bytes, a readable one as a
@@ -38,7 +41,8 @@ class KafkaErrorHandlingConfig implements DisposableBean {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 new KafkaTemplate<>(deadLetterProducers),
                 (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1));
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(RETRY_INTERVAL_MS, RETRIES));
+        DefaultErrorHandler handler =
+                new DefaultErrorHandler(recoverer, new FixedBackOff(retry.intervalMs(), retry.attempts()));
         handler.addNotRetryableExceptions(MalformedFraudResultException.class);
         return handler;
     }

@@ -38,13 +38,14 @@ import static org.mockito.Mockito.when;
 class SagaServiceConfirmTest {
 
     private static final String CODE = "right-code";
+    private static final SagaSettings SETTINGS = new SagaSettings(5000, 10000, 120000, 100);
 
     private final TransferPort transfers = mock(TransferPort.class);
     private final SagaStepPort sagaSteps = mock(SagaStepPort.class);
     private final LedgerPort ledger = mock(LedgerPort.class);
     private final SagaTransitionWriter writer = mock(SagaTransitionWriter.class);
-    private final SagaService service =
-            new SagaService(transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, 5000, CODE);
+    private final SagaService service = new SagaService(
+            transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, SETTINGS, CODE);
 
     private static final UUID TRANSFER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000001");
 
@@ -182,7 +183,14 @@ class SagaServiceConfirmTest {
     @ValueSource(strings = {"", " ", "\t"})
     void aBlankVerificationCodeRefusesTheServiceStart(String blank) {
         assertThatThrownBy(() -> new SagaService(
-                        transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, 5000, blank))
+                        transfers,
+                        sagaSteps,
+                        mock(OutboxPort.class),
+                        ledger,
+                        new JsonMapper(),
+                        writer,
+                        SETTINGS,
+                        blank))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("sagapay.fraud.verification-code must not be blank");
     }

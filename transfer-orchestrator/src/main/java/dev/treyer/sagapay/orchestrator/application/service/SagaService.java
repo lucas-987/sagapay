@@ -64,9 +64,6 @@ public class SagaService
 
     private static final Logger log = LoggerFactory.getLogger(SagaService.class);
 
-    /** Per waiting status and sweep: a long outage leaves a backlog the next sweeps take in turn. */
-    private static final int OVERDUE_BATCH_SIZE = 100;
-
     private record Deadline(TransferStatus waitingStatus, FailureReason failureReason) {}
 
     private static final List<Deadline> DEADLINES = List.of(
@@ -80,6 +77,7 @@ public class SagaService
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
     private final long repriseGracePeriodMs;
+    private final int overdueBatchSize;
     private final byte[] verificationCode;
 
     public SagaService(
@@ -89,7 +87,7 @@ public class SagaService
             LedgerPort ledger,
             JsonMapper jsonMapper,
             SagaTransitionWriter writer,
-            @Value("${saga.reprise.grace-period-ms:5000}") long repriseGracePeriodMs,
+            SagaSettings settings,
             @Value("${sagapay.fraud.verification-code}") String verificationCode) {
         if (verificationCode.isBlank()) {
             throw new IllegalArgumentException("sagapay.fraud.verification-code must not be blank");
@@ -100,7 +98,8 @@ public class SagaService
         this.ledger = ledger;
         this.jsonMapper = jsonMapper;
         this.writer = writer;
-        this.repriseGracePeriodMs = repriseGracePeriodMs;
+        this.repriseGracePeriodMs = settings.repriseGracePeriodMs();
+        this.overdueBatchSize = settings.overdueBatchSize();
         this.verificationCode = verificationCode.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -253,7 +252,7 @@ public class SagaService
         int ended = 0;
         try {
             for (Deadline deadline : DEADLINES) {
-                for (Transfer transfer : transfers.findOverdue(deadline.waitingStatus(), now, OVERDUE_BATCH_SIZE)) {
+                for (Transfer transfer : transfers.findOverdue(deadline.waitingStatus(), now, overdueBatchSize)) {
                     try {
                         if (!writer.applyTimedOut(
                                 transfer.getId(), transfer, deadline.waitingStatus(), deadline.failureReason())) {

@@ -2,6 +2,7 @@ package dev.treyer.sagapay.orchestrator.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
+import dev.treyer.sagapay.orchestrator.config.OutboxProperties;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
@@ -32,22 +33,25 @@ public class OutboxPoller {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
+    private final int batchSize;
 
     public OutboxPoller(
             OutboxRepository outbox,
             KafkaTemplate<String, String> kafkaTemplate,
             JsonMapper jsonMapper,
-            Tracer tracer) {
+            Tracer tracer,
+            OutboxProperties properties) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
         this.tracer = tracer;
+        this.batchSize = properties.batchSize();
     }
 
     @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:500}")
     @Transactional
     public void drain() {
-        List<OutboxRow> batch = outbox.findUnpublishedForUpdateSkipLocked(100);
+        List<OutboxRow> batch = outbox.findUnpublishedForUpdateSkipLocked(batchSize);
         for (OutboxRow row : batch) {
             publish(row);
             outbox.markPublished(row.getId());

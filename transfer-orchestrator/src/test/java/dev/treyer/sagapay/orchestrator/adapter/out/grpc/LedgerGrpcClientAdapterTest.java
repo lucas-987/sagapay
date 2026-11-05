@@ -4,6 +4,7 @@ import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.common.v1.Empty;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
+import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.grpc.ManagedChannel;
@@ -86,7 +87,7 @@ class LedgerGrpcClientAdapterTest {
         channel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        adapter = new LedgerGrpcClientAdapter(channel, 5000);
+        adapter = new LedgerGrpcClientAdapter(channel, new LedgerProperties(new LedgerProperties.Grpc(5000)));
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");
@@ -157,7 +158,8 @@ class LedgerGrpcClientAdapterTest {
         ManagedChannel inProcess =
                 InProcessChannelBuilder.forName(serverName).directExecutor().build();
         try {
-            LedgerGrpcClientAdapter refusing = new LedgerGrpcClientAdapter(inProcess, 5000);
+            LedgerGrpcClientAdapter refusing =
+                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
 
             assertThatThrownBy(
                             () -> refusing.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))

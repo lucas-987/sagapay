@@ -8,6 +8,7 @@ import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
 import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -15,7 +16,6 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.grpc.Channel;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -39,9 +39,9 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     private final LedgerServiceGrpc.LedgerServiceBlockingStub stub;
     private final long deadlineMs;
 
-    public LedgerGrpcClientAdapter(Channel ledgerChannel, @Value("${ledger.grpc.deadline-ms:500}") long deadlineMs) {
+    public LedgerGrpcClientAdapter(Channel ledgerChannel, LedgerProperties properties) {
         this.stub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
-        this.deadlineMs = deadlineMs;
+        this.deadlineMs = properties.grpc().deadlineMs();
     }
 
     @Override

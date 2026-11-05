@@ -13,7 +13,6 @@ import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,15 +46,14 @@ class SagaTransitionWriter {
             OutboxPort outbox,
             ProcessedEventPort processedEvents,
             JsonMapper jsonMapper,
-            @Value("${saga.screening.timeout-ms:10000}") long screeningTimeoutMs,
-            @Value("${saga.confirmation.window-ms:120000}") long confirmationWindowMs) {
+            SagaSettings settings) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
         this.processedEvents = processedEvents;
         this.jsonMapper = jsonMapper;
-        this.screeningTimeoutMs = screeningTimeoutMs;
-        this.confirmationWindowMs = confirmationWindowMs;
+        this.screeningTimeoutMs = settings.screeningTimeoutMs();
+        this.confirmationWindowMs = settings.confirmationWindowMs();
     }
 
     /** @return false when a concurrent caller already moved the transfer on. */

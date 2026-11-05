@@ -55,8 +55,8 @@ class SagaTransitionWriterConfigTest {
                 .withBean(OutboxPort.class, () -> mock(OutboxPort.class))
                 .withBean(ProcessedEventPort.class, () -> mock(ProcessedEventPort.class))
                 .withBean(JsonMapper.class, JsonMapper::new)
+                .withBean(SagaSettings.class, () -> new SagaSettings(5000, 2500, 120000, 100))
                 .withBean(SagaTransitionWriter.class)
-                .withPropertyValues("saga.screening.timeout-ms=2500")
                 .run(context -> {
                     Instant before = Instant.now();
                     context.getBean(SagaTransitionWriter.class).applyReserved(transferId, transfer, reservationId);
@@ -88,8 +88,8 @@ class SagaTransitionWriterConfigTest {
                 .withBean(OutboxPort.class, () -> mock(OutboxPort.class))
                 .withBean(ProcessedEventPort.class, () -> processedEvents)
                 .withBean(JsonMapper.class, JsonMapper::new)
+                .withBean(SagaSettings.class, () -> new SagaSettings(5000, 10000, 2500, 100))
                 .withBean(SagaTransitionWriter.class)
-                .withPropertyValues("saga.confirmation.window-ms=2500")
                 .run(context -> {
                     Instant before = Instant.now();
                     context.getBean(SagaTransitionWriter.class)

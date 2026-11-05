@@ -39,7 +39,7 @@ class SagaServiceOverdueSweepTest {
             ledger,
             new JsonMapper(),
             writer,
-            5000,
+            new SagaSettings(5000, 10000, 120000, 100),
             "code");
 
     private Transfer transfer() {

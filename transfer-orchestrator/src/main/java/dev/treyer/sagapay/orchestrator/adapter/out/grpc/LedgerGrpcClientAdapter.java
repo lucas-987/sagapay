@@ -129,8 +129,6 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         if (t instanceof LedgerRejectedException rejected) {
             return rejected;
         }
-        // Not logged here: the cause travels in the exception and is logged once, by the
-        // caller that handles it.
         return new LedgerUnavailableException(t);
     }
 

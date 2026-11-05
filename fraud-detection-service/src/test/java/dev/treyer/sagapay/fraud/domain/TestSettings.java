@@ -17,6 +17,7 @@ final class TestSettings {
                 new BigDecimal("0.35"),
                 new BigDecimal("0.35"),
                 threshold,
+                new BigDecimal("100"),
                 new BigDecimal("0.70"),
                 "rules-v1");
     }

@@ -2,6 +2,8 @@ package dev.treyer.sagapay.fraud.config;
 
 import dev.treyer.sagapay.fraud.domain.FraudRuleSettings;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -28,6 +30,7 @@ class FraudRulesPropertiesTest {
             assertThat(settings.newRecipientWeight()).isEqualByComparingTo("0.35");
             assertThat(settings.amountRoundWeight()).isEqualByComparingTo("0.35");
             assertThat(settings.amountRoundThreshold()).isEqualByComparingTo("500");
+            assertThat(settings.amountRoundStep()).isEqualByComparingTo("100");
             assertThat(settings.flagThreshold()).isEqualByComparingTo("0.70");
             assertThat(settings.modelVersion()).isEqualTo("rules-v1");
         });
@@ -41,6 +44,7 @@ class FraudRulesPropertiesTest {
                         "FRAUD_RULES_NEW_RECIPIENT_WEIGHT=0.10",
                         "FRAUD_RULES_AMOUNT_ROUND_WEIGHT=0.20",
                         "FRAUD_RULES_AMOUNT_ROUND_THRESHOLD=1000",
+                        "FRAUD_RULES_AMOUNT_ROUND_STEP=50",
                         "FRAUD_RULES_FLAG_THRESHOLD=0.50",
                         "FRAUD_RULES_MODEL_VERSION=rules-v2")
                 .run(context -> {
@@ -52,8 +56,33 @@ class FraudRulesPropertiesTest {
                     assertThat(settings.newRecipientWeight()).isEqualByComparingTo("0.10");
                     assertThat(settings.amountRoundWeight()).isEqualByComparingTo("0.20");
                     assertThat(settings.amountRoundThreshold()).isEqualByComparingTo("1000");
+                    assertThat(settings.amountRoundStep()).isEqualByComparingTo("50");
                     assertThat(settings.flagThreshold()).isEqualByComparingTo("0.50");
                     assertThat(settings.modelVersion()).isEqualTo("rules-v2");
                 });
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "fraud.rules.velocity-1h.weight=-0.01",
+                "fraud.rules.velocity-1h.max-per-hour=-1",
+                "fraud.rules.new-recipient.weight=-0.01",
+                "fraud.rules.new-recipient.memory-seconds=0",
+                "fraud.rules.amount-round.weight=-0.01",
+                "fraud.rules.amount-round.threshold=-1",
+                "fraud.rules.amount-round.step=0",
+                "fraud.rules.flag-threshold=-0.01",
+                "fraud.rules.flag-threshold=1.01",
+                "fraud.rules.model-version="
+            })
+    void aValueOutOfBoundsStopsTheStart(String property) {
+        runner.withPropertyValues(property).run(context -> assertThat(context).hasFailed());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"fraud.rules.flag-threshold=0", "fraud.rules.flag-threshold=1"})
+    void theBoundsOfTheFlagThresholdAreAccepted(String property) {
+        runner.withPropertyValues(property).run(context -> assertThat(context).hasNotFailed());
     }
 }

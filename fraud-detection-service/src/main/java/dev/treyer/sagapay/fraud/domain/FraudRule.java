@@ -16,13 +16,11 @@ public enum FraudRule {
         }
     },
     AMOUNT_ROUND {
-        private static final BigDecimal ROUND_STEP = BigDecimal.valueOf(100);
-
         @Override
         boolean fires(TransferToScreen transfer, SenderActivity activity, FraudRuleSettings settings) {
             BigDecimal amount = transfer.amount().amount();
             return amount.compareTo(settings.amountRoundThreshold()) >= 0
-                    && amount.remainder(ROUND_STEP).signum() == 0;
+                    && amount.remainder(settings.amountRoundStep()).signum() == 0;
         }
     };
 

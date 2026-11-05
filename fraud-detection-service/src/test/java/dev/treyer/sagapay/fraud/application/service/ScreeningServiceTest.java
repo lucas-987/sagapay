@@ -87,6 +87,7 @@ class ScreeningServiceTest {
                     new BigDecimal("0.35"),
                     new BigDecimal("0.35"),
                     new BigDecimal("500"),
+                    new BigDecimal("100"),
                     new BigDecimal("0.70"),
                     "rules-v1")),
             new DecisionWriter(

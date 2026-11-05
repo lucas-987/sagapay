@@ -8,6 +8,7 @@ public record FraudRuleSettings(
         BigDecimal newRecipientWeight,
         BigDecimal amountRoundWeight,
         BigDecimal amountRoundThreshold,
+        BigDecimal amountRoundStep,
         BigDecimal flagThreshold,
         String modelVersion) {
 

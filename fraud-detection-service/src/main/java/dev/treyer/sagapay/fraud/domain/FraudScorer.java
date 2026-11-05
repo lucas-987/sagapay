@@ -6,6 +6,8 @@ import java.util.List;
 
 public class FraudScorer {
 
+    private static final BigDecimal MAX_SCORE = BigDecimal.ONE;
+
     private final FraudRuleSettings settings;
 
     public FraudScorer(FraudRuleSettings settings) {
@@ -19,8 +21,7 @@ public class FraudScorer {
         BigDecimal score = fired.stream()
                 .map(settings::weightOf)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .max(BigDecimal.ZERO)
-                .min(BigDecimal.ONE);
+                .min(MAX_SCORE);
         FraudDecision decision =
                 score.compareTo(settings.flagThreshold()) >= 0 ? FraudDecision.FLAGGED : FraudDecision.CLEARED;
         return new FraudAssessment(score, decision, fired, settings.modelVersion());

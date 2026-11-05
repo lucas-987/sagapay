@@ -24,6 +24,8 @@ RUN mvn -q -pl transfer-orchestrator -am package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+RUN addgroup -S sagapay && adduser -S sagapay -G sagapay
 COPY --from=build /workspace/transfer-orchestrator/target/transfer-orchestrator-*.jar app.jar
 EXPOSE 8082
+USER sagapay
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -24,6 +24,8 @@ RUN mvn -q -pl ledger-accounts-service -am package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+RUN addgroup -S sagapay && adduser -S sagapay -G sagapay
 COPY --from=build /workspace/ledger-accounts-service/target/ledger-accounts-service-*.jar app.jar
 EXPOSE 8081 9091
+USER sagapay
 ENTRYPOINT ["java", "-jar", "app.jar"]

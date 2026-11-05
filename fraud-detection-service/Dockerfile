@@ -24,6 +24,8 @@ RUN mvn -q -pl fraud-detection-service -am package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+RUN addgroup -S sagapay && adduser -S sagapay -G sagapay
 COPY --from=build /workspace/fraud-detection-service/target/fraud-detection-service-*.jar app.jar
 EXPOSE 8083
+USER sagapay
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -11,6 +11,7 @@ import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
+import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.junit.jupiter.api.Test;
@@ -48,13 +49,14 @@ class SagaServiceConfirmTest {
             transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, SETTINGS, CODE);
 
     private static final UUID TRANSFER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000001");
+    private static final UUID SENDER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000002");
 
     /** The status has no setter (transitions are conditional updates), so a test sets the state it needs. */
     private static Transfer transferIn(TransferStatus status, FailureReason failureReason) {
         Transfer transfer = new Transfer(
                 TRANSFER_ID,
                 UUID.randomUUID(),
-                UUID.randomUUID(),
+                SENDER_ID,
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -88,7 +90,7 @@ class SagaServiceConfirmTest {
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, CODE))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(VerificationExpiredException.class)
                 .hasMessage("the confirmation window of transfer " + TRANSFER_ID + " has closed");
         verify(ledger, never()).postTransfer(any(), any(), any(), any());
@@ -102,7 +104,7 @@ class SagaServiceConfirmTest {
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, CODE))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(TransferNotBlockedException.class)
                 .hasMessage("transfer " + TRANSFER_ID + " is not BLOCKED");
     }
@@ -115,7 +117,7 @@ class SagaServiceConfirmTest {
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, CODE))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(TransferNotBlockedException.class)
                 .hasMessage("transfer " + TRANSFER_ID + " is not BLOCKED");
     }
@@ -126,7 +128,7 @@ class SagaServiceConfirmTest {
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, CODE))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(VerificationExpiredException.class)
                 .hasMessage("the confirmation window of transfer " + TRANSFER_ID + " has closed");
     }
@@ -136,7 +138,7 @@ class SagaServiceConfirmTest {
         when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
         blockedTransferOpenFor(60);
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, "wrong"))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, "wrong"))
                 .isInstanceOf(InvalidVerificationCodeException.class)
                 .hasMessage("wrong verification code for transfer " + TRANSFER_ID);
         verify(writer, never()).applyConfirmed(any(), any());
@@ -147,7 +149,7 @@ class SagaServiceConfirmTest {
         when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
         when(sagaSteps.findByTransferId(TRANSFER_ID)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, CODE))
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("blocked transfer " + TRANSFER_ID + " has no open confirmation window");
     }
@@ -173,10 +175,20 @@ class SagaServiceConfirmTest {
                                 TRANSFER_ID, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, now.minusSeconds(10))));
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(true);
 
-        Transfer confirmed = service.confirmTransfer(TRANSFER_ID, CODE);
+        Transfer confirmed = service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE);
 
         assertThat(confirmed).isSameAs(blocked);
         verify(writer).applyConfirmed(eq(TRANSFER_ID), any(Instant.class));
+    }
+
+    @Test
+    void anotherUserIsToldTheTransferDoesNotExist() {
+        when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
+
+        assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, UUID.randomUUID(), CODE))
+                .isInstanceOf(TransferNotFoundException.class);
+
+        verify(writer, never()).applyConfirmed(any(), any());
     }
 
     @ParameterizedTest(name = "\"{0}\" is refused")

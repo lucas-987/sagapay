@@ -91,14 +91,14 @@ final class E2ESupport {
     }
 
     static Map<?, ?> waitForStatus(
-            RestClient orchestratorRest, UUID transferId, String expectedStatus, Duration timeout) {
+            RestClient orchestratorRest, UUID transferId, UUID userId, String expectedStatus, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         Map<?, ?> last = null;
         while (System.nanoTime() < deadline) {
             last = orchestratorRest
                     .get()
                     .uri("/v1/transfers/{id}", transferId)
-                    .header("X-User-Id", UUID.randomUUID().toString())
+                    .header("X-User-Id", userId.toString())
                     .retrieve()
                     .body(Map.class);
             if (expectedStatus.equals(last.get("status"))) {
@@ -131,8 +131,12 @@ final class E2ESupport {
     /** A result that arrives before the screening step is recorded and ignored, so the transfer must be
      * screened first. */
     static void publishFraudResultOnceScreening(
-            RestClient orchestratorRest, KafkaTemplate<String, String> kafka, UUID transferId, String decision) {
-        waitForStatus(orchestratorRest, transferId, "SCREENING", Duration.ofSeconds(15));
+            RestClient orchestratorRest,
+            KafkaTemplate<String, String> kafka,
+            UUID transferId,
+            UUID senderId,
+            String decision) {
+        waitForStatus(orchestratorRest, transferId, senderId, "SCREENING", Duration.ofSeconds(15));
         publishFraudResult(kafka, transferId, decision);
     }
 }

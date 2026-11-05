@@ -311,8 +311,11 @@ public class SagaService
     }
 
     @Override
-    public TransferWithSteps getTransfer(UUID transferId) {
-        Transfer transfer = transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
+    public TransferWithSteps getTransfer(UUID transferId, UUID userId) {
+        Transfer transfer = transfers
+                .findById(transferId)
+                .filter(found -> userId.equals(found.getSenderId()) || userId.equals(found.getRecipientId()))
+                .orElseThrow(() -> new TransferNotFoundException(transferId));
         List<SagaStep> steps = sagaSteps.findByTransferId(transferId);
         return new TransferWithSteps(transfer, steps, screeningVerdict(transfer, steps));
     }
@@ -336,8 +339,11 @@ public class SagaService
     }
 
     @Override
-    public Transfer confirmTransfer(UUID transferId, String code) {
-        Transfer transfer = transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
+    public Transfer confirmTransfer(UUID transferId, UUID senderId, String code) {
+        Transfer transfer = transfers
+                .findById(transferId)
+                .filter(found -> senderId.equals(found.getSenderId()))
+                .orElseThrow(() -> new TransferNotFoundException(transferId));
         if (isExpired(transfer)) {
             throw new VerificationExpiredException(transferId);
         }

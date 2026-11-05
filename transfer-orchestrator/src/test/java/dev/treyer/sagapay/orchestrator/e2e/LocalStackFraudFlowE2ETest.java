@@ -135,10 +135,10 @@ class LocalStackFraudFlowE2ETest {
         UUID recipientId = E2ESupport.lookupAccountId(ledger, "ines");
 
         UUID transferId = flaggedTransfer(senderId, recipientId);
-        E2ESupport.waitForStatus(orchestrator, transferId, "BLOCKED", WAIT);
+        E2ESupport.waitForStatus(orchestrator, transferId, senderId, "BLOCKED", WAIT);
 
         assertThat(confirm(transferId, senderId)).isEqualTo(202);
-        E2ESupport.waitForStatus(orchestrator, transferId, "POSTED", WAIT);
+        E2ESupport.waitForStatus(orchestrator, transferId, senderId, "POSTED", WAIT);
     }
 
     @Test
@@ -149,7 +149,7 @@ class LocalStackFraudFlowE2ETest {
         UUID recipientId = E2ESupport.lookupAccountId(ledger, "hugo");
 
         UUID transferId = flaggedTransfer(senderId, recipientId);
-        Map<?, ?> failed = E2ESupport.waitForStatus(orchestrator, transferId, "FAILED", WAIT);
+        Map<?, ?> failed = E2ESupport.waitForStatus(orchestrator, transferId, senderId, "FAILED", WAIT);
 
         assertThat(failed.get("failureReason")).isEqualTo("VERIFICATION_EXPIRED");
         assertThatThrownBy(() -> confirm(transferId, senderId))

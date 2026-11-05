@@ -136,7 +136,7 @@ public class TransferRestAdapter implements V1Api {
 
     @Override
     public ResponseEntity<TransferDetail> getTransfer(UUID id) {
-        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id);
+        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, requireUserId());
         Transfer transfer = result.transfer();
 
         TransferDetail detail = new TransferDetail(
@@ -157,7 +157,7 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> confirmBlockedTransfer(
             UUID id, ConfirmBlockedTransferRequest request) {
-        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, request.getVerificationToken());
+        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, requireUserId(), request.getVerificationToken());
         // The 202 means the transfer will be posted: it is CLEARED already, and the
         // reprise poller posts it if this task is lost.
         executor.execute(() -> {

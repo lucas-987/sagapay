@@ -129,18 +129,18 @@ class FraudSagaE2ETest {
                 .toBodilessEntity();
     }
 
-    private void waitForStatus(UUID transferId, String status) {
-        E2ESupport.waitForStatus(orchestrator(), transferId, status, WAIT);
+    private void waitForStatus(UUID transferId, UUID senderId, String status) {
+        E2ESupport.waitForStatus(orchestrator(), transferId, senderId, status, WAIT);
     }
 
-    private Map<?, ?> failedTransfer(UUID transferId) {
-        return E2ESupport.waitForStatus(orchestrator(), transferId, "FAILED", WAIT);
+    private Map<?, ?> failedTransfer(UUID transferId, UUID senderId) {
+        return E2ESupport.waitForStatus(orchestrator(), transferId, senderId, "FAILED", WAIT);
     }
 
     private UUID flagged(UUID senderId, UUID recipientId, String amount) {
         UUID transferId = transfer(senderId, recipientId, amount);
-        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, "FLAGGED");
-        waitForStatus(transferId, "BLOCKED");
+        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, senderId, "FLAGGED");
+        waitForStatus(transferId, senderId, "BLOCKED");
         return transferId;
     }
 
@@ -187,7 +187,7 @@ class FraudSagaE2ETest {
         assertThat(reservationStatus(transferId)).isEqualTo("ACTIVE");
 
         confirm(transferId, senderId);
-        waitForStatus(transferId, "POSTED");
+        waitForStatus(transferId, senderId, "POSTED");
 
         assertThat(E2ESupport.balanceOf(ledger(), senderId))
                 .isEqualByComparingTo(before.senderBalance().subtract(amount));
@@ -209,7 +209,7 @@ class FraudSagaE2ETest {
 
         UUID transferId = flagged(senderId, recipientId, "25.00");
 
-        Map<?, ?> failed = failedTransfer(transferId);
+        Map<?, ?> failed = failedTransfer(transferId, senderId);
 
         assertThat(failed.get("failureReason")).isEqualTo("VERIFICATION_EXPIRED");
         assertThat(reservationStatus(transferId)).isEqualTo("RELEASED");
@@ -233,7 +233,7 @@ class FraudSagaE2ETest {
         BigDecimal sumBefore = sumOfAllBalances();
 
         UUID transferId = transfer(senderId, recipientId, "40.00");
-        Map<?, ?> failed = failedTransfer(transferId);
+        Map<?, ?> failed = failedTransfer(transferId, senderId);
 
         assertThat(failed.get("failureReason")).isEqualTo("SCREENING_TIMEOUT");
         assertThat(reservationStatus(transferId)).isEqualTo("RELEASED");
@@ -253,8 +253,8 @@ class FraudSagaE2ETest {
         BigDecimal sumBefore = sumOfAllBalances();
 
         UUID transferId = transfer(senderId, recipientId, "60.00");
-        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, "CLEARED");
-        waitForStatus(transferId, "POSTED");
+        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, senderId, "CLEARED");
+        waitForStatus(transferId, senderId, "POSTED");
 
         assertThat(E2ESupport.balanceOf(ledger(), senderId))
                 .isEqualByComparingTo(before.senderBalance().subtract(amount));

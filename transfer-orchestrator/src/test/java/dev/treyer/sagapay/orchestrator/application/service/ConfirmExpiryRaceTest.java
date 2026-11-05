@@ -105,11 +105,15 @@ class ConfirmExpiryRaceTest {
         return new Outcome(confirmation[0] == 1, confirmation[1] == 1, expiry.get());
     }
 
+    private UUID senderOf(UUID transferId) {
+        return transferRepository.findById(transferId).orElseThrow().getSenderId();
+    }
+
     private Callable<int[]> confirmingTask(UUID transferId, CountDownLatch start) {
         return () -> {
             start.await();
             try {
-                sagaService.confirmTransfer(transferId, CODE);
+                sagaService.confirmTransfer(transferId, senderOf(transferId), CODE);
             } catch (VerificationExpiredException e) {
                 return new int[] {0, 1};
             }

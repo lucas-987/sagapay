@@ -18,6 +18,8 @@ import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -37,6 +39,7 @@ import java.util.concurrent.Executor;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -169,8 +172,11 @@ class TransferRestAdapterTest {
     private static final String CONFIRM_BODY = """
             {"verificationToken": "tok"}""";
 
+    private static final UUID CALLER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-0000000000aa");
+
     private org.springframework.test.web.servlet.ResultActions confirm(UUID transferId) throws Exception {
         return mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
+                .header("X-User-Id", CALLER_ID.toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(CONFIRM_BODY));
     }
@@ -184,7 +190,8 @@ class TransferRestAdapterTest {
     @Test
     void confirmBlockedTransferReturns202AndPostsTheTransferInTheBackground() throws Exception {
         Transfer transfer = newTransfer(UUID.randomUUID(), UUID.randomUUID());
-        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), "tok")).thenReturn(transfer);
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), CALLER_ID, "tok"))
+                .thenReturn(transfer);
 
         confirm(transfer.getId())
                 .andExpect(status().isAccepted())
@@ -196,7 +203,8 @@ class TransferRestAdapterTest {
     @Test
     void aLedgerUnavailableWhilePostingDoesNotChangeTheAcceptedAnswer() throws Exception {
         Transfer transfer = newTransfer(UUID.randomUUID(), UUID.randomUUID());
-        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), "tok")).thenReturn(transfer);
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), CALLER_ID, "tok"))
+                .thenReturn(transfer);
         org.mockito.Mockito.doThrow(new LedgerUnavailableException(new RuntimeException("down")))
                 .when(postClearedTransferUseCase)
                 .postCleared(transfer.getId());
@@ -207,7 +215,7 @@ class TransferRestAdapterTest {
     @Test
     void confirmingAnUnknownTransferReturns404WithTransferNotFoundCode() throws Exception {
         UUID transferId = UUID.randomUUID();
-        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+        when(confirmTransferUseCase.confirmTransfer(transferId, CALLER_ID, "tok"))
                 .thenThrow(new TransferNotFoundException(transferId));
 
         confirm(transferId)
@@ -228,7 +236,7 @@ class TransferRestAdapterTest {
     @Test
     void confirmingATransferNotBlockedReturns409WithTransferNotBlockedCode() throws Exception {
         UUID transferId = UUID.randomUUID();
-        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+        when(confirmTransferUseCase.confirmTransfer(transferId, CALLER_ID, "tok"))
                 .thenThrow(new TransferNotBlockedException(transferId));
 
         confirm(transferId)
@@ -249,7 +257,7 @@ class TransferRestAdapterTest {
     @Test
     void confirmingAfterTheWindowClosedReturns410WithVerificationExpiredCode() throws Exception {
         UUID transferId = UUID.randomUUID();
-        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+        when(confirmTransferUseCase.confirmTransfer(transferId, CALLER_ID, "tok"))
                 .thenThrow(new VerificationExpiredException(transferId));
 
         confirm(transferId)
@@ -270,7 +278,7 @@ class TransferRestAdapterTest {
     @Test
     void confirmingWithAWrongCodeReturns422WithInvalidVerificationCodeCode() throws Exception {
         UUID transferId = UUID.randomUUID();
-        when(confirmTransferUseCase.confirmTransfer(transferId, "tok"))
+        when(confirmTransferUseCase.confirmTransfer(transferId, CALLER_ID, "tok"))
                 .thenThrow(new InvalidVerificationCodeException(transferId));
 
         confirm(transferId)
@@ -289,11 +297,65 @@ class TransferRestAdapterTest {
     }
 
     @Test
+    void getTransferWithoutUserIdHeaderReturns400() throws Exception {
+        mockMvc.perform(get("/v1/transfers/{id}", UUID.randomUUID()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verify(getTransferUseCase, never()).getTransfer(any(), any());
+    }
+
+    @Test
+    void confirmWithoutUserIdHeaderReturns400AndConfirmsNothing() throws Exception {
+        mockMvc.perform(post("/v1/transfers/{id}/confirm", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CONFIRM_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verify(confirmTransferUseCase, never()).confirmTransfer(any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 201})
+    void listTransfersRefusesALimitOutOfBounds(int limit) throws Exception {
+        mockMvc.perform(get("/v1/transfers")
+                        .header("X-User-Id", CALLER_ID.toString())
+                        .param("limit", String.valueOf(limit)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+
+        verify(listTransfersUseCase, never()).listTransfers(any(), any(), any(), any(), anyInt());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 200})
+    void listTransfersAcceptsTheBoundsOfTheLimit(int limit) throws Exception {
+        when(listTransfersUseCase.listTransfers(any(), any(), any(), any(), eq(limit)))
+                .thenReturn(new ListTransfersUseCase.Page(List.of(), null));
+
+        mockMvc.perform(get("/v1/transfers")
+                        .header("X-User-Id", CALLER_ID.toString())
+                        .param("limit", String.valueOf(limit)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void listTransfersRefusesAnUnknownDirection() throws Exception {
+        mockMvc.perform(get("/v1/transfers")
+                        .header("X-User-Id", CALLER_ID.toString())
+                        .param("direction", "foo"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
     void getTransferUnknownIdReturns404WithTransferNotFoundCode() throws Exception {
         UUID transferId = UUID.randomUUID();
-        when(getTransferUseCase.getTransfer(transferId)).thenThrow(new TransferNotFoundException(transferId));
+        when(getTransferUseCase.getTransfer(transferId, CALLER_ID))
+                .thenThrow(new TransferNotFoundException(transferId));
 
-        mockMvc.perform(get("/v1/transfers/{id}", transferId))
+        mockMvc.perform(get("/v1/transfers/{id}", transferId).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
     }
@@ -303,10 +365,10 @@ class TransferRestAdapterTest {
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
-        when(getTransferUseCase.getTransfer(transfer.getId()))
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
 
-        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()))
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
     }
@@ -319,15 +381,15 @@ class TransferRestAdapterTest {
         Transfer notScreened = newTransfer(senderId, UUID.randomUUID());
         Transfer cleared = newTransfer(senderId, UUID.randomUUID());
         Transfer flagged = newTransfer(senderId, UUID.randomUUID());
-        when(getTransferUseCase.getTransfer(notScreened.getId()))
+        when(getTransferUseCase.getTransfer(notScreened.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(notScreened, List.of(), null));
-        when(getTransferUseCase.getTransfer(cleared.getId()))
+        when(getTransferUseCase.getTransfer(cleared.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(
                         cleared,
                         List.of(),
                         new GetTransferUseCase.ScreeningVerdict(
                                 FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND"))));
-        when(getTransferUseCase.getTransfer(flagged.getId()))
+        when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(
                         flagged,
                         List.of(),
@@ -336,15 +398,15 @@ class TransferRestAdapterTest {
                                 new BigDecimal("0.9000"),
                                 List.of("VELOCITY_1H", "NEW_RECIPIENT"))));
 
-        mockMvc.perform(get("/v1/transfers/{id}", notScreened.getId()))
+        mockMvc.perform(get("/v1/transfers/{id}", notScreened.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fraud").value(nullValue()));
-        mockMvc.perform(get("/v1/transfers/{id}", cleared.getId()))
+        mockMvc.perform(get("/v1/transfers/{id}", cleared.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fraud.decision").value("CLEARED"))
                 .andExpect(jsonPath("$.fraud.score").value(0.15))
                 .andExpect(jsonPath("$.fraud.reasons").value(contains("AMOUNT_ROUND")));
-        mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()))
+        mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fraud.decision").value("FLAGGED"))
                 .andExpect(jsonPath("$.fraud.score").value(0.9))

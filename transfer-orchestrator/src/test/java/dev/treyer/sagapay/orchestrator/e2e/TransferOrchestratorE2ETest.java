@@ -108,12 +108,12 @@ class TransferOrchestratorE2ETest {
         return E2ESupport.balanceOf(ledger(), accountId);
     }
 
-    private Map<?, ?> waitForStatus(UUID transferId, String expectedStatus, Duration timeout) {
-        return E2ESupport.waitForStatus(orchestrator(), transferId, expectedStatus, timeout);
+    private Map<?, ?> waitForStatus(UUID transferId, UUID senderId, String expectedStatus, Duration timeout) {
+        return E2ESupport.waitForStatus(orchestrator(), transferId, senderId, expectedStatus, timeout);
     }
 
-    private void clearOnceScreening(UUID transferId) {
-        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, "CLEARED");
+    private void clearOnceScreening(UUID transferId, UUID senderId) {
+        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, senderId, "CLEARED");
     }
 
     @Test
@@ -136,8 +136,8 @@ class TransferOrchestratorE2ETest {
         UUID transferId = UUID.fromString((String) created.get("id"));
         assertThat(created.get("status")).isEqualTo("INITIATED");
 
-        clearOnceScreening(transferId);
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         BigDecimal senderAfter = balanceOf(senderId);
         BigDecimal recipientAfter = balanceOf(recipientId);
@@ -166,8 +166,8 @@ class TransferOrchestratorE2ETest {
                 .retrieve()
                 .body(Map.class);
         UUID transferId = UUID.fromString((String) first.get("id"));
-        clearOnceScreening(transferId);
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         try {
             orchestrator()
@@ -208,7 +208,7 @@ class TransferOrchestratorE2ETest {
                 .body(Map.class);
         UUID transferId = UUID.fromString((String) created.get("id"));
 
-        waitForStatus(transferId, "FAILED", Duration.ofSeconds(15));
+        waitForStatus(transferId, senderId, "FAILED", Duration.ofSeconds(15));
 
         assertThat(balanceOf(senderId)).isEqualByComparingTo(senderBefore); // nothing reserved, nothing moved
     }
@@ -251,7 +251,7 @@ class TransferOrchestratorE2ETest {
                 "crash recovery e2e",
                 UUID.fromString(reserved.getReservationId()));
 
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("40.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("40.00");
@@ -293,8 +293,8 @@ class TransferOrchestratorE2ETest {
                 "EUR",
                 "crash before the reservation was recorded e2e");
 
-        clearOnceScreening(transferId);
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("15.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("15.00");

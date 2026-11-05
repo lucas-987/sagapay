@@ -276,7 +276,10 @@ class SagaServiceTest {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
 
-        assertThat(sagaService.getTransfer(transfer.getId()).fraud()).isNull();
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .fraud())
+                .isNull();
     }
 
     @Test
@@ -285,7 +288,9 @@ class SagaServiceTest {
         sagaService.advance(transfer.getId());
         sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
 
-        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .fraud())
                 .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
                         FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND")));
     }
@@ -295,7 +300,7 @@ class SagaServiceTest {
         Transfer transfer = initiate(UUID.randomUUID());
         jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
 
-        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId()))
+        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), transfer.getSenderId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
     }
@@ -306,7 +311,7 @@ class SagaServiceTest {
         jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
         sagaStepRepository.save(new SagaStep(transfer.getId(), SagaStepName.SCREEN, SagaStepOutcome.OK, "{}"));
 
-        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId()))
+        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), transfer.getSenderId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
     }
@@ -317,7 +322,9 @@ class SagaServiceTest {
         sagaService.advance(transfer.getId());
         sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
 
-        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .fraud())
                 .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
                         FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
     }
@@ -818,7 +825,7 @@ class SagaServiceTest {
         UUID reservationId = UUID.randomUUID();
         Transfer transfer = blockedTransferWithDeadline(reservationId, 3600);
 
-        Transfer confirmed = sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+        Transfer confirmed = sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE);
 
         assertThat(confirmed.getStatus()).isEqualTo(TransferStatus.CLEARED);
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
@@ -842,7 +849,7 @@ class SagaServiceTest {
     void theConfirmationIsRecordedAsASenderVerificationStep() {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
 
-        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+        sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE);
 
         assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
                 .filteredOn(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.OK)
@@ -855,9 +862,11 @@ class SagaServiceTest {
     @Test
     void aConfirmedTransferStillShowsTheDecisionFraudTook() {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
-        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+        sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE);
 
-        assertThat(sagaService.getTransfer(transfer.getId()).fraud())
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .fraud())
                 .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
                         FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
     }
@@ -869,7 +878,7 @@ class SagaServiceTest {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
         Instant deadline = latestScreenDeadline(transfer.getId());
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "000000"))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), "000000"))
                 .isInstanceOf(InvalidVerificationCodeException.class)
                 .hasMessage("wrong verification code for transfer " + transfer.getId());
 
@@ -884,7 +893,8 @@ class SagaServiceTest {
     void aRejectedCodeIsLoggedWithTheTransferIdAndNeverTheCodes(CapturedOutput output) {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "submitted-guess"))
+        assertThatThrownBy(
+                        () -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), "submitted-guess"))
                 .isInstanceOf(InvalidVerificationCodeException.class);
 
         assertThat(output.getOut())
@@ -900,7 +910,7 @@ class SagaServiceTest {
     void aCodeThatDiffersInAnyWayFromTheConfiguredOneIsRefused(String code) {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), code))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), code))
                 .isInstanceOf(InvalidVerificationCodeException.class);
 
         assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.BLOCKED);
@@ -913,7 +923,8 @@ class SagaServiceTest {
     void confirmingAfterTheWindowClosedIsRefusedAsExpired(String state) {
         Transfer transfer = transferInState(state);
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+        assertThatThrownBy(
+                        () -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE))
                 .isInstanceOf(VerificationExpiredException.class)
                 .hasMessage("the confirmation window of transfer " + transfer.getId() + " has closed");
 
@@ -929,7 +940,8 @@ class SagaServiceTest {
         TransferStatus before = reload(transfer).getStatus();
         int postsBefore = fakeLedgerPort.postTransferCallCount();
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+        assertThatThrownBy(
+                        () -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE))
                 .isInstanceOf(TransferNotBlockedException.class)
                 .hasMessage("transfer " + transfer.getId() + " is not BLOCKED");
 
@@ -943,7 +955,7 @@ class SagaServiceTest {
     void confirmingAnUnknownTransferIsNotFound() {
         UUID unknown = UUID.randomUUID();
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(unknown, VERIFICATION_CODE))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(unknown, UUID.randomUUID(), VERIFICATION_CODE))
                 .isInstanceOf(TransferNotFoundException.class)
                 .hasMessage("unknown transfer " + unknown);
     }
@@ -952,7 +964,7 @@ class SagaServiceTest {
     void anExpiredTransferIsReportedExpiredWhateverTheCode() {
         Transfer transfer = transferInState("BLOCKED_PAST_DEADLINE");
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "wrong"))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), "wrong"))
                 .isInstanceOf(VerificationExpiredException.class);
     }
 
@@ -960,13 +972,36 @@ class SagaServiceTest {
     void aTransferNotBlockedIsReportedNotBlockedWhateverTheCode() {
         Transfer transfer = transferInState("POSTED");
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), "wrong"))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), "wrong"))
                 .isInstanceOf(TransferNotBlockedException.class);
     }
 
     @Test
+    void theRecipientCanReadATransferButNotConfirmIt() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getRecipientId())
+                        .transfer()
+                        .getId())
+                .isEqualTo(transfer.getId());
+        assertThatThrownBy(() ->
+                        sagaService.confirmTransfer(transfer.getId(), transfer.getRecipientId(), VERIFICATION_CODE))
+                .isInstanceOf(TransferNotFoundException.class);
+    }
+
+    @Test
+    void aThirdPartyIsToldTheTransferDoesNotExist() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), UUID.randomUUID()))
+                .isInstanceOf(TransferNotFoundException.class)
+                .hasMessage("unknown transfer " + transfer.getId());
+    }
+
+    @Test
     void anUnknownTransferIsReportedNotFoundWhateverTheCode() {
-        assertThatThrownBy(() -> sagaService.confirmTransfer(UUID.randomUUID(), "wrong"))
+        assertThatThrownBy(() -> sagaService.confirmTransfer(UUID.randomUUID(), UUID.randomUUID(), "wrong"))
                 .isInstanceOf(TransferNotFoundException.class);
     }
 
@@ -994,9 +1029,10 @@ class SagaServiceTest {
     @Test
     void aTransferConfirmedTwiceIsPostedOnce() {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
-        sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
+        sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE);
 
-        assertThatThrownBy(() -> sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE))
+        assertThatThrownBy(
+                        () -> sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE))
                 .isInstanceOf(TransferNotBlockedException.class);
         sagaService.postCleared(transfer.getId());
 

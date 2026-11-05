@@ -116,7 +116,7 @@ ID=$(curl -s -X POST http://localhost:8082/v1/transfers \
   | jq -r .id)
 
 # 2. A moment later the transfer is flagged: "status": "BLOCKED".
-curl -s http://localhost:8082/v1/transfers/$ID | jq .status
+curl -s -H "X-User-Id: $SENDER" http://localhost:8082/v1/transfers/$ID | jq .status
 
 # 3. Confirm it with the configured code: 202.
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8082/v1/transfers/$ID/confirm \
@@ -124,7 +124,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8082/v1/transf
   -d "{\"verificationToken\": \"$SAGAPAY_FRAUD_VERIFICATION_CODE\"}"
 
 # 4. The transfer is posted: "status": "POSTED".
-curl -s http://localhost:8082/v1/transfers/$ID | jq .status
+curl -s -H "X-User-Id: $SENDER" http://localhost:8082/v1/transfers/$ID | jq .status
 ```
 
 To watch a flagged transfer expire, repeat step 1 to another seeded recipient (`hugo`)

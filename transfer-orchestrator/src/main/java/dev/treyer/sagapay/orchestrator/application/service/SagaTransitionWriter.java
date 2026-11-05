@@ -58,7 +58,7 @@ class SagaTransitionWriter {
 
     /** @return false when a concurrent caller already moved the transfer on. */
     @Transactional
-    boolean applyReserved(UUID transferId, Transfer transfer, UUID reservationId) {
+    boolean tryApplyReserved(UUID transferId, Transfer transfer, UUID reservationId) {
         int updated = transfers.transitionWithReservation(
                 transferId, TransferStatus.INITIATED, TransferStatus.SCREENING, reservationId);
         if (updated == 0) {
@@ -78,8 +78,8 @@ class SagaTransitionWriter {
     /** The event is recorded even when the transfer is not being screened, whatever the reason.
      * @return true when this call moved the transfer to {@code CLEARED}. */
     @Transactional
-    boolean applyCleared(FraudResult result) {
-        if (!processedEvents.markProcessed(result.eventId(), FRAUD_CONSUMER)) {
+    boolean tryApplyCleared(FraudResult result) {
+        if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
             return false;
         }
         int updated = transfers.transitionToCleared(result.transferId(), result.score(), result.reasons());
@@ -90,11 +90,11 @@ class SagaTransitionWriter {
         return true;
     }
 
-    /** Same rule as {@link #applyCleared}; the reservation stays held, so the ledger is not called.
+    /** Same rule as {@link #tryApplyCleared}; the reservation stays held, so the ledger is not called.
      * @return true when this call moved the transfer to {@code BLOCKED}. */
     @Transactional
-    boolean applyFlagged(FraudResult result) {
-        if (!processedEvents.markProcessed(result.eventId(), FRAUD_CONSUMER)) {
+    boolean tryApplyFlagged(FraudResult result) {
+        if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
             return false;
         }
         int updated = transfers.transitionToBlocked(result.transferId(), result.score(), result.reasons());
@@ -114,7 +114,7 @@ class SagaTransitionWriter {
      * existing reservation and the ledger is not called here.
      * @return true when this call moved the transfer to {@code CLEARED}. */
     @Transactional
-    boolean applyConfirmed(UUID transferId, Instant now) {
+    boolean tryApplyConfirmed(UUID transferId, Instant now) {
         int updated = transfers.transitionBlockedToCleared(transferId, now);
         if (updated == 0) {
             return false;
@@ -133,7 +133,7 @@ class SagaTransitionWriter {
     }
 
     @Transactional
-    boolean applyPosted(UUID transferId, Transfer transfer) {
+    boolean tryApplyPosted(UUID transferId, Transfer transfer) {
         int updated = transfers.transitionStatus(transferId, TransferStatus.CLEARED, TransferStatus.POSTED);
         if (updated == 0) {
             return false;
@@ -144,7 +144,7 @@ class SagaTransitionWriter {
     }
 
     @Transactional
-    boolean applyInsufficientFunds(UUID transferId, Transfer transfer) {
+    boolean tryApplyInsufficientFunds(UUID transferId, Transfer transfer) {
         FailureReason failureReason = FailureReason.INSUFFICIENT_FUNDS;
         int updated = transfers.transitionToFailed(
                 transferId, TransferStatus.INITIATED, TransferStatus.FAILED, failureReason);
@@ -159,27 +159,27 @@ class SagaTransitionWriter {
     /** {@code failureReason} names the refused step; the ledger's answer goes into
      * the step detail. */
     @Transactional
-    boolean applyRejected(
+    boolean tryApplyRejected(
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
             SagaStepName step,
             FailureReason failureReason,
             LedgerRejectedException rejection) {
-        return failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection);
+        return tryFailOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection);
     }
 
-    /** Same as {@link #applyRejected}, plus the pending release of the reservation
+    /** Same as {@link #tryApplyRejected}, plus the pending release of the reservation
      * the transfer holds, so a crash after this transaction cannot lose it. */
     @Transactional
-    boolean applyRejectedAndRelease(
+    boolean tryApplyRejectedAndRelease(
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
             SagaStepName step,
             FailureReason failureReason,
             LedgerRejectedException rejection) {
-        if (!failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
+        if (!tryFailOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
@@ -189,8 +189,9 @@ class SagaTransitionWriter {
     /** The transfer holds a reservation whatever the waiting status it leaves.
      * @return false when a concurrent caller already moved the transfer on. */
     @Transactional
-    boolean applyTimedOut(UUID transferId, Transfer transfer, TransferStatus fromStatus, FailureReason failureReason) {
-        if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
+    boolean tryApplyTimedOut(
+            UUID transferId, Transfer transfer, TransferStatus fromStatus, FailureReason failureReason) {
+        if (!tryFail(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
@@ -208,14 +209,14 @@ class SagaTransitionWriter {
                 new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
     }
 
-    private boolean failOnRejection(
+    private boolean tryFailOnRejection(
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
             SagaStepName step,
             FailureReason failureReason,
             LedgerRejectedException rejection) {
-        if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
+        if (!tryFail(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
         sagaSteps.save(new SagaStep(transferId, step, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
@@ -224,7 +225,7 @@ class SagaTransitionWriter {
 
     /** The compare-and-set to {@code FAILED} and its {@code TransferFailed} event.
      * @return false when a concurrent caller already moved the transfer on. */
-    private boolean failTransfer(
+    private boolean tryFail(
             UUID transferId, Transfer transfer, TransferStatus fromStatus, FailureReason failureReason) {
         int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
         if (updated == 0) {

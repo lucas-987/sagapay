@@ -69,7 +69,8 @@ class SagaServiceOverdueSweepTest {
                 null);
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(overdue));
-        when(writer.applyTimedOut(overdue.getId(), overdue, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
+        when(writer.tryApplyTimedOut(
+                        overdue.getId(), overdue, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(false);
 
         int ended = service.sweepOverdueTransfers();
@@ -84,9 +85,10 @@ class SagaServiceOverdueSweepTest {
         Transfer healthy = transfer();
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(broken, healthy));
-        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
+        when(writer.tryApplyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenThrow(new IllegalStateException("outbox payload cannot be written"));
-        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
+        when(writer.tryApplyTimedOut(
+                        healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
 
         int ended = service.sweepOverdueTransfers();
@@ -113,10 +115,11 @@ class SagaServiceOverdueSweepTest {
                 .thenReturn(List.of(screening))
                 .thenReturn(List.of());
         when(transfers.findOverdue(eq(TransferStatus.BLOCKED), any(), anyInt())).thenReturn(List.of(blocked));
-        when(writer.applyTimedOut(
+        when(writer.tryApplyTimedOut(
                         screening.getId(), screening, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
-        when(writer.applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED))
+        when(writer.tryApplyTimedOut(
+                        blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED))
                 .thenReturn(true);
         doThrow(new LedgerUnavailableException(new RuntimeException("down")))
                 .doNothing()
@@ -126,13 +129,13 @@ class SagaServiceOverdueSweepTest {
         int firstSweep = service.sweepOverdueTransfers();
 
         assertThat(firstSweep).isEqualTo(1);
-        verify(writer, never()).applyTimedOut(any(), eq(blocked), any(), any());
+        verify(writer, never()).tryApplyTimedOut(any(), eq(blocked), any(), any());
 
         int secondSweep = service.sweepOverdueTransfers();
 
         assertThat(secondSweep).isEqualTo(1);
         verify(writer)
-                .applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED);
+                .tryApplyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED);
         verify(ledger).releaseReservation(blocked.getId().toString(), blocked.getReservationId());
     }
 
@@ -142,9 +145,10 @@ class SagaServiceOverdueSweepTest {
         Transfer healthy = transfer();
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(broken, healthy));
-        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
+        when(writer.tryApplyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
-        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
+        when(writer.tryApplyTimedOut(
+                        healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
         doThrow(new IllegalStateException("unexpected"))
                 .when(ledger)

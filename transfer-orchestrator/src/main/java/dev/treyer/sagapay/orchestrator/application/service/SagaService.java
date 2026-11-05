@@ -151,7 +151,7 @@ public class SagaService
                     transfer.getSenderAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
-            writer.applyRejected(
+            writer.tryApplyRejected(
                     transferId,
                     transfer,
                     TransferStatus.INITIATED,
@@ -162,22 +162,22 @@ public class SagaService
         }
 
         switch (result) {
-            case ReservationResult.Ok ok -> writer.applyReserved(transferId, transfer, ok.reservationId());
-            case ReservationResult.InsufficientFunds ignored -> writer.applyInsufficientFunds(transferId, transfer);
+            case ReservationResult.Ok ok -> writer.tryApplyReserved(transferId, transfer, ok.reservationId());
+            case ReservationResult.InsufficientFunds ignored -> writer.tryApplyInsufficientFunds(transferId, transfer);
         }
     }
 
     @Override
     public void applyFraudResult(FraudResult result) {
         if (result.decision() == FraudDecision.FLAGGED) {
-            if (writer.applyFlagged(result)) {
+            if (writer.tryApplyFlagged(result)) {
                 log.info("transfer blocked on fraud flag", kv("transfer.id", result.transferId()));
             } else {
                 log.info("flagged fraud result skipped", kv("transfer.id", result.transferId()));
             }
             return;
         }
-        if (!writer.applyCleared(result)) {
+        if (!writer.tryApplyCleared(result)) {
             return;
         }
         try {
@@ -208,7 +208,7 @@ public class SagaService
         } catch (LedgerRejectedException e) {
             // Typically an expired reservation: the ledger will never post it, and
             // a refused postTransfer moved no money, so FAILED is the outcome.
-            if (writer.applyRejectedAndRelease(
+            if (writer.tryApplyRejectedAndRelease(
                     transferId, transfer, TransferStatus.CLEARED, SagaStepName.POST, FailureReason.POST_REJECTED, e)) {
                 releaseReservation(transfer);
             }
@@ -219,7 +219,7 @@ public class SagaService
             return;
         }
 
-        writer.applyPosted(transferId, transfer);
+        writer.tryApplyPosted(transferId, transfer);
     }
 
     @Override
@@ -254,7 +254,7 @@ public class SagaService
             for (Deadline deadline : DEADLINES) {
                 for (Transfer transfer : transfers.findOverdue(deadline.waitingStatus(), now, overdueBatchSize)) {
                     try {
-                        if (!writer.applyTimedOut(
+                        if (!writer.tryApplyTimedOut(
                                 transfer.getId(), transfer, deadline.waitingStatus(), deadline.failureReason())) {
                             continue;
                         }
@@ -354,7 +354,7 @@ public class SagaService
             log.warn("verification code rejected", kv("transfer.id", transferId));
             throw new InvalidVerificationCodeException(transferId);
         }
-        if (!writer.applyConfirmed(transferId, Instant.now())) {
+        if (!writer.tryApplyConfirmed(transferId, Instant.now())) {
             throw lostConfirmation(transferId);
         }
         log.info("transfer confirmed by sender", kv("transfer.id", transferId));

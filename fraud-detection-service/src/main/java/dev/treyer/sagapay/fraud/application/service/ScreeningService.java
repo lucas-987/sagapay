@@ -44,7 +44,7 @@ class ScreeningService implements ScreenTransferUseCase, RecordPostedTransferUse
         SenderActivity activity = history.read(transfer.senderId());
         FraudAssessment assessment =
                 scorer.assess(new TransferToScreen(transfer.recipientId(), transfer.amount()), activity);
-        if (decisions.store(transfer, activity, assessment)) {
+        if (decisions.tryStore(transfer, activity, assessment)) {
             recordInHistory(transfer);
         }
     }

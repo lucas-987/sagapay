@@ -59,7 +59,7 @@ class SagaTransitionWriterConfigTest {
                 .withBean(SagaTransitionWriter.class)
                 .run(context -> {
                     Instant before = Instant.now();
-                    context.getBean(SagaTransitionWriter.class).applyReserved(transferId, transfer, reservationId);
+                    context.getBean(SagaTransitionWriter.class).tryApplyReserved(transferId, transfer, reservationId);
                     Instant after = Instant.now();
 
                     ArgumentCaptor<SagaStep> saved = ArgumentCaptor.forClass(SagaStep.class);
@@ -79,7 +79,7 @@ class SagaTransitionWriterConfigTest {
         UUID eventId = UUID.randomUUID();
         BigDecimal score = new BigDecimal("0.9000");
         List<String> reasons = List.of("VELOCITY_1H");
-        when(processedEvents.markProcessed(eventId, "orchestrator-fraud")).thenReturn(true);
+        when(processedEvents.tryMarkProcessed(eventId, "orchestrator-fraud")).thenReturn(true);
         when(transfers.transitionToBlocked(transferId, score, reasons)).thenReturn(1);
 
         new ApplicationContextRunner()
@@ -93,7 +93,8 @@ class SagaTransitionWriterConfigTest {
                 .run(context -> {
                     Instant before = Instant.now();
                     context.getBean(SagaTransitionWriter.class)
-                            .applyFlagged(new FraudResult(eventId, transferId, FraudDecision.FLAGGED, score, reasons));
+                            .tryApplyFlagged(
+                                    new FraudResult(eventId, transferId, FraudDecision.FLAGGED, score, reasons));
                     Instant after = Instant.now();
 
                     ArgumentCaptor<SagaStep> saved = ArgumentCaptor.forClass(SagaStep.class);

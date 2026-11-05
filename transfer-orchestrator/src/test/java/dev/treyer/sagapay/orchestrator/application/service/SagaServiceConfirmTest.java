@@ -88,7 +88,7 @@ class SagaServiceConfirmTest {
                 .thenReturn(Optional.of(blockedTransfer()))
                 .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, FailureReason.VERIFICATION_EXPIRED)));
         blockedTransferOpenFor(60);
-        when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
+        when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(VerificationExpiredException.class)
@@ -102,7 +102,7 @@ class SagaServiceConfirmTest {
                 .thenReturn(Optional.of(blockedTransfer()))
                 .thenReturn(Optional.of(transferIn(TransferStatus.CLEARED, null)));
         blockedTransferOpenFor(60);
-        when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
+        when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(TransferNotBlockedException.class)
@@ -115,7 +115,7 @@ class SagaServiceConfirmTest {
                 .thenReturn(Optional.of(blockedTransfer()))
                 .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, FailureReason.POST_REJECTED)));
         blockedTransferOpenFor(60);
-        when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
+        when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(TransferNotBlockedException.class)
@@ -126,7 +126,7 @@ class SagaServiceConfirmTest {
     void aConfirmationRefusedWhileTheTransferIsStillBlockedIsRefusedAsExpired() {
         when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
         blockedTransferOpenFor(60);
-        when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
+        when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE))
                 .isInstanceOf(VerificationExpiredException.class)
@@ -141,7 +141,7 @@ class SagaServiceConfirmTest {
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, SENDER_ID, "wrong"))
                 .isInstanceOf(InvalidVerificationCodeException.class)
                 .hasMessage("wrong verification code for transfer " + TRANSFER_ID);
-        verify(writer, never()).applyConfirmed(any(), any());
+        verify(writer, never()).tryApplyConfirmed(any(), any());
     }
 
     @Test
@@ -173,12 +173,12 @@ class SagaServiceConfirmTest {
                                 "{\"verification\":\"SENDER_CONFIRMED\"}"),
                         new SagaStep(
                                 TRANSFER_ID, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, now.minusSeconds(10))));
-        when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(true);
+        when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(true);
 
         Transfer confirmed = service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE);
 
         assertThat(confirmed).isSameAs(blocked);
-        verify(writer).applyConfirmed(eq(TRANSFER_ID), any(Instant.class));
+        verify(writer).tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class));
     }
 
     @Test
@@ -188,7 +188,7 @@ class SagaServiceConfirmTest {
         assertThatThrownBy(() -> service.confirmTransfer(TRANSFER_ID, UUID.randomUUID(), CODE))
                 .isInstanceOf(TransferNotFoundException.class);
 
-        verify(writer, never()).applyConfirmed(any(), any());
+        verify(writer, never()).tryApplyConfirmed(any(), any());
     }
 
     @ParameterizedTest(name = "\"{0}\" is refused")

@@ -18,7 +18,7 @@ class ProcessedEventPersistenceAdapter implements ProcessedEventPort {
     // ON CONFLICT DO NOTHING rather than catching the duplicate key: a failed INSERT aborts
     // the surrounding PostgreSQL transaction.
     @Override
-    public boolean markProcessed(UUID eventId, String consumer) {
+    public boolean tryMarkProcessed(UUID eventId, String consumer) {
         return jdbc.sql("insert into processed_events (event_id, consumer) values (:eventId, :consumer)"
                                 + " on conflict (event_id) do nothing")
                         .param("eventId", eventId)

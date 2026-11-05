@@ -146,7 +146,7 @@ class ConfirmExpiryRaceTest {
                         null)
                 .transfer();
         sagaService.advance(transfer.getId());
-        assertThat(writer.applyFlagged(new FraudResult(
+        assertThat(writer.tryApplyFlagged(new FraudResult(
                         UUID.randomUUID(),
                         transfer.getId(),
                         FraudDecision.FLAGGED,

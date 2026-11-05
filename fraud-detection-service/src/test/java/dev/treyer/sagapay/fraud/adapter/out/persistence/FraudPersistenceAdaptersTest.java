@@ -42,7 +42,7 @@ class FraudPersistenceAdaptersTest {
 
     @Test
     void anEventSeenForTheFirstTimeIsRecordedAsProcessed() {
-        boolean first = new JdbcProcessedEventAdapter(jdbc()).markProcessed(EVENT, "fraud-screening");
+        boolean first = new JdbcProcessedEventAdapter(jdbc()).tryMarkProcessed(EVENT, "fraud-screening");
 
         assertThat(first).isTrue();
         assertThat(jdbcTemplate.queryForList("select event_id, consumer from processed_events"))
@@ -52,9 +52,9 @@ class FraudPersistenceAdaptersTest {
     @Test
     void anEventSeenAgainIsReportedAsDuplicateAndRecordedOnce() {
         JdbcProcessedEventAdapter adapter = new JdbcProcessedEventAdapter(jdbc());
-        adapter.markProcessed(EVENT, "fraud-screening");
+        adapter.tryMarkProcessed(EVENT, "fraud-screening");
 
-        boolean second = adapter.markProcessed(EVENT, "fraud-screening");
+        boolean second = adapter.tryMarkProcessed(EVENT, "fraud-screening");
 
         assertThat(second).isFalse();
         assertThat(jdbcTemplate.queryForObject("select count(*) from processed_events", Integer.class))

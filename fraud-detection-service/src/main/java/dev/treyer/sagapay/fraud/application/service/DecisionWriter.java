@@ -49,8 +49,8 @@ class DecisionWriter {
 
     /** @return false when the event was already handled, in which case nothing is written. */
     @Transactional
-    boolean store(ReservedTransfer transfer, SenderActivity activity, FraudAssessment assessment) {
-        if (!processedEvents.markProcessed(transfer.eventId(), CONSUMER)) {
+    boolean tryStore(ReservedTransfer transfer, SenderActivity activity, FraudAssessment assessment) {
+        if (!processedEvents.tryMarkProcessed(transfer.eventId(), CONSUMER)) {
             return false;
         }
         if (assessment.decision() == FraudDecision.FLAGGED) {
@@ -62,11 +62,11 @@ class DecisionWriter {
                     assessment.reasons(),
                     activity));
         }
-        outbox.save(resultOf(transfer, assessment));
+        outbox.save(toOutboxMessage(transfer, assessment));
         return true;
     }
 
-    private OutboxMessage resultOf(ReservedTransfer transfer, FraudAssessment assessment) {
+    private OutboxMessage toOutboxMessage(ReservedTransfer transfer, FraudAssessment assessment) {
         FraudResultEventType eventType = assessment.decision() == FraudDecision.FLAGGED
                 ? FraudResultEventType.TRANSFER_FLAGGED
                 : FraudResultEventType.TRANSFER_CLEARED;

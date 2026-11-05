@@ -102,7 +102,7 @@ class SagaServiceTest {
     private Transfer clearedTransfer() {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
-        writer.applyCleared(cleared(transfer.getId(), UUID.randomUUID()));
+        writer.tryApplyCleared(cleared(transfer.getId(), UUID.randomUUID()));
         return transfer;
     }
 
@@ -410,7 +410,7 @@ class SagaServiceTest {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId()); // SCREENING
 
-        boolean applied = writer.applyReserved(transfer.getId(), transfer, UUID.randomUUID());
+        boolean applied = writer.tryApplyReserved(transfer.getId(), transfer, UUID.randomUUID());
 
         assertThat(applied).isFalse();
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY");
@@ -422,7 +422,7 @@ class SagaServiceTest {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId()); // SCREENING
 
-        boolean applied = writer.applyPosted(transfer.getId(), transfer);
+        boolean applied = writer.tryApplyPosted(transfer.getId(), transfer);
 
         assertThat(applied).isFalse();
         assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
@@ -577,7 +577,7 @@ class SagaServiceTest {
         Transfer transfer = clearedTransfer();
         sagaService.postCleared(transfer.getId()); // POSTED
 
-        boolean applied = writer.applyRejectedAndRelease(
+        boolean applied = writer.tryApplyRejectedAndRelease(
                 transfer.getId(),
                 transfer,
                 TransferStatus.CLEARED,
@@ -757,7 +757,7 @@ class SagaServiceTest {
         Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
         sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID())); // POSTED
 
-        boolean applied = writer.applyTimedOut(
+        boolean applied = writer.tryApplyTimedOut(
                 transfer.getId(), transfer, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT);
 
         assertThat(applied).isFalse();
@@ -797,7 +797,7 @@ class SagaServiceTest {
         return switch (state) {
             case "FAILED_EXPIRED" -> {
                 Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
-                writer.applyTimedOut(
+                writer.tryApplyTimedOut(
                         transfer.getId(), transfer, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED);
                 yield transfer;
             }
@@ -1009,7 +1009,7 @@ class SagaServiceTest {
     void theConfirmationOfABlockedTransferPastItsDeadlineChangesNothing() {
         Transfer transfer = blockedPastItsDeadline();
 
-        boolean confirmed = writer.applyConfirmed(transfer.getId(), Instant.now());
+        boolean confirmed = writer.tryApplyConfirmed(transfer.getId(), Instant.now());
 
         assertThat(confirmed).isFalse();
         assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.BLOCKED);
@@ -1020,7 +1020,7 @@ class SagaServiceTest {
     void theConfirmationOfATransferNoLongerBlockedChangesNothing() {
         Transfer transfer = transferInState("POSTED");
 
-        boolean confirmed = writer.applyConfirmed(transfer.getId(), Instant.now());
+        boolean confirmed = writer.tryApplyConfirmed(transfer.getId(), Instant.now());
 
         assertThat(confirmed).isFalse();
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN OK", "POST OK");

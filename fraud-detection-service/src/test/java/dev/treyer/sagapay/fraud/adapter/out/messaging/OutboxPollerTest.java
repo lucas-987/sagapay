@@ -80,7 +80,7 @@ class OutboxPollerTest {
                 "insert into outbox (id, aggregate_type, aggregate_id, event_type, payload, created_at)"
                         + " values (?, 'Transfer', ?, 'TransferCleared', cast(? as jsonb), ?)",
                 id,
-                transfer.toString(),
+                transfer,
                 "{\"transferId\":\"" + transfer + "\"}",
                 createdAt);
         return id;
@@ -95,7 +95,7 @@ class OutboxPollerTest {
                 "insert into outbox (id, aggregate_type, aggregate_id, event_type, payload)"
                         + " values (?, 'Transfer', ?, ?, cast(? as jsonb))",
                 id,
-                transfer.toString(),
+                transfer,
                 eventType,
                 payload);
         return id;
@@ -192,7 +192,7 @@ class OutboxPollerTest {
     void aDrainSendsAtMostOneHundredRowsAndTheNextOneTakesTheRest() {
         jdbc.update("""
                 insert into outbox (aggregate_type, aggregate_id, event_type, payload, created_at)
-                select 'Transfer', gen_random_uuid()::text, 'TransferCleared', '{}'::jsonb,
+                select 'Transfer', gen_random_uuid(), 'TransferCleared', '{}'::jsonb,
                        timestamptz '2026-04-01 10:00:00+00' + n * interval '1 second'
                 from generate_series(1, 101) n
                 """);

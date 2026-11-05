@@ -34,8 +34,8 @@ class JdbcFraudCaseAdapter implements FraudCasePort {
                         values
                             (:transferId, :senderId, :amount, :currency, :score, :reasons, cast(:snapshot as jsonb))
                         """)
-                .param("transferId", fraudCase.transferId().toString())
-                .param("senderId", fraudCase.senderId().toString())
+                .param("transferId", fraudCase.transferId())
+                .param("senderId", fraudCase.senderId())
                 .param("amount", fraudCase.amount().amount())
                 .param("currency", fraudCase.amount().currency().getCurrencyCode())
                 .param("score", fraudCase.score())

@@ -33,7 +33,7 @@ class OutboxPollerFailureTest {
             new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer);
 
     private static OutboxMessage message(UUID id) {
-        return new OutboxMessage(id, "Transfer", UUID.randomUUID().toString(), "TransferCleared", "{}");
+        return new OutboxMessage(id, "Transfer", UUID.randomUUID(), "TransferCleared", "{}");
     }
 
     @Test
@@ -56,8 +56,8 @@ class OutboxPollerFailureTest {
     // still must not mark or send anything it could not turn into an event.
     @Test
     void aRowWhosePayloadIsNotJsonIsNotMarkedPublishedAndNothingIsSent() {
-        OutboxMessage malformed = new OutboxMessage(
-                UUID.randomUUID(), "Transfer", UUID.randomUUID().toString(), "TransferCleared", "not json");
+        OutboxMessage malformed =
+                new OutboxMessage(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferCleared", "not json");
         when(outbox.findUnpublishedForUpdateSkipLocked(100)).thenReturn(List.of(malformed, message(UUID.randomUUID())));
 
         assertThatThrownBy(poller::drain).isInstanceOf(JacksonException.class);

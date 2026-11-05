@@ -37,7 +37,7 @@ class ScreeningServiceTest {
     private static final UUID KNOWN_RECIPIENT = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID NEW_RECIPIENT = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID TRANSFER = UUID.fromString("44444444-4444-4444-4444-444444444444");
-    private static final String EVENT_ID = "55555555-5555-5555-5555-555555555555";
+    private static final UUID EVENT_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private static final Instant NOW = Instant.parse("2026-03-01T10:15:30Z");
 
     private final List<String> calls = new ArrayList<>();
@@ -157,7 +157,7 @@ class ScreeningServiceTest {
         assertThat(savedMessages).hasSize(1);
         OutboxMessage message = savedMessages.getFirst();
         assertThat(message.aggregateType()).isEqualTo("Transfer");
-        assertThat(message.aggregateId()).isEqualTo(TRANSFER.toString());
+        assertThat(message.aggregateId()).isEqualTo(TRANSFER);
         assertThat(message.eventType()).isEqualTo("TransferCleared");
         assertThat(message.payload())
                 .isEqualTo("{\"transferId\":\"" + TRANSFER + "\",\"senderId\":\"" + SENDER

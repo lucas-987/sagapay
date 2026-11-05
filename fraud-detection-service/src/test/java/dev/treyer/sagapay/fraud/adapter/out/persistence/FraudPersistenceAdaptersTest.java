@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(TestcontainersConfiguration.class)
 class FraudPersistenceAdaptersTest {
 
+    private static final UUID EVENT = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private static final UUID TRANSFER = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID SENDER = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID RECIPIENT = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -41,19 +42,19 @@ class FraudPersistenceAdaptersTest {
 
     @Test
     void anEventSeenForTheFirstTimeIsRecordedAsProcessed() {
-        boolean first = new JdbcProcessedEventAdapter(jdbc()).markProcessed("event-1", "fraud-screening");
+        boolean first = new JdbcProcessedEventAdapter(jdbc()).markProcessed(EVENT, "fraud-screening");
 
         assertThat(first).isTrue();
         assertThat(jdbcTemplate.queryForList("select event_id, consumer from processed_events"))
-                .containsExactly(Map.of("event_id", "event-1", "consumer", "fraud-screening"));
+                .containsExactly(Map.of("event_id", EVENT, "consumer", "fraud-screening"));
     }
 
     @Test
     void anEventSeenAgainIsReportedAsDuplicateAndRecordedOnce() {
         JdbcProcessedEventAdapter adapter = new JdbcProcessedEventAdapter(jdbc());
-        adapter.markProcessed("event-1", "fraud-screening");
+        adapter.markProcessed(EVENT, "fraud-screening");
 
-        boolean second = adapter.markProcessed("event-1", "fraud-screening");
+        boolean second = adapter.markProcessed(EVENT, "fraud-screening");
 
         assertThat(second).isFalse();
         assertThat(jdbcTemplate.queryForObject("select count(*) from processed_events", Integer.class))
@@ -75,8 +76,8 @@ class FraudPersistenceAdaptersTest {
                 "select transfer_id, sender_id, amount, currency, score, array_to_string(reasons, ',') as reasons,"
                         + " status, transfer_outcome, velocity_snapshot::text as snapshot, decided_at"
                         + " from fraud_cases");
-        assertThat(row.get("transfer_id")).isEqualTo(TRANSFER.toString());
-        assertThat(row.get("sender_id")).isEqualTo(SENDER.toString());
+        assertThat(row.get("transfer_id")).isEqualTo(TRANSFER);
+        assertThat(row.get("sender_id")).isEqualTo(SENDER);
         assertThat((BigDecimal) row.get("amount")).isEqualByComparingTo("500");
         assertThat(row.get("currency")).isEqualTo("EUR");
         assertThat((BigDecimal) row.get("score")).isEqualByComparingTo("0.70");
@@ -93,15 +94,14 @@ class FraudPersistenceAdaptersTest {
         UUID id = UUID.randomUUID();
 
         new JdbcOutboxAdapter(jdbc())
-                .save(new OutboxMessage(
-                        id, "Transfer", TRANSFER.toString(), "TransferCleared", "{\"decision\":\"CLEARED\"}"));
+                .save(new OutboxMessage(id, "Transfer", TRANSFER, "TransferCleared", "{\"decision\":\"CLEARED\"}"));
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "select id, aggregate_type, aggregate_id, event_type, payload::text as payload,"
                         + " headers::text as headers, published_at from outbox");
         assertThat(row.get("id")).isEqualTo(id);
         assertThat(row.get("aggregate_type")).isEqualTo("Transfer");
-        assertThat(row.get("aggregate_id")).isEqualTo(TRANSFER.toString());
+        assertThat(row.get("aggregate_id")).isEqualTo(TRANSFER);
         assertThat(row.get("event_type")).isEqualTo("TransferCleared");
         assertThat(jsonMapper.readTree((String) row.get("payload")))
                 .isEqualTo(jsonMapper.readTree("{\"decision\":\"CLEARED\"}"));

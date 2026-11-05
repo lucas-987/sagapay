@@ -59,13 +59,15 @@ class FraudResultPublishingTest {
                 .untilAsserted(() -> assertThat(jdbc.queryForList(
                                 "select published_at is not null from outbox where aggregate_id = ?",
                                 Boolean.class,
-                                transfer.toString()))
+                                transfer))
                         .containsExactly(true));
     }
 
     private int count(String table, String column, UUID value) {
         return jdbc.queryForObject(
-                "select count(*) from " + table + " where " + column + " = ?", Integer.class, value.toString());
+                "select count(*) from " + table + " where " + column + " = cast(? as uuid)",
+                Integer.class,
+                value.toString());
     }
 
     @Test

@@ -99,7 +99,8 @@ class FraudScreeningTest {
     }
 
     private int countOf(String table, String column, String value) {
-        return jdbc.queryForObject("select count(*) from " + table + " where " + column + " = ?", Integer.class, value);
+        return jdbc.queryForObject(
+                "select count(*) from " + table + " where " + column + " = cast(? as uuid)", Integer.class, value);
     }
 
     private int processedEvents() {
@@ -117,13 +118,11 @@ class FraudScreeningTest {
     }
 
     private String outboxEventTypeOf(UUID transfer) {
-        return jdbc.queryForObject(
-                "select event_type from outbox where aggregate_id = ?", String.class, transfer.toString());
+        return jdbc.queryForObject("select event_type from outbox where aggregate_id = ?", String.class, transfer);
     }
 
     private String resultOf(UUID transfer) {
-        return jdbc.queryForObject(
-                "select payload::text from outbox where aggregate_id = ?", String.class, transfer.toString());
+        return jdbc.queryForObject("select payload::text from outbox where aggregate_id = ?", String.class, transfer);
     }
 
     private List<String> reasonsOf(UUID transfer) {
@@ -147,7 +146,7 @@ class FraudScreeningTest {
         List<Map<String, Object>> cases = jdbc.queryForList(
                 "select status, transfer_outcome, score::text as score, array_to_string(reasons, ',') as reasons"
                         + " from fraud_cases where transfer_id = ?",
-                transfer.toString());
+                transfer);
         assertThat(cases).hasSize(1);
         Map<String, Object> flagged = cases.getFirst();
         assertThat(flagged.get("status")).isEqualTo("OPEN");
@@ -179,20 +178,20 @@ class FraudScreeningTest {
     void failedDecisionLeavesTheHistoryUnchanged() {
         UUID transfer = UUID.randomUUID();
         UUID otherRecipient = UUID.randomUUID();
-        String eventId = UUID.randomUUID().toString();
+        UUID eventId = UUID.randomUUID();
         redis.opsForValue().set("vel:" + sender + ":1h", "2");
         redis.opsForSet().add("recipients:" + sender, otherRecipient.toString());
         jdbc.update(
-                "insert into fraud_cases (transfer_id, sender_id, amount, score, reasons)"
-                        + " values (?, ?, 1, 0.5, array['VELOCITY_1H'])",
-                transfer.toString(),
-                sender.toString());
+                "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
+                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY_1H'])",
+                transfer,
+                sender);
 
         assertThatThrownBy(() -> screening.screen(
                         new ReservedTransfer(eventId, transfer, sender, recipient, Money.of("500.00", "EUR"))))
                 .isInstanceOf(DuplicateKeyException.class);
 
-        assertThat(countOf("processed_events", "event_id", eventId)).isZero();
+        assertThat(countOf("processed_events", "event_id", eventId.toString())).isZero();
         assertThat(countOf("outbox", "aggregate_id", transfer.toString())).isZero();
         assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("2");
         assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(otherRecipient.toString());
@@ -272,10 +271,10 @@ class FraudScreeningTest {
         UUID transfer = UUID.randomUUID();
         String eventId = UUID.randomUUID().toString();
         jdbc.update(
-                "insert into fraud_cases (transfer_id, sender_id, amount, score, reasons)"
-                        + " values (?, ?, 1, 0.5, array['VELOCITY_1H'])",
-                transfer.toString(),
-                sender.toString());
+                "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
+                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY_1H'])",
+                transfer,
+                sender);
 
         sendReserved(eventId, transfer, recipient, "500.00");
         List<ConsumerRecord<String, String>> deadLetters = deadLettersOf(sender.toString());
@@ -324,7 +323,7 @@ class FraudScreeningTest {
         UUID transfer = UUID.randomUUID();
         String eventId = UUID.randomUUID().toString();
         ReservedTransfer reserved =
-                new ReservedTransfer(eventId, transfer, sender, recipient, Money.of("500.00", "EUR"));
+                new ReservedTransfer(UUID.fromString(eventId), transfer, sender, recipient, Money.of("500.00", "EUR"));
         CyclicBarrier bothReady = new CyclicBarrier(2);
         ExecutorService threads = Executors.newFixedThreadPool(2);
         try {

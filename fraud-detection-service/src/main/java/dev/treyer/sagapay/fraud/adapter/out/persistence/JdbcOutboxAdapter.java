@@ -46,7 +46,7 @@ class JdbcOutboxAdapter implements OutboxPort, OutboxRelayPort {
                 .query((rs, row) -> new OutboxMessage(
                         rs.getObject("id", UUID.class),
                         rs.getString("aggregate_type"),
-                        rs.getString("aggregate_id"),
+                        rs.getObject("aggregate_id", UUID.class),
                         rs.getString("event_type"),
                         rs.getString("payload")))
                 .list();

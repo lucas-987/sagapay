@@ -7,6 +7,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Component
 public class TransferEventListener {
@@ -33,7 +34,7 @@ public class TransferEventListener {
         }
     }
 
-    private static ReservedTransfer toReservedTransfer(String eventId, TransferEventMessage.Data data) {
+    private static ReservedTransfer toReservedTransfer(UUID eventId, TransferEventMessage.Data data) {
         return new ReservedTransfer(
                 required(eventId, "id"),
                 required(data.transferId(), "transferId"),

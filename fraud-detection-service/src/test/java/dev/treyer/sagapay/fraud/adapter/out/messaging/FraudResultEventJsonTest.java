@@ -30,7 +30,8 @@ class FraudResultEventJsonTest {
                 "ts":"2026-03-01T10:15:30Z"}""".formatted(transfer, sender);
 
         String json = jsonMapper.writeValueAsString(FraudResultEvents.of(
-                new OutboxMessage(rowId, "Transfer", transfer, "TransferFlagged", payload), jsonMapper));
+                new OutboxMessage(rowId, "Transfer", UUID.fromString(transfer), "TransferFlagged", payload),
+                jsonMapper));
 
         ObjectNode event = (ObjectNode) jsonMapper.readTree(json);
         JsonNode time = event.remove("time");

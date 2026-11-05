@@ -13,12 +13,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 class FraudRoleGrantsTest {
 
-    private static final String INSERT_CASE = "insert into fraud_cases (transfer_id, sender_id, amount, score, reasons)"
-            + " values ('t-1', 's-1', 10, 0.5, array['VELOCITY_1H'])";
+    private static final String INSERT_CASE =
+            "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
+                    + " values (gen_random_uuid(), gen_random_uuid(), 10, 'EUR', 0.5, array['VELOCITY_1H'])";
     private static final String INSERT_OUTBOX = "insert into outbox (aggregate_type, aggregate_id, event_type, payload)"
-            + " values ('FraudCase', 't-1', 'TransferCleared', '{}'::jsonb)";
+            + " values ('FraudCase', gen_random_uuid(), 'TransferCleared', '{}'::jsonb)";
     private static final String INSERT_PROCESSED =
-            "insert into processed_events (event_id, consumer)" + " values ('e-1', 'transfers')";
+            "insert into processed_events (event_id, consumer)" + " values (gen_random_uuid(), 'transfers')";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

@@ -51,8 +51,8 @@ class OutboxPollerTraceparentTest {
         when(context.traceId()).thenReturn(TRACE_ID);
         when(context.spanId()).thenReturn(SPAN_ID);
         when(outbox.findUnpublishedForUpdateSkipLocked(100))
-                .thenReturn(List.of(new OutboxMessage(
-                        UUID.randomUUID(), "Transfer", UUID.randomUUID().toString(), "TransferCleared", "{}")));
+                .thenReturn(List.of(
+                        new OutboxMessage(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferCleared", "{}")));
     }
 
     @ParameterizedTest(name = "sampled={0}")

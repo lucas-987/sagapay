@@ -16,7 +16,7 @@ final class FraudResultEvents {
                 message.id(),
                 SOURCE,
                 message.eventType() + ".v1",
-                message.aggregateId(),
+                message.aggregateId().toString(),
                 jsonMapper.readTree(message.payload()));
     }
 }

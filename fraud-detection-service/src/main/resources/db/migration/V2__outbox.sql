@@ -1,7 +1,7 @@
 CREATE TABLE outbox (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     aggregate_type TEXT NOT NULL,
-    aggregate_id   TEXT NOT NULL,
+    aggregate_id   UUID NOT NULL,
     event_type     TEXT NOT NULL,
     payload        JSONB NOT NULL,
     headers        JSONB NOT NULL DEFAULT '{}'::jsonb,

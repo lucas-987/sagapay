@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TransferEventListenerTest {
 
+    private static final UUID EVENT_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
     private static final UUID TRANSFER = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID SENDER = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID RECIPIENT = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -30,76 +32,76 @@ class TransferEventListenerTest {
         return new TransferEventMessage.Data(eventType, TRANSFER, SENDER, RECIPIENT, new BigDecimal("500.00"), "EUR");
     }
 
-    private static TransferEventMessage message(String id, TransferEventMessage.Data data) {
+    private static TransferEventMessage message(UUID id, TransferEventMessage.Data data) {
         return new TransferEventMessage(id, data);
     }
 
     @Test
     void aFundsReservedEventIsScreenedWithTheEventIdOfTheEnvelope() {
-        listener.onTransferEvent(message("event-1", data("FundsReserved")));
+        listener.onTransferEvent(message(EVENT_ID, data("FundsReserved")));
 
         assertThat(screened)
                 .containsExactly(
-                        new ReservedTransfer("event-1", TRANSFER, SENDER, RECIPIENT, Money.of("500.00", "EUR")));
+                        new ReservedTransfer(EVENT_ID, TRANSFER, SENDER, RECIPIENT, Money.of("500.00", "EUR")));
     }
 
     @ParameterizedTest(name = "{0} is ignored")
     @ValueSource(strings = {"TransferInitiated", "TransferPosted", "TransferFailed", "SomethingNew"})
     void otherEventTypesAreIgnored(String eventType) {
-        listener.onTransferEvent(message("event-1", data(eventType)));
+        listener.onTransferEvent(message(EVENT_ID, data(eventType)));
 
         assertThat(screened).isEmpty();
     }
 
     static Stream<Arguments> malformedReservations() {
         return Stream.of(
-                malformed("no data", "event-1", null, "transfer event has no data"),
-                malformed("no event type", "event-1", data(null), "transfer event has no eventType"),
+                malformed("no data", EVENT_ID, null, "transfer event has no data"),
+                malformed("no event type", EVENT_ID, data(null), "transfer event has no eventType"),
                 malformed("no id", null, data("FundsReserved"), "FundsReserved event has no id"),
                 malformed(
                         "no transferId",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", null, SENDER, RECIPIENT, new BigDecimal("5.00"), "EUR"),
                         "FundsReserved event has no transferId"),
                 malformed(
                         "no senderId",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", TRANSFER, null, RECIPIENT, new BigDecimal("5.00"), "EUR"),
                         "FundsReserved event has no senderId"),
                 malformed(
                         "no recipientId",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", TRANSFER, SENDER, null, new BigDecimal("5.00"), "EUR"),
                         "FundsReserved event has no recipientId"),
                 malformed(
                         "no amount",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data("FundsReserved", TRANSFER, SENDER, RECIPIENT, null, "EUR"),
                         "FundsReserved event has no amount"),
                 malformed(
                         "no currency",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00"), null),
                         "FundsReserved event has no currency"),
                 malformed(
                         "an unknown currency",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00"), "ZZZ"),
                         "FundsReserved event has an invalid amount or currency"),
                 malformed(
                         "an amount finer than four decimals",
-                        "event-1",
+                        EVENT_ID,
                         new TransferEventMessage.Data(
                                 "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00001"), "EUR"),
                         "FundsReserved event has an invalid amount or currency"));
     }
 
-    private static Arguments malformed(String name, String id, TransferEventMessage.Data data, String expectedMessage) {
+    private static Arguments malformed(String name, UUID id, TransferEventMessage.Data data, String expectedMessage) {
         return Arguments.of(name, message(id, data), expectedMessage);
     }
 

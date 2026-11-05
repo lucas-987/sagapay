@@ -66,7 +66,7 @@ class OutboxPoller {
             String traceparent = TRACEPARENT_VERSION + "-" + context.traceId() + "-" + context.spanId() + "-" + flags;
 
             ProducerRecord<String, String> record =
-                    new ProducerRecord<>(TOPIC, message.aggregateId(), jsonMapper.writeValueAsString(event));
+                    new ProducerRecord<>(TOPIC, message.aggregateId().toString(), jsonMapper.writeValueAsString(event));
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
         } catch (RuntimeException e) {

@@ -78,7 +78,7 @@ class DecisionWriter {
         return new OutboxMessage(
                 UUID.randomUUID(),
                 "Transfer",
-                transfer.transferId().toString(),
+                transfer.transferId(),
                 eventType,
                 jsonMapper.writeValueAsString(payload));
     }

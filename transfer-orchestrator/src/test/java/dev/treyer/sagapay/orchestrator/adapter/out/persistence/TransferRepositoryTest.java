@@ -197,7 +197,7 @@ class TransferRepositoryTest {
         transferWith(TransferStatus.FAILED, Instant.now(), "RETRY");
         transferWith(TransferStatus.POSTED, old, "RETRY");
 
-        List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff);
+        List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff, "RELEASE", "RETRY");
 
         assertThat(found).extracting(Transfer::getId).containsExactly(pending);
     }
@@ -226,7 +226,7 @@ class TransferRepositoryTest {
         // The confirmation window of a blocked transfer replaces its screening deadline.
         transferWithScreenDeadlines(TransferStatus.BLOCKED, past, future);
 
-        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10);
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10, "SCREEN", "RETRY");
 
         assertThat(found).extracting(Transfer::getId).containsExactly(screeningOverdue);
     }
@@ -238,7 +238,7 @@ class TransferRepositoryTest {
         UUID blockedOverdue = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plus(1, ChronoUnit.HOURS), past);
         transferWithScreenDeadlines(TransferStatus.SCREENING, past);
 
-        List<Transfer> found = transfers.findOverdue(TransferStatus.BLOCKED.name(), now, 10);
+        List<Transfer> found = transfers.findOverdue(TransferStatus.BLOCKED.name(), now, 10, "SCREEN", "RETRY");
 
         assertThat(found).extracting(Transfer::getId).containsExactly(blockedOverdue);
     }
@@ -249,7 +249,7 @@ class TransferRepositoryTest {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         UUID id = transferWithScreenDeadlines(TransferStatus.SCREENING, now.plusMillis(deadlineOffsetMillis));
 
-        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10);
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 10, "SCREEN", "RETRY");
 
         assertThat(found).extracting(Transfer::getId).isEqualTo(returned ? List.of(id) : List.of());
     }
@@ -266,7 +266,7 @@ class TransferRepositoryTest {
                 .sorted(java.util.Comparator.comparing(UUID::toString))
                 .toList();
 
-        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 2);
+        List<Transfer> found = transfers.findOverdue(TransferStatus.SCREENING.name(), now, 2, "SCREEN", "RETRY");
 
         assertThat(found).extracting(Transfer::getId).containsExactly(oldest, tied.get(0));
     }
@@ -283,7 +283,8 @@ class TransferRepositoryTest {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plusMillis(deadlineOffsetMillis));
 
-        assertThat(transfers.transitionBlockedToCleared(id, now)).isEqualTo(updated);
+        assertThat(transfers.transitionBlockedToCleared(id, now, "SCREEN", "RETRY"))
+                .isEqualTo(updated);
 
         assertThat(statusOf(id)).isEqualTo(expected);
     }
@@ -294,7 +295,8 @@ class TransferRepositoryTest {
         UUID id = transferWithScreenDeadlines(
                 TransferStatus.BLOCKED, now.minus(1, ChronoUnit.HOURS), now.plus(1, ChronoUnit.HOURS));
 
-        assertThat(transfers.transitionBlockedToCleared(id, now)).isEqualTo(1);
+        assertThat(transfers.transitionBlockedToCleared(id, now, "SCREEN", "RETRY"))
+                .isEqualTo(1);
     }
 
     @ParameterizedTest
@@ -306,7 +308,8 @@ class TransferRepositoryTest {
         Instant now = Instant.now();
         UUID id = transferWithScreenDeadlines(status, now.plus(1, ChronoUnit.HOURS));
 
-        assertThat(transfers.transitionBlockedToCleared(id, now)).isZero();
+        assertThat(transfers.transitionBlockedToCleared(id, now, "SCREEN", "RETRY"))
+                .isZero();
 
         assertThat(statusOf(id)).isEqualTo(status);
     }
@@ -315,7 +318,8 @@ class TransferRepositoryTest {
     void transitionBlockedToClearedLeavesATransferWithoutAnOpenWindowAlone() {
         UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED);
 
-        assertThat(transfers.transitionBlockedToCleared(id, Instant.now())).isZero();
+        assertThat(transfers.transitionBlockedToCleared(id, Instant.now(), "SCREEN", "RETRY"))
+                .isZero();
     }
 
     @Test
@@ -324,7 +328,7 @@ class TransferRepositoryTest {
         UUID id = transferWithScreenDeadlines(TransferStatus.BLOCKED, now.plus(1, ChronoUnit.HOURS));
         assertThat(transfers.findById(id).orElseThrow().getStatus()).isEqualTo(TransferStatus.BLOCKED);
 
-        transfers.transitionBlockedToCleared(id, now);
+        transfers.transitionBlockedToCleared(id, now, "SCREEN", "RETRY");
 
         assertThat(transfers.findById(id).orElseThrow().getStatus()).isEqualTo(TransferStatus.CLEARED);
     }

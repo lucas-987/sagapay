@@ -4,6 +4,7 @@ import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -156,7 +157,7 @@ class SagaReprisePollerTest {
         reprisePoller.sweep();
 
         assertThat(reload(transferId).getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(reload(transferId).getFailureReason()).isEqualTo("POST_REJECTED");
+        assertThat(reload(transferId).getFailureReason()).isEqualTo(FailureReason.POST_REJECTED);
 
         reprisePoller.sweep();
         assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);

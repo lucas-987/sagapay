@@ -1,6 +1,9 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.persistence;
 
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.springframework.data.domain.PageRequest;
@@ -53,12 +56,14 @@ class TransferPersistenceAdapter implements TransferPort {
 
     @Override
     public List<Transfer> findFailedWithPendingRelease(Instant cutoff) {
-        return repository.findFailedWithPendingRelease(cutoff);
+        return repository.findFailedWithPendingRelease(
+                cutoff, SagaStepName.RELEASE.name(), SagaStepOutcome.RETRY.name());
     }
 
     @Override
     public List<Transfer> findOverdue(TransferStatus status, Instant now, int limit) {
-        return repository.findOverdue(status.name(), now, limit);
+        return repository.findOverdue(
+                status.name(), now, limit, SagaStepName.SCREEN.name(), SagaStepOutcome.RETRY.name());
     }
 
     @Override
@@ -97,11 +102,12 @@ class TransferPersistenceAdapter implements TransferPort {
 
     @Override
     public int transitionBlockedToCleared(UUID id, Instant now) {
-        return repository.transitionBlockedToCleared(id, now);
+        return repository.transitionBlockedToCleared(id, now, SagaStepName.SCREEN.name(), SagaStepOutcome.RETRY.name());
     }
 
     @Override
-    public int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, String failureReason) {
+    public int transitionToFailed(
+            UUID id, TransferStatus fromStatus, TransferStatus toStatus, FailureReason failureReason) {
         return repository.transitionToFailed(id, fromStatus, toStatus, failureReason);
     }
 }

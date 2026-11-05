@@ -6,6 +6,7 @@ import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
@@ -14,6 +15,8 @@ import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
@@ -154,7 +157,7 @@ class SagaServiceTest {
         List<SagaStep> steps = sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId());
         // The column keeps microseconds: one microsecond of rounding either way.
         assertThat(steps)
-                .filteredOn(step -> step.getStep().equals("SCREEN"))
+                .filteredOn(step -> step.getStep() == SagaStepName.SCREEN)
                 .singleElement()
                 .satisfies(screen -> assertThat(screen.getDeadline())
                         .isBetween(
@@ -190,8 +193,7 @@ class SagaServiceTest {
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferPosted");
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN OK", "POST OK");
         assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
-                .filteredOn(step ->
-                        step.getStep().equals("SCREEN") && step.getOutcome().equals("OK"))
+                .filteredOn(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.OK)
                 .singleElement()
                 .satisfies(step ->
                         assertThat(jsonMapper.readTree(step.getDetail())).isEqualTo(jsonMapper.readTree("""
@@ -302,7 +304,7 @@ class SagaServiceTest {
     void aScreenStepWithoutADecisionIsAnInconsistency() {
         Transfer transfer = initiate(UUID.randomUUID());
         jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
-        sagaStepRepository.save(new SagaStep(transfer.getId(), "SCREEN", "OK", "{}"));
+        sagaStepRepository.save(new SagaStep(transfer.getId(), SagaStepName.SCREEN, SagaStepOutcome.OK, "{}"));
 
         assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId()))
                 .isInstanceOf(IllegalStateException.class)
@@ -483,7 +485,7 @@ class SagaServiceTest {
 
         Transfer after = transferRepository.findById(transfer.getId()).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(after.getFailureReason()).isEqualTo("RESERVE_REJECTED");
+        assertThat(after.getFailureReason()).isEqualTo(FailureReason.RESERVE_REJECTED);
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("RESERVE_REJECTED");
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
@@ -508,7 +510,7 @@ class SagaServiceTest {
 
         Transfer after = transferRepository.findById(transfer.getId()).orElseThrow();
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(after.getFailureReason()).isEqualTo("POST_REJECTED");
+        assertThat(after.getFailureReason()).isEqualTo(FailureReason.POST_REJECTED);
         assertThat(eventTypesFor(transfer.getId()))
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("POST_REJECTED");
@@ -522,7 +524,7 @@ class SagaServiceTest {
                         "RELEASE RETRY",
                         "RELEASE COMPENSATED");
         assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
-                .filteredOn(step -> step.getStep().equals("POST"))
+                .filteredOn(step -> step.getStep() == SagaStepName.POST)
                 .singleElement()
                 .satisfies(step ->
                         assertThat(step.getDetail()).contains("NOT_FOUND").contains("no matching reservation"));
@@ -572,8 +574,8 @@ class SagaServiceTest {
                 transfer.getId(),
                 transfer,
                 TransferStatus.CLEARED,
-                "POST",
-                "POST_REJECTED",
+                SagaStepName.POST,
+                FailureReason.POST_REJECTED,
                 new LedgerRejectedException("NOT_FOUND", "gone", null));
 
         assertThat(applied).isFalse();
@@ -632,7 +634,7 @@ class SagaServiceTest {
         Transfer after = reload(transfer);
         assertThat(ended).isEqualTo(1);
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(after.getFailureReason()).isEqualTo("SCREENING_TIMEOUT");
+        assertThat(after.getFailureReason()).isEqualTo(FailureReason.SCREENING_TIMEOUT);
         assertThat(eventTypesFor(transfer.getId()))
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("SCREENING_TIMEOUT");
@@ -654,7 +656,7 @@ class SagaServiceTest {
         Transfer after = reload(transfer);
         assertThat(ended).isEqualTo(1);
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(after.getFailureReason()).isEqualTo("VERIFICATION_EXPIRED");
+        assertThat(after.getFailureReason()).isEqualTo(FailureReason.VERIFICATION_EXPIRED);
         assertThat(eventTypesFor(transfer.getId()))
                 .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("VERIFICATION_EXPIRED");
@@ -700,7 +702,7 @@ class SagaServiceTest {
 
         Transfer after = reload(transfer);
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
-        assertThat(after.getFailureReason()).isEqualTo("SCREENING_TIMEOUT");
+        assertThat(after.getFailureReason()).isEqualTo(FailureReason.SCREENING_TIMEOUT);
         assertThat(after.getFraudScore()).isNull();
         assertThat(processedEventCount(eventId)).isEqualTo(1);
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
@@ -748,8 +750,8 @@ class SagaServiceTest {
         Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
         sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID())); // POSTED
 
-        boolean applied =
-                writer.applyTimedOut(transfer.getId(), transfer, TransferStatus.SCREENING, "SCREENING_TIMEOUT");
+        boolean applied = writer.applyTimedOut(
+                transfer.getId(), transfer, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT);
 
         assertThat(applied).isFalse();
         assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.POSTED);
@@ -788,7 +790,8 @@ class SagaServiceTest {
         return switch (state) {
             case "FAILED_EXPIRED" -> {
                 Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
-                writer.applyTimedOut(transfer.getId(), transfer, TransferStatus.BLOCKED, "VERIFICATION_EXPIRED");
+                writer.applyTimedOut(
+                        transfer.getId(), transfer, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED);
                 yield transfer;
             }
             case "BLOCKED_PAST_DEADLINE" -> blockedPastItsDeadline();
@@ -842,8 +845,7 @@ class SagaServiceTest {
         sagaService.confirmTransfer(transfer.getId(), VERIFICATION_CODE);
 
         assertThat(sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()))
-                .filteredOn(step ->
-                        step.getStep().equals("SCREEN") && step.getOutcome().equals("OK"))
+                .filteredOn(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.OK)
                 .singleElement()
                 .satisfies(step ->
                         assertThat(jsonMapper.readTree(step.getDetail())).isEqualTo(jsonMapper.readTree("""

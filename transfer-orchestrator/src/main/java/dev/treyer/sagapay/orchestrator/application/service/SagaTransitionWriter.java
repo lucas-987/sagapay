@@ -1,12 +1,16 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.ProcessedEventPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,8 +31,6 @@ import java.util.UUID;
 @Component
 class SagaTransitionWriter {
 
-    private static final String RELEASE_STEP = "RELEASE";
-    static final String SCREEN_STEP = "SCREEN";
     private static final String FRAUD_CONSUMER = "orchestrator-fraud";
 
     private final TransferPort transfers;
@@ -64,10 +66,14 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, "RESERVE", "OK", null));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "FundsReserved"));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.FUNDS_RESERVED));
         sagaSteps.save(new SagaStep(
-                transferId, SCREEN_STEP, "RETRY", null, Instant.now().plusMillis(screeningTimeoutMs)));
+                transferId,
+                SagaStepName.SCREEN,
+                SagaStepOutcome.RETRY,
+                null,
+                Instant.now().plusMillis(screeningTimeoutMs)));
         return true;
     }
 
@@ -82,7 +88,7 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(result.transferId(), SCREEN_STEP, "OK", fraudDetail(result)));
+        sagaSteps.save(new SagaStep(result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.OK, fraudDetail(result)));
         return true;
     }
 
@@ -99,8 +105,8 @@ class SagaTransitionWriter {
         }
         sagaSteps.save(new SagaStep(
                 result.transferId(),
-                SCREEN_STEP,
-                "RETRY",
+                SagaStepName.SCREEN,
+                SagaStepOutcome.RETRY,
                 fraudDetail(result),
                 Instant.now().plusMillis(confirmationWindowMs)));
         return true;
@@ -115,7 +121,8 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SCREEN_STEP, "OK", "{\"verification\":\"SENDER_CONFIRMED\"}"));
+        sagaSteps.save(new SagaStep(
+                transferId, SagaStepName.SCREEN, SagaStepOutcome.OK, "{\"verification\":\"SENDER_CONFIRMED\"}"));
         return true;
     }
 
@@ -133,20 +140,20 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, "POST", "OK", null));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferPosted"));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_POSTED));
         return true;
     }
 
     @Transactional
     boolean applyInsufficientFunds(UUID transferId, Transfer transfer) {
-        String failureReason = "INSUFFICIENT_FUNDS";
+        FailureReason failureReason = FailureReason.INSUFFICIENT_FUNDS;
         int updated = transfers.transitionToFailed(
                 transferId, TransferStatus.INITIATED, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, "RESERVE", "FAILED", null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.FAILED, null));
         outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
         return true;
     }
@@ -158,8 +165,8 @@ class SagaTransitionWriter {
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
-            String step,
-            String failureReason,
+            SagaStepName step,
+            FailureReason failureReason,
             LedgerRejectedException rejection) {
         return failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection);
     }
@@ -171,54 +178,56 @@ class SagaTransitionWriter {
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
-            String step,
-            String failureReason,
+            SagaStepName step,
+            FailureReason failureReason,
             LedgerRejectedException rejection) {
         if (!failOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "RETRY", null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
         return true;
     }
 
     /** The transfer holds a reservation whatever the waiting status it leaves.
      * @return false when a concurrent caller already moved the transfer on. */
     @Transactional
-    boolean applyTimedOut(UUID transferId, Transfer transfer, TransferStatus fromStatus, String failureReason) {
+    boolean applyTimedOut(UUID transferId, Transfer transfer, TransferStatus fromStatus, FailureReason failureReason) {
         if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "RETRY", null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
         return true;
     }
 
     @Transactional
     void recordReleased(UUID transferId) {
-        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "COMPENSATED", null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.COMPENSATED, null));
     }
 
     @Transactional
     void recordReleaseRefused(UUID transferId, LedgerRejectedException rejection) {
-        sagaSteps.save(new SagaStep(transferId, RELEASE_STEP, "FAILED", rejectionDetail(rejection)));
+        sagaSteps.save(
+                new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
     }
 
     private boolean failOnRejection(
             UUID transferId,
             Transfer transfer,
             TransferStatus fromStatus,
-            String step,
-            String failureReason,
+            SagaStepName step,
+            FailureReason failureReason,
             LedgerRejectedException rejection) {
         if (!failTransfer(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, step, "FAILED", rejectionDetail(rejection)));
+        sagaSteps.save(new SagaStep(transferId, step, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
         return true;
     }
 
     /** The compare-and-set to {@code FAILED} and its {@code TransferFailed} event.
      * @return false when a concurrent caller already moved the transfer on. */
-    private boolean failTransfer(UUID transferId, Transfer transfer, TransferStatus fromStatus, String failureReason) {
+    private boolean failTransfer(
+            UUID transferId, Transfer transfer, TransferStatus fromStatus, FailureReason failureReason) {
         int updated = transfers.transitionToFailed(transferId, fromStatus, TransferStatus.FAILED, failureReason);
         if (updated == 0) {
             return false;

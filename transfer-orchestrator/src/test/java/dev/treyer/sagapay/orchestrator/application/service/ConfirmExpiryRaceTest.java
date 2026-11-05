@@ -4,6 +4,7 @@ import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
@@ -299,7 +300,7 @@ class ConfirmExpiryRaceTest {
                     outcome.confirmRefusedAsExpired(),
                     true);
             check(failures, iteration, "expiry ends FAILED", after.getStatus(), TransferStatus.FAILED);
-            check(failures, iteration, "expiry reason", after.getFailureReason(), "VERIFICATION_EXPIRED");
+            check(failures, iteration, "expiry reason", after.getFailureReason(), FailureReason.VERIFICATION_EXPIRED);
             check(failures, iteration, "the expiry sweep ends one transfer", outcome.expired(), 1);
             check(
                     failures,

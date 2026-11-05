@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.persistence;
 
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.springframework.data.domain.Pageable;
@@ -29,10 +30,13 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             where t.status = 'FAILED'::transfer_status
               and t.updated_at < :cutoff
               and (select s.outcome from saga_steps s
-                   where s.transfer_id = t.id and s.step = 'RELEASE'
-                   order by s.id desc limit 1) = 'RETRY'
+                   where s.transfer_id = t.id and s.step = :releaseStep
+                   order by s.id desc limit 1) = :pendingOutcome
             """)
-    List<Transfer> findFailedWithPendingRelease(@Param("cutoff") Instant cutoff);
+    List<Transfer> findFailedWithPendingRelease(
+            @Param("cutoff") Instant cutoff,
+            @Param("releaseStep") String releaseStep,
+            @Param("pendingOutcome") String pendingOutcome);
 
     /** The casts type the optional filters: a parameter used only in
      * {@code ? is null} gives Postgres no type. */
@@ -57,14 +61,19 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
     @Query(nativeQuery = true, value = """
             select t.* from transfers t
             join lateral (select s.deadline from saga_steps s
-                          where s.transfer_id = t.id and s.step = 'SCREEN' and s.outcome = 'RETRY'
+                          where s.transfer_id = t.id and s.step = :screenStep and s.outcome = :openOutcome
                           order by s.id desc limit 1) d on true
             where t.status = cast(:status as transfer_status)
               and d.deadline < :now
             order by d.deadline, t.id
             limit :limit
             """)
-    List<Transfer> findOverdue(@Param("status") String status, @Param("now") Instant now, @Param("limit") int limit);
+    List<Transfer> findOverdue(
+            @Param("status") String status,
+            @Param("now") Instant now,
+            @Param("limit") int limit,
+            @Param("screenStep") String screenStep,
+            @Param("openOutcome") String openOutcome);
 
     /** @return 0 when a replay already created the transfer. Unlike a caught
      * constraint violation, {@code ON CONFLICT DO NOTHING} leaves the transaction
@@ -130,7 +139,7 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("id") UUID id,
             @Param("fromStatus") TransferStatus fromStatus,
             @Param("toStatus") TransferStatus toStatus,
-            @Param("failureReason") String failureReason);
+            @Param("failureReason") FailureReason failureReason);
 
     /** The latest open SCREEN step holds the confirmation deadline. Clearing the persistence
      * context makes the next read of the transfer see the new status, also inside an
@@ -140,8 +149,12 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             update transfers t set status = 'CLEARED'::transfer_status, updated_at = now()
             where t.id = :id and t.status = 'BLOCKED'::transfer_status
               and (select s.deadline from saga_steps s
-                   where s.transfer_id = t.id and s.step = 'SCREEN' and s.outcome = 'RETRY'
+                   where s.transfer_id = t.id and s.step = :screenStep and s.outcome = :openOutcome
                    order by s.id desc limit 1) >= :now
             """)
-    int transitionBlockedToCleared(@Param("id") UUID id, @Param("now") Instant now);
+    int transitionBlockedToCleared(
+            @Param("id") UUID id,
+            @Param("now") Instant now,
+            @Param("screenStep") String screenStep,
+            @Param("openOutcome") String openOutcome);
 }

@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.application.port.out;
 
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 
@@ -59,5 +60,5 @@ public interface TransferPort {
     /** Only while the confirmation deadline is not past at {@code now}. */
     int transitionBlockedToCleared(UUID id, Instant now);
 
-    int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, String failureReason);
+    int transitionToFailed(UUID id, TransferStatus fromStatus, TransferStatus toStatus, FailureReason failureReason);
 }

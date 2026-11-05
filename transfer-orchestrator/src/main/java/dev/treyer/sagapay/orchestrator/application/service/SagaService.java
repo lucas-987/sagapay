@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.in.AdvanceSagaUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ApplyFraudResultUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCase;
@@ -14,6 +15,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
@@ -21,6 +23,8 @@ import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
@@ -63,11 +67,11 @@ public class SagaService
     /** Per waiting status and sweep: a long outage leaves a backlog the next sweeps take in turn. */
     private static final int OVERDUE_BATCH_SIZE = 100;
 
-    private record Deadline(TransferStatus waitingStatus, String failureReason) {}
+    private record Deadline(TransferStatus waitingStatus, FailureReason failureReason) {}
 
     private static final List<Deadline> DEADLINES = List.of(
-            new Deadline(TransferStatus.SCREENING, "SCREENING_TIMEOUT"),
-            new Deadline(TransferStatus.BLOCKED, "VERIFICATION_EXPIRED"));
+            new Deadline(TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT),
+            new Deadline(TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED));
 
     private final TransferPort transfers;
     private final SagaStepPort sagaSteps;
@@ -128,7 +132,7 @@ public class SagaService
                         "transfer row vanished for sender " + senderId + " / idempotency key " + idempotencyKey));
 
         if (inserted == 1) {
-            outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, "TransferInitiated"));
+            outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_INITIATED));
         }
         return new Result(transfer, inserted == 1);
     }
@@ -148,7 +152,13 @@ public class SagaService
                     transfer.getSenderAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
-            writer.applyRejected(transferId, transfer, TransferStatus.INITIATED, "RESERVE", "RESERVE_REJECTED", e);
+            writer.applyRejected(
+                    transferId,
+                    transfer,
+                    TransferStatus.INITIATED,
+                    SagaStepName.RESERVE,
+                    FailureReason.RESERVE_REJECTED,
+                    e);
             return;
         }
 
@@ -200,7 +210,7 @@ public class SagaService
             // Typically an expired reservation: the ledger will never post it, and
             // a refused postTransfer moved no money, so FAILED is the outcome.
             if (writer.applyRejectedAndRelease(
-                    transferId, transfer, TransferStatus.CLEARED, "POST", "POST_REJECTED", e)) {
+                    transferId, transfer, TransferStatus.CLEARED, SagaStepName.POST, FailureReason.POST_REJECTED, e)) {
                 releaseReservation(transfer);
             }
             return;
@@ -316,7 +326,7 @@ public class SagaService
             return null;
         }
         FraudDecision decision = steps.stream()
-                .filter(step -> step.getStep().equals(SagaTransitionWriter.SCREEN_STEP) && step.getDetail() != null)
+                .filter(step -> step.getStep() == SagaStepName.SCREEN && step.getDetail() != null)
                 .map(step -> jsonMapper.readTree(step.getDetail()).get("decision"))
                 .filter(node -> node != null)
                 .map(node -> FraudDecision.valueOf(node.asString()))
@@ -358,7 +368,7 @@ public class SagaService
 
     private static boolean failedAsExpired(Transfer transfer) {
         return transfer.getStatus() == TransferStatus.FAILED
-                && "VERIFICATION_EXPIRED".equals(transfer.getFailureReason());
+                && transfer.getFailureReason() == FailureReason.VERIFICATION_EXPIRED;
     }
 
     private boolean isExpired(Transfer transfer) {
@@ -369,8 +379,7 @@ public class SagaService
             return false;
         }
         Instant deadline = sagaSteps.findByTransferId(transfer.getId()).stream()
-                .filter(step -> step.getStep().equals(SagaTransitionWriter.SCREEN_STEP)
-                        && step.getOutcome().equals("RETRY"))
+                .filter(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.RETRY)
                 .reduce((first, second) -> second)
                 .map(SagaStep::getDeadline)
                 .orElseThrow(() -> new IllegalStateException(

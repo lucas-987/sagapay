@@ -4,6 +4,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
@@ -68,7 +69,7 @@ class SagaServiceOverdueSweepTest {
                 null);
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(overdue));
-        when(writer.applyTimedOut(overdue.getId(), overdue, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(overdue.getId(), overdue, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(false);
 
         int ended = service.sweepOverdueTransfers();
@@ -83,9 +84,9 @@ class SagaServiceOverdueSweepTest {
         Transfer healthy = transfer();
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(broken, healthy));
-        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenThrow(new IllegalStateException("outbox payload cannot be written"));
-        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
 
         int ended = service.sweepOverdueTransfers();
@@ -112,9 +113,10 @@ class SagaServiceOverdueSweepTest {
                 .thenReturn(List.of(screening))
                 .thenReturn(List.of());
         when(transfers.findOverdue(eq(TransferStatus.BLOCKED), any(), anyInt())).thenReturn(List.of(blocked));
-        when(writer.applyTimedOut(screening.getId(), screening, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(
+                        screening.getId(), screening, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
-        when(writer.applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, "VERIFICATION_EXPIRED"))
+        when(writer.applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED))
                 .thenReturn(true);
         doThrow(new LedgerUnavailableException(new RuntimeException("down")))
                 .doNothing()
@@ -129,7 +131,8 @@ class SagaServiceOverdueSweepTest {
         int secondSweep = service.sweepOverdueTransfers();
 
         assertThat(secondSweep).isEqualTo(1);
-        verify(writer).applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, "VERIFICATION_EXPIRED");
+        verify(writer)
+                .applyTimedOut(blocked.getId(), blocked, TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED);
         verify(ledger).releaseReservation(blocked.getId().toString(), blocked.getReservationId());
     }
 
@@ -139,9 +142,9 @@ class SagaServiceOverdueSweepTest {
         Transfer healthy = transfer();
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(broken, healthy));
-        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(broken.getId(), broken, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
-        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, "SCREENING_TIMEOUT"))
+        when(writer.applyTimedOut(healthy.getId(), healthy, TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT))
                 .thenReturn(true);
         doThrow(new IllegalStateException("unexpected"))
                 .when(ledger)

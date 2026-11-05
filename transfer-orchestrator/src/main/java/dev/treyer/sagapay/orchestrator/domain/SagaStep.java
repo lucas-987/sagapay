@@ -2,6 +2,8 @@ package dev.treyer.sagapay.orchestrator.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -29,11 +31,13 @@ public class SagaStep {
     @Column(name = "at", nullable = false, updatable = false)
     private Instant at;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "step", nullable = false, updatable = false, length = 16)
-    private String step;
+    private SagaStepName step;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "outcome", nullable = false, updatable = false, length = 16)
-    private String outcome;
+    private SagaStepOutcome outcome;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "detail", updatable = false, columnDefinition = "jsonb")
@@ -44,11 +48,11 @@ public class SagaStep {
 
     protected SagaStep() {}
 
-    public SagaStep(UUID transferId, String step, String outcome, String detail) {
+    public SagaStep(UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail) {
         this(transferId, step, outcome, detail, null);
     }
 
-    public SagaStep(UUID transferId, String step, String outcome, String detail, Instant deadline) {
+    public SagaStep(UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail, Instant deadline) {
         this.transferId = Objects.requireNonNull(transferId, "transferId");
         this.step = Objects.requireNonNull(step, "step");
         this.outcome = Objects.requireNonNull(outcome, "outcome");
@@ -69,11 +73,11 @@ public class SagaStep {
         return at;
     }
 
-    public String getStep() {
+    public SagaStepName getStep() {
         return step;
     }
 
-    public String getOutcome() {
+    public SagaStepOutcome getOutcome() {
         return outcome;
     }
 

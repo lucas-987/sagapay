@@ -2,6 +2,8 @@ package dev.treyer.sagapay.orchestrator.adapter.out.persistence;
 
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -50,34 +52,37 @@ class SagaStepRepositoryTest {
     @Test
     void saveAndFindByIdRoundTripsFieldsIncludingNullableJsonbDetail() {
         UUID transferId = newTransfer();
-        SagaStep saved = sagaSteps.saveAndFlush(new SagaStep(transferId, "RESERVE", "OK", null));
+        SagaStep saved =
+                sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
         entityManager.clear();
 
         SagaStep found = sagaSteps.findById(saved.getId()).orElseThrow();
 
         assertThat(found.getTransferId()).isEqualTo(transferId);
-        assertThat(found.getStep()).isEqualTo("RESERVE");
-        assertThat(found.getOutcome()).isEqualTo("OK");
+        assertThat(found.getStep()).isEqualTo(SagaStepName.RESERVE);
+        assertThat(found.getOutcome()).isEqualTo(SagaStepOutcome.OK);
         assertThat(found.getDetail()).isNull();
     }
 
     @Test
     void findByTransferIdOrderByAtAscIdAscReturnsStepsInWriteOrder() {
         UUID transferId = newTransfer();
-        sagaSteps.saveAndFlush(new SagaStep(transferId, "RESERVE", "OK", null));
-        sagaSteps.saveAndFlush(new SagaStep(transferId, "POST", "OK", null));
+        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
+        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
 
         List<SagaStep> steps = sagaSteps.findByTransferIdOrderByAtAscIdAsc(transferId);
 
-        assertThat(steps).extracting(SagaStep::getStep).containsExactly("RESERVE", "POST");
+        assertThat(steps).extracting(SagaStep::getStep).containsExactly(SagaStepName.RESERVE, SagaStepName.POST);
     }
 
     @Test
     void deadlineRoundTripsAndIsAbsentByDefault() {
         UUID transferId = newTransfer();
         Instant deadline = Instant.parse("2026-01-01T10:15:30.123456Z");
-        SagaStep withDeadline = sagaSteps.saveAndFlush(new SagaStep(transferId, "SCREEN", "RETRY", null, deadline));
-        SagaStep without = sagaSteps.saveAndFlush(new SagaStep(transferId, "POST", "OK", null));
+        SagaStep withDeadline = sagaSteps.saveAndFlush(
+                new SagaStep(transferId, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, deadline));
+        SagaStep without =
+                sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
         entityManager.clear();
 
         assertThat(sagaSteps.findById(withDeadline.getId()).orElseThrow().getDeadline())

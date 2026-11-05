@@ -4,8 +4,11 @@ import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
@@ -46,7 +49,7 @@ class SagaServiceConfirmTest {
     private static final UUID TRANSFER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000001");
 
     /** The status has no setter (transitions are conditional updates), so a test sets the state it needs. */
-    private static Transfer transferIn(TransferStatus status, String failureReason) {
+    private static Transfer transferIn(TransferStatus status, FailureReason failureReason) {
         Transfer transfer = new Transfer(
                 TRANSFER_ID,
                 UUID.randomUUID(),
@@ -69,14 +72,18 @@ class SagaServiceConfirmTest {
     private void blockedTransferOpenFor(long seconds) {
         when(sagaSteps.findByTransferId(TRANSFER_ID))
                 .thenReturn(List.of(new SagaStep(
-                        TRANSFER_ID, "SCREEN", "RETRY", null, Instant.now().plusSeconds(seconds))));
+                        TRANSFER_ID,
+                        SagaStepName.SCREEN,
+                        SagaStepOutcome.RETRY,
+                        null,
+                        Instant.now().plusSeconds(seconds))));
     }
 
     @Test
     void aConfirmationLostToTheExpiryJobIsRefusedAsExpired() {
         when(transfers.findById(TRANSFER_ID))
                 .thenReturn(Optional.of(blockedTransfer()))
-                .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, "VERIFICATION_EXPIRED")));
+                .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, FailureReason.VERIFICATION_EXPIRED)));
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
@@ -103,7 +110,7 @@ class SagaServiceConfirmTest {
     void aConfirmationLostToAnotherFailureIsRefusedAsNotBlocked() {
         when(transfers.findById(TRANSFER_ID))
                 .thenReturn(Optional.of(blockedTransfer()))
-                .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, "POST_REJECTED")));
+                .thenReturn(Optional.of(transferIn(TransferStatus.FAILED, FailureReason.POST_REJECTED)));
         blockedTransferOpenFor(60);
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(false);
 
@@ -151,11 +158,18 @@ class SagaServiceConfirmTest {
         Instant now = Instant.now();
         when(sagaSteps.findByTransferId(TRANSFER_ID))
                 .thenReturn(List.of(
-                        new SagaStep(TRANSFER_ID, "RESERVE", "OK", null),
-                        new SagaStep(TRANSFER_ID, "SCREEN", "RETRY", null, now.minusSeconds(600)),
-                        new SagaStep(TRANSFER_ID, "SCREEN", "RETRY", null, now.plusSeconds(60)),
-                        new SagaStep(TRANSFER_ID, "SCREEN", "OK", "{\"verification\":\"SENDER_CONFIRMED\"}"),
-                        new SagaStep(TRANSFER_ID, "RELEASE", "RETRY", null, now.minusSeconds(10))));
+                        new SagaStep(TRANSFER_ID, SagaStepName.RESERVE, SagaStepOutcome.OK, null),
+                        new SagaStep(
+                                TRANSFER_ID, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, now.minusSeconds(600)),
+                        new SagaStep(
+                                TRANSFER_ID, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, now.plusSeconds(60)),
+                        new SagaStep(
+                                TRANSFER_ID,
+                                SagaStepName.SCREEN,
+                                SagaStepOutcome.OK,
+                                "{\"verification\":\"SENDER_CONFIRMED\"}"),
+                        new SagaStep(
+                                TRANSFER_ID, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, now.minusSeconds(10))));
         when(writer.applyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(true);
 
         Transfer confirmed = service.confirmTransfer(TRANSFER_ID, CODE);

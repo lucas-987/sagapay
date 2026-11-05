@@ -7,6 +7,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.Test;
@@ -64,7 +65,7 @@ class SagaTransitionWriterConfigTest {
                     ArgumentCaptor<SagaStep> saved = ArgumentCaptor.forClass(SagaStep.class);
                     verify(sagaSteps, times(2)).save(saved.capture());
                     SagaStep screen = saved.getAllValues().get(1);
-                    assertThat(screen.getStep()).isEqualTo("SCREEN");
+                    assertThat(screen.getStep()).isEqualTo(SagaStepName.SCREEN);
                     assertThat(screen.getDeadline()).isBetween(before.plusMillis(2500), after.plusMillis(2500));
                 });
     }
@@ -97,7 +98,7 @@ class SagaTransitionWriterConfigTest {
 
                     ArgumentCaptor<SagaStep> saved = ArgumentCaptor.forClass(SagaStep.class);
                     verify(sagaSteps).save(saved.capture());
-                    assertThat(saved.getValue().getStep()).isEqualTo("SCREEN");
+                    assertThat(saved.getValue().getStep()).isEqualTo(SagaStepName.SCREEN);
                     assertThat(saved.getValue().getDeadline())
                             .isBetween(before.plusMillis(2500), after.plusMillis(2500));
                 });

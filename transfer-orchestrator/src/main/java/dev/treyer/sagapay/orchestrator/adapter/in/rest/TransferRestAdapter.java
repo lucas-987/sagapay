@@ -8,6 +8,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCa
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
 import dev.treyer.sagapay.orchestrator.domain.RecipientNotFoundException;
@@ -146,7 +147,7 @@ public class TransferRestAdapter implements V1Api {
                         transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
-                .failureReason(transfer.getFailureReason())
+                .failureReason(toRestFailureReason(transfer))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
                 .steps(result.steps().stream().map(this::toRestStep).toList())
                 .fraud(toRestFraud(result.fraud()));
@@ -217,6 +218,11 @@ public class TransferRestAdapter implements V1Api {
                 transfer.getCurrency(), transfer.getAmount().toPlainString());
     }
 
+    private static String toRestFailureReason(Transfer transfer) {
+        FailureReason reason = transfer.getFailureReason();
+        return reason == null ? null : reason.name();
+    }
+
     private static dev.treyer.sagapay.transfer.model.TransferStatus toRestStatus(Transfer transfer) {
         return dev.treyer.sagapay.transfer.model.TransferStatus.valueOf(
                 transfer.getStatus().name());
@@ -231,7 +237,7 @@ public class TransferRestAdapter implements V1Api {
                         transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
-                .failureReason(transfer.getFailureReason())
+                .failureReason(toRestFailureReason(transfer))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC));
     }
 
@@ -249,7 +255,7 @@ public class TransferRestAdapter implements V1Api {
     private dev.treyer.sagapay.transfer.model.SagaStep toRestStep(SagaStep step) {
         return new dev.treyer.sagapay.transfer.model.SagaStep()
                 .at(step.getAt().atOffset(ZoneOffset.UTC))
-                .step(step.getStep())
-                .outcome(step.getOutcome());
+                .step(step.getStep().name())
+                .outcome(step.getOutcome().name());
     }
 }

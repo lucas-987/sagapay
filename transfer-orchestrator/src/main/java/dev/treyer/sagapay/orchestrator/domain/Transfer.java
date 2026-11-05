@@ -57,8 +57,9 @@ public class Transfer {
     @Column(name = "reservation_id")
     private UUID reservationId;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "failure_reason", length = 64)
-    private String failureReason;
+    private FailureReason failureReason;
 
     @Column(name = "fraud_score", precision = 5, scale = 4)
     private BigDecimal fraudScore;
@@ -143,7 +144,7 @@ public class Transfer {
         return reservationId;
     }
 
-    public String getFailureReason() {
+    public FailureReason getFailureReason() {
         return failureReason;
     }
 

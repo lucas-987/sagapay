@@ -2,6 +2,7 @@ package dev.treyer.sagapay.fraud.adapter.in.kafka;
 
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.common.event.TransferEventType;
+import dev.treyer.sagapay.fraud.application.port.in.RecordPostedTransferUseCase;
 import dev.treyer.sagapay.fraud.application.port.in.ScreenTransferUseCase;
 import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -13,12 +14,12 @@ import java.util.UUID;
 @Component
 public class TransferEventListener {
 
-    private static final String FUNDS_RESERVED = "FundsReserved";
-
     private final ScreenTransferUseCase screening;
+    private final RecordPostedTransferUseCase postedTransfers;
 
-    public TransferEventListener(ScreenTransferUseCase screening) {
+    public TransferEventListener(ScreenTransferUseCase screening, RecordPostedTransferUseCase postedTransfers) {
         this.screening = screening;
+        this.postedTransfers = postedTransfers;
     }
 
     @KafkaListener(topics = "payments.transfers", groupId = "fraud-screening")
@@ -32,6 +33,9 @@ public class TransferEventListener {
         }
         if (TransferEventType.FUNDS_RESERVED.wireName().equals(data.eventType())) {
             screening.screen(toReservedTransfer(message.id(), data));
+        } else if (TransferEventType.TRANSFER_POSTED.wireName().equals(data.eventType())) {
+            postedTransfers.recordPosted(
+                    required(data.senderId(), "senderId"), required(data.recipientId(), "recipientId"));
         }
     }
 
@@ -54,7 +58,7 @@ public class TransferEventListener {
 
     private static <T> T required(T value, String field) {
         if (value == null) {
-            throw new MalformedTransferEventException("FundsReserved event has no " + field);
+            throw new MalformedTransferEventException("transfer event has no " + field);
         }
         return value;
     }

@@ -56,8 +56,16 @@ class ScreeningServiceTest {
         }
 
         @Override
-        public void record(UUID senderId, UUID recipientId) {
-            calls.add("history.record " + senderId + " " + recipientId);
+        public void recordTransfer(UUID senderId, UUID transferId) {
+            calls.add("history.recordTransfer " + senderId + " " + transferId);
+            if (recordFailure != null) {
+                throw recordFailure;
+            }
+        }
+
+        @Override
+        public void recordRecipient(UUID senderId, UUID recipientId) {
+            calls.add("history.recordRecipient " + senderId + " " + recipientId);
             if (recordFailure != null) {
                 throw recordFailure;
             }
@@ -110,7 +118,7 @@ class ScreeningServiceTest {
                         "history.read " + SENDER,
                         "processed " + EVENT_ID + " fraud-screening",
                         "outbox.save TransferCleared",
-                        "history.record " + SENDER + " " + KNOWN_RECIPIENT);
+                        "history.recordTransfer " + SENDER + " " + TRANSFER);
     }
 
     @Test
@@ -123,7 +131,7 @@ class ScreeningServiceTest {
                         "processed " + EVENT_ID + " fraud-screening",
                         "case.open",
                         "outbox.save TransferFlagged",
-                        "history.record " + SENDER + " " + NEW_RECIPIENT);
+                        "history.recordTransfer " + SENDER + " " + TRANSFER);
     }
 
     @Test
@@ -221,5 +229,19 @@ class ScreeningServiceTest {
                 .contains("\"transfer.id\":\"" + TRANSFER + "\"")
                 .contains("\"sender.id\":\"" + SENDER + "\"")
                 .contains("java.lang.IllegalStateException: redis down");
+    }
+
+    @Test
+    void aPostedTransferMakesItsRecipientKnown() {
+        service.recordPosted(SENDER, NEW_RECIPIENT);
+
+        assertThat(calls).containsExactly("history.recordRecipient " + SENDER + " " + NEW_RECIPIENT);
+    }
+
+    @Test
+    void aRecipientUpdateThatFailsIsRaisedSoThatTheMessageIsRetried() {
+        recordFailure = new IllegalStateException("redis down");
+
+        assertThatThrownBy(() -> service.recordPosted(SENDER, NEW_RECIPIENT)).isSameAs(recordFailure);
     }
 }

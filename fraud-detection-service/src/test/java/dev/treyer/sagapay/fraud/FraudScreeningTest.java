@@ -98,6 +98,14 @@ class FraudScreeningTest {
         send(event(eventId, "FundsReserved", transfer, sender, to, amount));
     }
 
+    private void sendPosted(UUID transfer, UUID to) {
+        send(event(UUID.randomUUID().toString(), "TransferPosted", transfer, sender, to, "20.00"));
+    }
+
+    private long transfersCountedFor(UUID senderId) {
+        return redis.opsForZSet().zCard("vel:" + senderId + ":1h");
+    }
+
     private int countOf(String table, String column, String value) {
         return jdbc.queryForObject(
                 "select count(*) from " + table + " where " + column + " = cast(? as uuid)", Integer.class, value);
@@ -164,6 +172,7 @@ class FraudScreeningTest {
         UUID second = UUID.randomUUID();
 
         sendReserved(UUID.randomUUID().toString(), first, recipient, "20.00");
+        sendPosted(first, recipient);
         sendReserved(UUID.randomUUID().toString(), second, recipient, "20.00");
         awaitResultFor(first);
         awaitResultFor(second);
@@ -179,7 +188,8 @@ class FraudScreeningTest {
         UUID transfer = UUID.randomUUID();
         UUID otherRecipient = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
-        redis.opsForValue().set("vel:" + sender + ":1h", "2");
+        redis.opsForZSet().add("vel:" + sender + ":1h", UUID.randomUUID().toString(), System.currentTimeMillis());
+        redis.opsForZSet().add("vel:" + sender + ":1h", UUID.randomUUID().toString(), System.currentTimeMillis());
         redis.opsForSet().add("recipients:" + sender, otherRecipient.toString());
         jdbc.update(
                 "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
@@ -193,7 +203,7 @@ class FraudScreeningTest {
 
         assertThat(countOf("processed_events", "event_id", eventId.toString())).isZero();
         assertThat(countOf("outbox", "aggregate_id", transfer.toString())).isZero();
-        assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("2");
+        assertThat(transfersCountedFor(sender)).isEqualTo(2);
         assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(otherRecipient.toString());
     }
 
@@ -243,7 +253,7 @@ class FraudScreeningTest {
     void eventsOtherThanAReservationAreIgnored() {
         UUID ignoredRecipient = UUID.randomUUID();
         Map<String, UUID> ignored = new LinkedHashMap<>();
-        for (String type : List.of("TransferInitiated", "TransferPosted", "TransferFailed")) {
+        for (String type : List.of("TransferInitiated", "TransferFailed")) {
             String eventId = UUID.randomUUID().toString();
             UUID transfer = UUID.randomUUID();
             ignored.put(eventId, transfer);
@@ -261,8 +271,8 @@ class FraudScreeningTest {
             assertThat(countOf("fraud_cases", "transfer_id", e.getValue().toString()))
                     .isZero();
         }
-        assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("1");
-        assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(recipient.toString());
+        assertThat(transfersCountedFor(sender)).isEqualTo(1);
+        assertThat(redis.opsForSet().members("recipients:" + sender)).isEmpty();
     }
 
     @Test
@@ -345,8 +355,8 @@ class FraudScreeningTest {
         assertThat(countOf("outbox", "aggregate_id", transfer.toString())).isEqualTo(1);
         assertThat(countOf("fraud_cases", "transfer_id", transfer.toString())).isEqualTo(1);
         assertThat(countOf("processed_events", "event_id", eventId)).isEqualTo(1);
-        assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("1");
-        assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(recipient.toString());
+        assertThat(transfersCountedFor(sender)).isEqualTo(1);
+        assertThat(redis.opsForSet().members("recipients:" + sender)).isEmpty();
     }
 
     @Test
@@ -364,8 +374,41 @@ class FraudScreeningTest {
         assertThat(countOf("outbox", "aggregate_id", transfer.toString())).isEqualTo(1);
         assertThat(countOf("fraud_cases", "transfer_id", transfer.toString())).isEqualTo(1);
         assertThat(countOf("processed_events", "event_id", eventId)).isEqualTo(1);
-        assertThat(redis.opsForValue().get("vel:" + sender + ":1h")).isEqualTo("2");
-        assertThat(redis.opsForSet().members("recipients:" + sender)).containsExactly(recipient.toString());
+        assertThat(transfersCountedFor(sender)).isEqualTo(2);
+        assertThat(redis.opsForSet().members("recipients:" + sender)).isEmpty();
+    }
+
+    @Test
+    @Tag("M3-S44")
+    @DisplayName("A blocked transfer left to expire does not make its recipient known")
+    void aTransferThatWasNotPostedLeavesItsRecipientNew() {
+        UUID blocked = UUID.randomUUID();
+        UUID sentAgain = UUID.randomUUID();
+
+        sendReserved(UUID.randomUUID().toString(), blocked, recipient, "500.00");
+        awaitResultFor(blocked);
+        sendReserved(UUID.randomUUID().toString(), sentAgain, recipient, "500.00");
+        awaitResultFor(sentAgain);
+
+        assertThat(outboxEventTypeOf(blocked)).isEqualTo("TransferFlagged");
+        assertThat(outboxEventTypeOf(sentAgain)).isEqualTo("TransferFlagged");
+        assertThat(reasonsOf(sentAgain)).containsExactly("NEW_RECIPIENT", "AMOUNT_ROUND");
+    }
+
+    @Test
+    @Tag("M3-S45")
+    @DisplayName("A recipient becomes known once a transfer to it is posted")
+    void aPostedTransferMakesItsRecipientKnown() {
+        UUID paid = UUID.randomUUID();
+        UUID next = UUID.randomUUID();
+
+        sendPosted(paid, recipient);
+        sendReserved(UUID.randomUUID().toString(), next, recipient, "500.00");
+        awaitResultFor(next);
+
+        assertThat(outboxEventTypeOf(next)).isEqualTo("TransferCleared");
+        assertThat(reasonsOf(next)).containsExactly("AMOUNT_ROUND");
+        assertThat(countOf("processed_events", "event_id", paid.toString())).isZero();
     }
 
     private List<ConsumerRecord<String, String>> deadLettersOf(String key) {

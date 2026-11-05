@@ -8,5 +8,8 @@ public interface SenderHistoryPort {
 
     SenderActivity read(UUID senderId);
 
-    void record(UUID senderId, UUID recipientId);
+    /** Counting the same transfer again changes nothing. */
+    void recordTransfer(UUID senderId, UUID transferId);
+
+    void recordRecipient(UUID senderId, UUID recipientId);
 }

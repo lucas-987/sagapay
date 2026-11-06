@@ -52,4 +52,12 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..orchestrator.application.port.out..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotReachTheInboundSide = noClasses()
+            .that()
+            .resideInAPackage("..orchestrator.adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("..orchestrator.adapter.in..", "..orchestrator.application.port.in..");
 }

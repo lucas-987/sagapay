@@ -41,4 +41,23 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..ledger.adapter.out..");
+
+    // The local seed creates accounts, which no use case offers.
+    @ArchTest
+    static final ArchRule inboundAdaptersGoThroughUseCases = noClasses()
+            .that()
+            .resideInAPackage("..ledger.adapter.in..")
+            .and()
+            .doNotHaveSimpleName("LocalAccountSeeder")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..ledger.application.port.out..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotReachTheInboundSide = noClasses()
+            .that()
+            .resideInAPackage("..ledger.adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("..ledger.adapter.in..", "..ledger.application.port.in..");
 }

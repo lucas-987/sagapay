@@ -41,4 +41,20 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..fraud.adapter.out..");
+
+    @ArchTest
+    static final ArchRule inboundAdaptersGoThroughUseCases = noClasses()
+            .that()
+            .resideInAPackage("..fraud.adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..fraud.application.port.out..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotReachTheInboundSide = noClasses()
+            .that()
+            .resideInAPackage("..fraud.adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("..fraud.adapter.in..", "..fraud.application.port.in..");
 }

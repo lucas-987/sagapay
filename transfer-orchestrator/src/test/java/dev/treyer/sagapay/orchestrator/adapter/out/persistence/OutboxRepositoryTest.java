@@ -9,6 +9,7 @@ import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,7 +34,8 @@ class OutboxRepositoryTest {
                 aggregateId,
                 eventType,
                 JSON.writeValueAsString(java.util.Map.of("transferId", aggregateId.toString())),
-                null));
+                null,
+                Instant.now()));
     }
 
     @Test

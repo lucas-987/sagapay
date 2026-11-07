@@ -40,6 +40,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -76,6 +77,7 @@ public class SagaService
     private final LedgerPort ledger;
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
+    private final Clock clock;
     private final long repriseGracePeriodMs;
     private final int overdueBatchSize;
     private final byte[] verificationCode;
@@ -87,6 +89,7 @@ public class SagaService
             LedgerPort ledger,
             JsonMapper jsonMapper,
             SagaTransitionWriter writer,
+            Clock clock,
             SagaSettings settings,
             @Value("${sagapay.fraud.verification-code}") String verificationCode) {
         if (verificationCode.isBlank()) {
@@ -98,6 +101,7 @@ public class SagaService
         this.ledger = ledger;
         this.jsonMapper = jsonMapper;
         this.writer = writer;
+        this.clock = clock;
         this.repriseGracePeriodMs = settings.repriseGracePeriodMs();
         this.overdueBatchSize = settings.overdueBatchSize();
         this.verificationCode = verificationCode.getBytes(StandardCharsets.UTF_8);
@@ -131,7 +135,8 @@ public class SagaService
                         "transfer row vanished for sender " + senderId + " / idempotency key " + idempotencyKey));
 
         if (inserted == 1) {
-            outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_INITIATED));
+            outbox.save(OutboxEvents.forTransfer(
+                    jsonMapper, transfer, TransferEventType.TRANSFER_INITIATED, clock.instant()));
         }
         return new Result(transfer, inserted == 1);
     }
@@ -219,7 +224,7 @@ public class SagaService
 
     @Override
     public int sweepStuckTransfers() {
-        Instant cutoff = Instant.now().minusMillis(repriseGracePeriodMs);
+        Instant cutoff = clock.instant().minusMillis(repriseGracePeriodMs);
         int resumed = 0;
         try {
             for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.INITIATED, cutoff)) {
@@ -243,7 +248,7 @@ public class SagaService
 
     @Override
     public int sweepOverdueTransfers() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         int ended = 0;
         try {
             for (Deadline deadline : DEADLINES) {
@@ -349,7 +354,7 @@ public class SagaService
             log.warn("verification code rejected", kv("transfer.id", transferId));
             throw new InvalidVerificationCodeException(transferId);
         }
-        if (!writer.tryApplyConfirmed(transferId, Instant.now())) {
+        if (!writer.tryApplyConfirmed(transferId, clock.instant())) {
             throw lostConfirmation(transferId);
         }
         log.info("transfer confirmed by sender", kv("transfer.id", transferId));
@@ -384,7 +389,7 @@ public class SagaService
                 .map(SagaStep::getDeadline)
                 .orElseThrow(() -> new IllegalStateException(
                         "blocked transfer " + transfer.getId() + " has no open confirmation window"));
-        return deadline.isBefore(Instant.now());
+        return deadline.isBefore(clock.instant());
     }
 
     private Transfer requireTransfer(UUID transferId) {

@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -47,7 +48,8 @@ class SagaTransitionWriterConfigTest {
                 UUID.randomUUID(),
                 new BigDecimal("25.0000"),
                 "EUR",
-                null);
+                null,
+                Instant.now());
 
         new ApplicationContextRunner()
                 .withBean(TransferPort.class, () -> transfers)
@@ -55,6 +57,7 @@ class SagaTransitionWriterConfigTest {
                 .withBean(OutboxPort.class, () -> mock(OutboxPort.class))
                 .withBean(ProcessedEventPort.class, () -> mock(ProcessedEventPort.class))
                 .withBean(JsonMapper.class, JsonMapper::new)
+                .withBean(Clock.class, Clock::systemUTC)
                 .withBean(SagaSettings.class, () -> new SagaSettings(5000, 2500, 120000, 100))
                 .withBean(SagaTransitionWriter.class)
                 .run(context -> {
@@ -88,6 +91,7 @@ class SagaTransitionWriterConfigTest {
                 .withBean(OutboxPort.class, () -> mock(OutboxPort.class))
                 .withBean(ProcessedEventPort.class, () -> processedEvents)
                 .withBean(JsonMapper.class, JsonMapper::new)
+                .withBean(Clock.class, Clock::systemUTC)
                 .withBean(SagaSettings.class, () -> new SagaSettings(5000, 10000, 2500, 100))
                 .withBean(SagaTransitionWriter.class)
                 .run(context -> {

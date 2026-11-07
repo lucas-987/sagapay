@@ -86,7 +86,8 @@ class TransferRepositoryTest {
                 UUID.randomUUID(),
                 new BigDecimal("80.0000"),
                 "EUR",
-                "pizza");
+                "pizza",
+                Instant.now());
 
         Transfer saved = transfers.saveAndFlush(transfer);
         entityManager.clear();
@@ -111,7 +112,8 @@ class TransferRepositoryTest {
                 UUID.randomUUID(),
                 new BigDecimal("5.0000"),
                 "EUR",
-                null);
+                null,
+                Instant.now());
         transfers.saveAndFlush(transfer);
 
         assertThat(transfers.findBySenderIdAndIdempotencyKey(senderId, idempotencyKey))
@@ -130,7 +132,8 @@ class TransferRepositoryTest {
                 UUID.randomUUID(),
                 new BigDecimal("5.0000"),
                 "EUR",
-                null));
+                null,
+                Instant.now()));
     }
 
     @ParameterizedTest

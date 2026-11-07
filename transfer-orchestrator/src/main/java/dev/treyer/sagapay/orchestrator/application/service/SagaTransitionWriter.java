@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -37,6 +38,7 @@ class SagaTransitionWriter {
     private final OutboxPort outbox;
     private final ProcessedEventPort processedEvents;
     private final JsonMapper jsonMapper;
+    private final Clock clock;
     private final long screeningTimeoutMs;
     private final long confirmationWindowMs;
 
@@ -46,12 +48,14 @@ class SagaTransitionWriter {
             OutboxPort outbox,
             ProcessedEventPort processedEvents,
             JsonMapper jsonMapper,
+            Clock clock,
             SagaSettings settings) {
         this.transfers = transfers;
         this.sagaSteps = sagaSteps;
         this.outbox = outbox;
         this.processedEvents = processedEvents;
         this.jsonMapper = jsonMapper;
+        this.clock = clock;
         this.screeningTimeoutMs = settings.screeningTimeoutMs();
         this.confirmationWindowMs = settings.confirmationWindowMs();
     }
@@ -64,14 +68,16 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.FUNDS_RESERVED));
+        Instant now = clock.instant();
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null, now));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.FUNDS_RESERVED, now));
         sagaSteps.save(new SagaStep(
                 transferId,
                 SagaStepName.SCREEN,
                 SagaStepOutcome.RETRY,
                 null,
-                Instant.now().plusMillis(screeningTimeoutMs)));
+                clock.instant().plusMillis(screeningTimeoutMs),
+                clock.instant()));
         return true;
     }
 
@@ -86,7 +92,8 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.OK, fraudDetail(result)));
+        sagaSteps.save(new SagaStep(
+                result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.OK, fraudDetail(result), clock.instant()));
         return true;
     }
 
@@ -106,7 +113,8 @@ class SagaTransitionWriter {
                 SagaStepName.SCREEN,
                 SagaStepOutcome.RETRY,
                 fraudDetail(result),
-                Instant.now().plusMillis(confirmationWindowMs)));
+                clock.instant().plusMillis(confirmationWindowMs),
+                clock.instant()));
         return true;
     }
 
@@ -120,7 +128,11 @@ class SagaTransitionWriter {
             return false;
         }
         sagaSteps.save(new SagaStep(
-                transferId, SagaStepName.SCREEN, SagaStepOutcome.OK, "{\"verification\":\"SENDER_CONFIRMED\"}"));
+                transferId,
+                SagaStepName.SCREEN,
+                SagaStepOutcome.OK,
+                "{\"verification\":\"SENDER_CONFIRMED\"}",
+                clock.instant()));
         return true;
     }
 
@@ -138,8 +150,8 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_POSTED));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null, clock.instant()));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_POSTED, clock.instant()));
         return true;
     }
 
@@ -151,8 +163,8 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.FAILED, null));
-        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.FAILED, null, clock.instant()));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason, clock.instant()));
         return true;
     }
 
@@ -182,7 +194,7 @@ class SagaTransitionWriter {
         if (!tryFailOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, clock.instant()));
         return true;
     }
 
@@ -194,19 +206,20 @@ class SagaTransitionWriter {
         if (!tryFail(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null));
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, clock.instant()));
         return true;
     }
 
     @Transactional
     void recordReleased(UUID transferId) {
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.COMPENSATED, null));
+        sagaSteps.save(
+                new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.COMPENSATED, null, clock.instant()));
     }
 
     @Transactional
     void recordReleaseRefused(UUID transferId, LedgerRejectedException rejection) {
-        sagaSteps.save(
-                new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
+        sagaSteps.save(new SagaStep(
+                transferId, SagaStepName.RELEASE, SagaStepOutcome.FAILED, rejectionDetail(rejection), clock.instant()));
     }
 
     private boolean tryFailOnRejection(
@@ -219,7 +232,8 @@ class SagaTransitionWriter {
         if (!tryFail(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, step, SagaStepOutcome.FAILED, rejectionDetail(rejection)));
+        sagaSteps.save(
+                new SagaStep(transferId, step, SagaStepOutcome.FAILED, rejectionDetail(rejection), clock.instant()));
         return true;
     }
 
@@ -231,7 +245,7 @@ class SagaTransitionWriter {
         if (updated == 0) {
             return false;
         }
-        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, failureReason, clock.instant()));
         return true;
     }
 

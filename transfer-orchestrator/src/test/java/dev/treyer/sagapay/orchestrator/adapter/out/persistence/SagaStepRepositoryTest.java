@@ -52,8 +52,8 @@ class SagaStepRepositoryTest {
     @Test
     void saveAndFindByIdRoundTripsFieldsIncludingNullableJsonbDetail() {
         UUID transferId = newTransfer();
-        SagaStep saved =
-                sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
+        SagaStep saved = sagaSteps.saveAndFlush(
+                new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null, Instant.now()));
         entityManager.clear();
 
         SagaStep found = sagaSteps.findById(saved.getId()).orElseThrow();
@@ -67,8 +67,8 @@ class SagaStepRepositoryTest {
     @Test
     void findByTransferIdOrderByAtAscIdAscReturnsStepsInWriteOrder() {
         UUID transferId = newTransfer();
-        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null));
-        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
+        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.RESERVE, SagaStepOutcome.OK, null, Instant.now()));
+        sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null, Instant.now()));
 
         List<SagaStep> steps = sagaSteps.findByTransferIdOrderByAtAscIdAsc(transferId);
 
@@ -80,9 +80,9 @@ class SagaStepRepositoryTest {
         UUID transferId = newTransfer();
         Instant deadline = Instant.parse("2026-01-01T10:15:30.123456Z");
         SagaStep withDeadline = sagaSteps.saveAndFlush(
-                new SagaStep(transferId, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, deadline));
-        SagaStep without =
-                sagaSteps.saveAndFlush(new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null));
+                new SagaStep(transferId, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, deadline, Instant.now()));
+        SagaStep without = sagaSteps.saveAndFlush(
+                new SagaStep(transferId, SagaStepName.POST, SagaStepOutcome.OK, null, Instant.now()));
         entityManager.clear();
 
         assertThat(sagaSteps.findById(withDeadline.getId()).orElseThrow().getDeadline())

@@ -21,6 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -75,8 +76,8 @@ class OutboxPollerTest {
 
     private OutboxRow newUnpublishedRow(UUID senderId) {
         String payload = "{\"senderId\":\"" + senderId + "\"}";
-        return outboxRepository.saveAndFlush(
-                new OutboxRow(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferInitiated", payload, null));
+        return outboxRepository.saveAndFlush(new OutboxRow(
+                UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferInitiated", payload, null, Instant.now()));
     }
 
     /** Polls for the whole timeout: stopping at the expected count would hide a

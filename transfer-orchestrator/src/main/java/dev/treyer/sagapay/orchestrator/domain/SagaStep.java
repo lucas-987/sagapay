@@ -48,17 +48,18 @@ public class SagaStep {
 
     protected SagaStep() {}
 
-    public SagaStep(UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail) {
-        this(transferId, step, outcome, detail, null);
+    public SagaStep(UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail, Instant at) {
+        this(transferId, step, outcome, detail, null, at);
     }
 
-    public SagaStep(UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail, Instant deadline) {
+    public SagaStep(
+            UUID transferId, SagaStepName step, SagaStepOutcome outcome, String detail, Instant deadline, Instant at) {
         this.transferId = Objects.requireNonNull(transferId, "transferId");
         this.step = Objects.requireNonNull(step, "step");
         this.outcome = Objects.requireNonNull(outcome, "outcome");
         this.detail = detail;
         this.deadline = deadline;
-        this.at = Instant.now();
+        this.at = Objects.requireNonNull(at, "at");
     }
 
     public Long getId() {

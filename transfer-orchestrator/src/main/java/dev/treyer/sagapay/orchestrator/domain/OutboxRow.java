@@ -46,14 +46,20 @@ public class OutboxRow {
     protected OutboxRow() {}
 
     public OutboxRow(
-            UUID id, String aggregateType, UUID aggregateId, String eventType, String payload, String headers) {
+            UUID id,
+            String aggregateType,
+            UUID aggregateId,
+            String eventType,
+            String payload,
+            String headers,
+            Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.aggregateType = Objects.requireNonNull(aggregateType, "aggregateType");
         this.aggregateId = Objects.requireNonNull(aggregateId, "aggregateId");
         this.eventType = Objects.requireNonNull(eventType, "eventType");
         this.payload = Objects.requireNonNull(payload, "payload");
         this.headers = headers == null ? "{}" : headers;
-        this.createdAt = Instant.now();
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
 
     public UUID getId() {

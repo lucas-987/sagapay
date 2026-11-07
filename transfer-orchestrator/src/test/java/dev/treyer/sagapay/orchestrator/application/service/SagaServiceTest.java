@@ -309,7 +309,8 @@ class SagaServiceTest {
     void aScreenStepWithoutADecisionIsAnInconsistency() {
         Transfer transfer = initiate(UUID.randomUUID());
         jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
-        sagaStepRepository.save(new SagaStep(transfer.getId(), SagaStepName.SCREEN, SagaStepOutcome.OK, "{}"));
+        sagaStepRepository.save(
+                new SagaStep(transfer.getId(), SagaStepName.SCREEN, SagaStepOutcome.OK, "{}", Instant.now()));
 
         assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), transfer.getSenderId()))
                 .isInstanceOf(IllegalStateException.class)

@@ -85,7 +85,8 @@ public class Transfer {
             UUID recipientAccountId,
             BigDecimal amount,
             String currency,
-            String note) {
+            String note,
+            Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.idempotencyKey = Objects.requireNonNull(idempotencyKey, "idempotencyKey");
         this.senderId = Objects.requireNonNull(senderId, "senderId");
@@ -96,7 +97,7 @@ public class Transfer {
         this.currency = Objects.requireNonNull(currency, "currency");
         this.note = note;
         this.status = TransferStatus.INITIATED;
-        this.createdAt = Instant.now();
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = this.createdAt;
     }
 

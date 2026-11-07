@@ -21,6 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -46,7 +47,7 @@ class SagaServiceConfirmTest {
     private final LedgerPort ledger = mock(LedgerPort.class);
     private final SagaTransitionWriter writer = mock(SagaTransitionWriter.class);
     private final SagaService service = new SagaService(
-            transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, SETTINGS, CODE);
+            transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, Clock.systemUTC(), SETTINGS, CODE);
 
     private static final UUID TRANSFER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000001");
     private static final UUID SENDER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000002");
@@ -62,7 +63,8 @@ class SagaServiceConfirmTest {
                 UUID.randomUUID(),
                 new BigDecimal("25.0000"),
                 "EUR",
-                null);
+                null,
+                Instant.now());
         ReflectionTestUtils.setField(transfer, "status", status);
         ReflectionTestUtils.setField(transfer, "failureReason", failureReason);
         return transfer;
@@ -79,7 +81,8 @@ class SagaServiceConfirmTest {
                         SagaStepName.SCREEN,
                         SagaStepOutcome.RETRY,
                         null,
-                        Instant.now().plusSeconds(seconds))));
+                        Instant.now().plusSeconds(seconds),
+                        Instant.now())));
     }
 
     @Test
@@ -161,18 +164,34 @@ class SagaServiceConfirmTest {
         Instant now = Instant.now();
         when(sagaSteps.findByTransferId(TRANSFER_ID))
                 .thenReturn(List.of(
-                        new SagaStep(TRANSFER_ID, SagaStepName.RESERVE, SagaStepOutcome.OK, null),
+                        new SagaStep(TRANSFER_ID, SagaStepName.RESERVE, SagaStepOutcome.OK, null, Instant.now()),
                         new SagaStep(
-                                TRANSFER_ID, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, now.minusSeconds(600)),
+                                TRANSFER_ID,
+                                SagaStepName.SCREEN,
+                                SagaStepOutcome.RETRY,
+                                null,
+                                now.minusSeconds(600),
+                                Instant.now()),
                         new SagaStep(
-                                TRANSFER_ID, SagaStepName.SCREEN, SagaStepOutcome.RETRY, null, now.plusSeconds(60)),
+                                TRANSFER_ID,
+                                SagaStepName.SCREEN,
+                                SagaStepOutcome.RETRY,
+                                null,
+                                now.plusSeconds(60),
+                                Instant.now()),
                         new SagaStep(
                                 TRANSFER_ID,
                                 SagaStepName.SCREEN,
                                 SagaStepOutcome.OK,
-                                "{\"verification\":\"SENDER_CONFIRMED\"}"),
+                                "{\"verification\":\"SENDER_CONFIRMED\"}",
+                                Instant.now()),
                         new SagaStep(
-                                TRANSFER_ID, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, now.minusSeconds(10))));
+                                TRANSFER_ID,
+                                SagaStepName.RELEASE,
+                                SagaStepOutcome.RETRY,
+                                null,
+                                now.minusSeconds(10),
+                                Instant.now())));
         when(writer.tryApplyConfirmed(eq(TRANSFER_ID), any(Instant.class))).thenReturn(true);
 
         Transfer confirmed = service.confirmTransfer(TRANSFER_ID, SENDER_ID, CODE);
@@ -201,6 +220,7 @@ class SagaServiceConfirmTest {
                         ledger,
                         new JsonMapper(),
                         writer,
+                        Clock.systemUTC(),
                         SETTINGS,
                         blank))
                 .isInstanceOf(IllegalArgumentException.class)

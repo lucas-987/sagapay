@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +40,7 @@ class SagaServiceOverdueSweepTest {
             ledger,
             new JsonMapper(),
             writer,
+            Clock.systemUTC(),
             new SagaSettings(5000, 10000, 120000, 100),
             "code");
 
@@ -52,7 +54,8 @@ class SagaServiceOverdueSweepTest {
                 UUID.randomUUID(),
                 new BigDecimal("25.0000"),
                 "EUR",
-                null);
+                null,
+                Instant.now());
     }
 
     @Test
@@ -66,7 +69,8 @@ class SagaServiceOverdueSweepTest {
                 UUID.randomUUID(),
                 new BigDecimal("25.0000"),
                 "EUR",
-                null);
+                null,
+                Instant.now());
         when(transfers.findOverdue(eq(TransferStatus.SCREENING), any(), anyInt()))
                 .thenReturn(List.of(overdue));
         when(writer.tryApplyTimedOut(

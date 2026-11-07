@@ -32,6 +32,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -94,7 +95,8 @@ class TransferRestAdapterTest {
                 recipientId,
                 new BigDecimal("80.0000"),
                 "EUR",
-                "pizza");
+                "pizza",
+                Instant.now());
     }
 
     @Test

@@ -3,6 +3,7 @@ syntax = "proto3";
 package sagapay.ledger.v1;
 
 import "common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
 
 option java_multiple_files = true;
 option java_package = "dev.treyer.sagapay.ledger.v1";
@@ -30,6 +31,8 @@ message CheckAndReserveResponse {
   }
   Status status = 1;
   string reservation_id = 2;
+  // When the ledger frees the money on its own. Set with OK; a replay answers the same date.
+  google.protobuf.Timestamp expires_at = 3;
 }
 
 message PostTransferRequest {

@@ -32,6 +32,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -43,6 +45,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 /** Against a real Postgres: row locks and CHECK constraints cannot be mocked. No
  * test transaction: concurrent threads must see committed state. */
@@ -50,6 +53,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 @TestPropertySource(properties = "spring.grpc.server.port=0")
 class LedgerServiceTest {
+
+    @Autowired
+    private ReservationSettings reservationSettings;
 
     @Autowired
     private CheckAndReserveUseCase checkAndReserveUseCase;
@@ -351,6 +357,34 @@ class LedgerServiceTest {
         assertThat(wallet.balance().amount()).isEqualByComparingTo("200.0000");
         assertThat(wallet.held().amount()).isEqualByComparingTo("50.0000");
         assertThat(wallet.available().amount()).isEqualByComparingTo("150.0000");
+    }
+
+    @Test
+    void aReservationAnswersTheDateItIsStoredWith() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        Instant before = Instant.now();
+
+        CheckAndReserveResult.Ok result = (CheckAndReserveResult.Ok)
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+
+        assertThat(result.expiresAt()).isAfterOrEqualTo(before.plusMillis(reservationSettings.ttlMs()));
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getExpiresAt())
+                .isCloseTo(result.expiresAt(), within(1, ChronoUnit.MILLIS));
+    }
+
+    @Test
+    void aReplayAnswersTheDateOfTheFirstCall() throws Exception {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.of("30.00", "EUR");
+        CheckAndReserveResult first = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+
+        Thread.sleep(5);
+        CheckAndReserveResult second = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+
+        assertThat(((CheckAndReserveResult.Ok) second).expiresAt())
+                .isEqualTo(((CheckAndReserveResult.Ok) first).expiresAt());
     }
 
     @Test

@@ -36,7 +36,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,27 +52,26 @@ public class LedgerService
                 LookupAccountUseCase,
                 ExpireReservationsUseCase {
 
-    // The orchestrator's confirmation window must stay shorter than this TTL, so a
-    // confirmed transfer still finds its reservation ACTIVE.
-    private static final long RESERVATION_TTL_MINUTES = 5;
-
     private final AccountPort accounts;
     private final ReservationPort reservations;
     private final PostingPort postings;
     private final LedgerIdempotencyPort idempotency;
     private final JsonMapper jsonMapper;
+    private final long reservationTtlMs;
 
     public LedgerService(
             AccountPort accounts,
             ReservationPort reservations,
             PostingPort postings,
             LedgerIdempotencyPort idempotency,
-            JsonMapper jsonMapper) {
+            JsonMapper jsonMapper,
+            ReservationSettings reservationSettings) {
         this.accounts = accounts;
         this.reservations = reservations;
         this.postings = postings;
         this.idempotency = idempotency;
         this.jsonMapper = jsonMapper;
+        this.reservationTtlMs = reservationSettings.ttlMs();
     }
 
     @Override
@@ -96,8 +94,9 @@ public class LedgerService
         BigDecimal available = account.getBalance().subtract(held);
 
         UUID reservationId = UUID.randomUUID();
+        Instant expiresAt = Instant.now().plusMillis(reservationTtlMs);
         CheckAndReserveResult result = available.compareTo(requestedAmount) >= 0
-                ? new CheckAndReserveResult.Ok(reservationId)
+                ? new CheckAndReserveResult.Ok(reservationId, expiresAt)
                 : new CheckAndReserveResult.InsufficientFunds();
 
         int inserted = idempotency.insertIfAbsent(
@@ -119,12 +118,7 @@ public class LedgerService
         }
 
         if (result instanceof CheckAndReserveResult.Ok) {
-            reservations.save(new Reservation(
-                    reservationId,
-                    fromAccountId,
-                    transferId,
-                    requestedAmount,
-                    Instant.now().plus(RESERVATION_TTL_MINUTES, ChronoUnit.MINUTES)));
+            reservations.save(new Reservation(reservationId, fromAccountId, transferId, requestedAmount, expiresAt));
         }
         return result;
     }
@@ -280,22 +274,24 @@ public class LedgerService
     // Flat records rather than the sealed result type: no polymorphic Jackson setup.
     // They keep the call's parameters so a replay can be checked against them.
 
-    private record ResultJson(String status, UUID reservationId, UUID fromAccountId, BigDecimal amount) {}
+    private record ResultJson(
+            String status, UUID reservationId, Instant expiresAt, UUID fromAccountId, BigDecimal amount) {}
 
     private record PostResultJson(boolean posted, UUID fromAccountId, UUID toAccountId, BigDecimal amount) {}
 
     private String toResultJson(CheckAndReserveResult result, UUID fromAccountId, BigDecimal amount) {
         ResultJson dto = switch (result) {
-            case CheckAndReserveResult.Ok ok -> new ResultJson("OK", ok.reservationId(), fromAccountId, amount);
+            case CheckAndReserveResult.Ok ok ->
+                new ResultJson("OK", ok.reservationId(), ok.expiresAt(), fromAccountId, amount);
             case CheckAndReserveResult.InsufficientFunds ignored ->
-                new ResultJson("INSUFFICIENT_FUNDS", null, fromAccountId, amount);
+                new ResultJson("INSUFFICIENT_FUNDS", null, null, fromAccountId, amount);
         };
         return jsonMapper.writeValueAsString(dto);
     }
 
     private static CheckAndReserveResult toCheckAndReserveResult(ResultJson dto) {
         return "OK".equals(dto.status())
-                ? new CheckAndReserveResult.Ok(dto.reservationId())
+                ? new CheckAndReserveResult.Ok(dto.reservationId(), dto.expiresAt())
                 : new CheckAndReserveResult.InsufficientFunds();
     }
 

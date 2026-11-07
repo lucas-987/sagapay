@@ -19,17 +19,25 @@ public record SagaProperties(
         @NotNull @Valid Confirmation confirmation) {
 
     public record Reprise(
-            @PositiveOrZero long gracePeriodMs, @Positive long sweepIntervalMs) {}
+            @PositiveOrZero long gracePeriodMs,
+            @Positive long sweepIntervalMs,
+            @Min(1) int batchSize) {}
 
     public record Deadline(
             @Positive long sweepIntervalMs, @Min(1) int batchSize) {}
 
     public record Screening(@Positive long timeoutMs) {}
 
-    public record Confirmation(@Positive long windowMs) {}
+    public record Confirmation(
+            @Positive long windowMs, @PositiveOrZero long reservationMarginMs) {}
 
     public SagaSettings toSettings() {
         return new SagaSettings(
-                reprise.gracePeriodMs(), screening.timeoutMs(), confirmation.windowMs(), deadline.batchSize());
+                reprise.gracePeriodMs(),
+                screening.timeoutMs(),
+                confirmation.windowMs(),
+                confirmation.reservationMarginMs(),
+                deadline.batchSize(),
+                reprise.batchSize());
     }
 }

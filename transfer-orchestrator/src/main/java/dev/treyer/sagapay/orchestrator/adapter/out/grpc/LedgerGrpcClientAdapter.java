@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
+import com.google.protobuf.Timestamp;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
@@ -17,6 +18,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -59,10 +61,20 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         }
 
         return switch (response.getStatus()) {
-            case OK -> new ReservationResult.Ok(UUID.fromString(response.getReservationId()));
+            case OK -> new ReservationResult.Ok(UUID.fromString(response.getReservationId()), expiresAt(response));
             case INSUFFICIENT_FUNDS -> new ReservationResult.InsufficientFunds();
             default -> throw new IllegalStateException("unexpected CheckAndReserve status: " + response.getStatus());
         };
+    }
+
+    /** The confirmation deadline depends on this date, so an answer without it is not guessed around. */
+    private static Instant expiresAt(CheckAndReserveResponse response) {
+        if (!response.hasExpiresAt()) {
+            throw new IllegalStateException(
+                    "reservation of transfer " + response.getReservationId() + " came without its expiry");
+        }
+        Timestamp expiresAt = response.getExpiresAt();
+        return Instant.ofEpochSecond(expiresAt.getSeconds(), expiresAt.getNanos());
     }
 
     /** Found by Resilience4j through its signature. It also receives the

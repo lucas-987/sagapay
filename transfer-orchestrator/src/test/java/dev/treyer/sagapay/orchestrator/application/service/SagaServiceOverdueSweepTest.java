@@ -2,6 +2,7 @@ package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.SagaMetricsPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
@@ -40,8 +41,9 @@ class SagaServiceOverdueSweepTest {
             ledger,
             new JsonMapper(),
             writer,
+            mock(SagaMetricsPort.class),
             Clock.systemUTC(),
-            new SagaSettings(5000, 10000, 120000, 100),
+            new SagaSettings(5000, 10000, 120000, 5000, 100, 100),
             "code");
 
     private Transfer transfer() {

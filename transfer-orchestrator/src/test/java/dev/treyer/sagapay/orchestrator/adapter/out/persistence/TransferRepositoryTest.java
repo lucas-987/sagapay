@@ -12,6 +12,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
@@ -189,19 +190,63 @@ class TransferRepositoryTest {
     }
 
     @Test
-    void findFailedWithPendingReleaseReturnsFailedTransfersWhoseLastReleaseStepIsRetry() {
-        Instant old = Instant.now().minus(1, ChronoUnit.HOURS);
-        Instant cutoff = Instant.now().minus(1, ChronoUnit.MINUTES);
-        UUID pending = transferWith(TransferStatus.FAILED, old, "RETRY");
-        transferWith(TransferStatus.FAILED, old, "RETRY", "COMPENSATED");
-        transferWith(TransferStatus.FAILED, old, "RETRY", "FAILED");
-        transferWith(TransferStatus.FAILED, old);
-        transferWith(TransferStatus.FAILED, Instant.now(), "RETRY");
-        transferWith(TransferStatus.POSTED, old, "RETRY");
+    void findFailedWithPendingReleaseReturnsTheOldestFlaggedTransfersUpToTheLimit() {
+        Instant now = Instant.now();
+        Instant cutoff = now.minus(1, ChronoUnit.MINUTES);
+        UUID older = pendingRelease(now.minus(2, ChronoUnit.HOURS));
+        UUID newer = pendingRelease(now.minus(1, ChronoUnit.HOURS));
+        pendingRelease(now.minus(30, ChronoUnit.MINUTES));
+        pendingRelease(now);
+        transferWith(TransferStatus.FAILED, now.minus(3, ChronoUnit.HOURS));
 
-        List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff, "RELEASE", "RETRY");
+        List<Transfer> found = transfers.findFailedWithPendingRelease(cutoff, PageRequest.ofSize(2));
 
-        assertThat(found).extracting(Transfer::getId).containsExactly(pending);
+        assertThat(found).extracting(Transfer::getId).containsExactly(older, newer);
+    }
+
+    private UUID pendingRelease(Instant updatedAt) {
+        UUID id = transferWith(TransferStatus.FAILED, updatedAt);
+        jdbcTemplate.update("update transfers set release_pending = true where id = ?", id);
+        return id;
+    }
+
+    @Test
+    void findByStatusAndUpdatedAtBeforeTakesTheLongestWaitingFirstUpToTheLimit() {
+        Instant now = Instant.now();
+        UUID older = transferWith(TransferStatus.CLEARED, now.minus(3, ChronoUnit.HOURS));
+        UUID newer = transferWith(TransferStatus.CLEARED, now.minus(2, ChronoUnit.HOURS));
+        transferWith(TransferStatus.CLEARED, now.minus(1, ChronoUnit.HOURS));
+        transferWith(TransferStatus.POSTED, now.minus(4, ChronoUnit.HOURS));
+
+        List<Transfer> found = transfers.findByStatusAndUpdatedAtBeforeOrderByUpdatedAtAscIdAsc(
+                TransferStatus.CLEARED, now.minus(1, ChronoUnit.MINUTES), PageRequest.ofSize(2));
+
+        assertThat(found).extracting(Transfer::getId).containsExactly(older, newer);
+    }
+
+    @Test
+    void aResultAfterTheScreeningDeadlineMovesNothingBeforeTheSweepRuns() {
+        Instant now = Instant.now();
+        UUID late = transferWithScreenDeadlines(TransferStatus.SCREENING, now.minusSeconds(1));
+        BigDecimal score = new BigDecimal("0.1000");
+
+        assertThat(transfers.transitionToCleared(late, score, List.of(), now)).isZero();
+        assertThat(transfers.transitionToBlocked(late, score, List.of(), now)).isZero();
+        assertThat(transfers.transitionFlaggedToExpired(late, score, List.of(), now))
+                .isZero();
+    }
+
+    @Test
+    void aResultAtTheScreeningDeadlineIsStillInTime() {
+        Instant now = Instant.now();
+        UUID cleared = transferWithScreenDeadlines(TransferStatus.SCREENING, now);
+        UUID blocked = transferWithScreenDeadlines(TransferStatus.SCREENING, now);
+        BigDecimal score = new BigDecimal("0.1000");
+
+        assertThat(transfers.transitionToCleared(cleared, score, List.of(), now))
+                .isEqualTo(1);
+        assertThat(transfers.transitionToBlocked(blocked, score, List.of(), now))
+                .isEqualTo(1);
     }
 
     private UUID transferWithScreenDeadlines(TransferStatus status, Instant... screenRetryDeadlines) {

@@ -13,6 +13,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.SweepOverdueTransfers
 import dev.treyer.sagapay.orchestrator.application.port.in.SweepReprisePendingTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.SagaMetricsPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
@@ -44,6 +45,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
@@ -67,6 +70,8 @@ public class SagaService
 
     private record Deadline(TransferStatus waitingStatus, FailureReason failureReason) {}
 
+    private record Reprise(Supplier<List<Transfer>> stuck, Consumer<Transfer> resume) {}
+
     private static final List<Deadline> DEADLINES = List.of(
             new Deadline(TransferStatus.SCREENING, FailureReason.SCREENING_TIMEOUT),
             new Deadline(TransferStatus.BLOCKED, FailureReason.VERIFICATION_EXPIRED));
@@ -77,9 +82,11 @@ public class SagaService
     private final LedgerPort ledger;
     private final JsonMapper jsonMapper;
     private final SagaTransitionWriter writer;
+    private final SagaMetricsPort metrics;
     private final Clock clock;
     private final long repriseGracePeriodMs;
     private final int overdueBatchSize;
+    private final int repriseBatchSize;
     private final byte[] verificationCode;
 
     public SagaService(
@@ -89,6 +96,7 @@ public class SagaService
             LedgerPort ledger,
             JsonMapper jsonMapper,
             SagaTransitionWriter writer,
+            SagaMetricsPort metrics,
             Clock clock,
             SagaSettings settings,
             @Value("${sagapay.fraud.verification-code}") String verificationCode) {
@@ -101,9 +109,11 @@ public class SagaService
         this.ledger = ledger;
         this.jsonMapper = jsonMapper;
         this.writer = writer;
+        this.metrics = metrics;
         this.clock = clock;
         this.repriseGracePeriodMs = settings.repriseGracePeriodMs();
         this.overdueBatchSize = settings.overdueBatchSize();
+        this.repriseBatchSize = settings.repriseBatchSize();
         this.verificationCode = verificationCode.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -167,7 +177,8 @@ public class SagaService
         }
 
         switch (result) {
-            case ReservationResult.Ok ok -> writer.tryApplyReserved(transferId, transfer, ok.reservationId());
+            case ReservationResult.Ok ok ->
+                writer.tryApplyReserved(transferId, transfer, ok.reservationId(), ok.expiresAt());
             case ReservationResult.InsufficientFunds ignored -> writer.tryApplyInsufficientFunds(transferId, transfer);
         }
     }
@@ -175,11 +186,7 @@ public class SagaService
     @Override
     public void applyFraudResult(FraudResult result) {
         if (result.decision() == FraudDecision.FLAGGED) {
-            if (writer.tryApplyFlagged(result)) {
-                log.info("transfer blocked on fraud flag", kv("transfer.id", result.transferId()));
-            } else {
-                log.info("flagged fraud result skipped", kv("transfer.id", result.transferId()));
-            }
+            applyFlagged(result);
             return;
         }
         if (!writer.tryApplyCleared(result)) {
@@ -193,6 +200,32 @@ public class SagaService
                     "ledger unavailable, transfer stays cleared for the reprise poller",
                     kv("transfer.id", result.transferId()),
                     e);
+        }
+    }
+
+    private void applyFlagged(FraudResult result) {
+        UUID transferId = result.transferId();
+        switch (writer.tryApplyFlagged(result)) {
+            case BLOCKED -> log.info("transfer blocked on fraud flag", kv("transfer.id", transferId));
+            case BLOCKED_SHORTENED -> {
+                log.warn("confirmation window shortened to fit the reservation", kv("transfer.id", transferId));
+                metrics.confirmationWindowShortened();
+            }
+            case EXPIRED -> {
+                log.warn(
+                        "flagged transfer failed, its reservation leaves no time to confirm",
+                        kv("transfer.id", transferId));
+                releaseOrLeaveToReprise(transferId);
+            }
+            case SKIPPED -> log.info("flagged fraud result skipped", kv("transfer.id", transferId));
+        }
+    }
+
+    private void releaseOrLeaveToReprise(UUID transferId) {
+        try {
+            releaseReservation(requireTransfer(transferId));
+        } catch (LedgerUnavailableException e) {
+            log.warn("ledger unavailable, release left for the reprise poller", kv("transfer.id", transferId), e);
         }
     }
 
@@ -225,19 +258,32 @@ public class SagaService
     @Override
     public int sweepStuckTransfers() {
         Instant cutoff = clock.instant().minusMillis(repriseGracePeriodMs);
+        List<Reprise> reprises = List.of(
+                new Reprise(
+                        () -> transfers.findByStatusAndUpdatedAtBefore(
+                                TransferStatus.INITIATED, cutoff, repriseBatchSize),
+                        transfer -> advance(transfer.getId())),
+                new Reprise(
+                        () -> transfers.findByStatusAndUpdatedAtBefore(
+                                TransferStatus.CLEARED, cutoff, repriseBatchSize),
+                        transfer -> postCleared(transfer.getId())),
+                new Reprise(
+                        () -> transfers.findFailedWithPendingRelease(cutoff, repriseBatchSize),
+                        this::releaseReservation));
         int resumed = 0;
         try {
-            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.INITIATED, cutoff)) {
-                advance(transfer.getId());
-                resumed++;
-            }
-            for (Transfer transfer : transfers.findByStatusAndUpdatedAtBefore(TransferStatus.CLEARED, cutoff)) {
-                postCleared(transfer.getId());
-                resumed++;
-            }
-            for (Transfer transfer : transfers.findFailedWithPendingRelease(cutoff)) {
-                releaseReservation(transfer);
-                resumed++;
+            for (Reprise reprise : reprises) {
+                for (Transfer transfer : reprise.stuck().get()) {
+                    try {
+                        reprise.resume().accept(transfer);
+                        resumed++;
+                    } catch (LedgerUnavailableException e) {
+                        throw e;
+                    } catch (RuntimeException e) {
+                        // One bad transfer must not keep the others stuck.
+                        log.error("stuck transfer could not be resumed", kv("transfer.id", transfer.getId()), e);
+                    }
+                }
             }
         } catch (LedgerUnavailableException e) {
             // The remaining transfers need the same ledger: retry them next sweep.
@@ -268,7 +314,7 @@ public class SagaService
                         throw e;
                     } catch (RuntimeException e) {
                         // One bad transfer must not keep the others' reservations held.
-                        log.error("overdue transfer could not be failed", kv("transfer.id", transfer.getId()), e);
+                        log.error("overdue transfer could not be ended", kv("transfer.id", transfer.getId()), e);
                     }
                 }
             }

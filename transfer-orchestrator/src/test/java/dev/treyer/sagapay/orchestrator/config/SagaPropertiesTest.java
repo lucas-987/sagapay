@@ -30,7 +30,7 @@ class SagaPropertiesTest {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBean(SagaProperties.class).toSettings())
-                    .isEqualTo(new SagaSettings(5000, 10000, 120000, 100));
+                    .isEqualTo(new SagaSettings(5000, 10000, 120000, 5000, 100, 100));
             assertThat(context.getBean(OutboxProperties.class)).isEqualTo(new OutboxProperties(500, 100));
             assertThat(context.getBean(KafkaRetryProperties.class)).isEqualTo(new KafkaRetryProperties(3, 1000));
             assertThat(context.getBean(LedgerProperties.class).grpc().deadlineMs())
@@ -43,10 +43,12 @@ class SagaPropertiesTest {
             strings = {
                 "saga.reprise.grace-period-ms=-1",
                 "saga.reprise.sweep-interval-ms=0",
+                "saga.reprise.batch-size=0",
                 "saga.deadline.sweep-interval-ms=0",
                 "saga.deadline.batch-size=0",
                 "saga.screening.timeout-ms=0",
                 "saga.confirmation.window-ms=0",
+                "saga.confirmation.reservation-margin-ms=-1",
                 "outbox.poll-interval-ms=0",
                 "outbox.batch-size=0",
                 "ledger.grpc.deadline-ms=0",

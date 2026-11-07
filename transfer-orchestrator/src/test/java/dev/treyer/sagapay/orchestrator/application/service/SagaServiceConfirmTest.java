@@ -2,6 +2,7 @@ package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.SagaMetricsPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.SagaStepPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
@@ -14,6 +15,7 @@ import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -40,14 +42,23 @@ import static org.mockito.Mockito.when;
 class SagaServiceConfirmTest {
 
     private static final String CODE = "right-code";
-    private static final SagaSettings SETTINGS = new SagaSettings(5000, 10000, 120000, 100);
+    private static final SagaSettings SETTINGS = new SagaSettings(5000, 10000, 120000, 5000, 100, 100);
 
     private final TransferPort transfers = mock(TransferPort.class);
     private final SagaStepPort sagaSteps = mock(SagaStepPort.class);
     private final LedgerPort ledger = mock(LedgerPort.class);
     private final SagaTransitionWriter writer = mock(SagaTransitionWriter.class);
     private final SagaService service = new SagaService(
-            transfers, sagaSteps, mock(OutboxPort.class), ledger, new JsonMapper(), writer, Clock.systemUTC(), SETTINGS, CODE);
+            transfers,
+            sagaSteps,
+            mock(OutboxPort.class),
+            ledger,
+            new JsonMapper(),
+            writer,
+            mock(SagaMetricsPort.class),
+            Clock.systemUTC(),
+            SETTINGS,
+            CODE);
 
     private static final UUID TRANSFER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000001");
     private static final UUID SENDER_ID = UUID.fromString("0a1b2c3d-0000-4000-8000-000000000002");
@@ -201,6 +212,7 @@ class SagaServiceConfirmTest {
     }
 
     @Test
+    @Tag("M3-S47")
     void anotherUserIsToldTheTransferDoesNotExist() {
         when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
 
@@ -220,6 +232,7 @@ class SagaServiceConfirmTest {
                         ledger,
                         new JsonMapper(),
                         writer,
+                        mock(SagaMetricsPort.class),
                         Clock.systemUTC(),
                         SETTINGS,
                         blank))

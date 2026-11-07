@@ -55,6 +55,12 @@ public class Transfer {
     @Column(name = "reservation_id")
     private UUID reservationId;
 
+    @Column(name = "reservation_expires_at")
+    private Instant reservationExpiresAt;
+
+    @Column(name = "release_pending", nullable = false)
+    private boolean releasePending;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "failure_reason", length = 64)
     private FailureReason failureReason;
@@ -145,6 +151,14 @@ public class Transfer {
 
     public UUID getReservationId() {
         return reservationId;
+    }
+
+    public Instant getReservationExpiresAt() {
+        return reservationExpiresAt;
+    }
+
+    public boolean isReleasePending() {
+        return releasePending;
     }
 
     public FailureReason getFailureReason() {

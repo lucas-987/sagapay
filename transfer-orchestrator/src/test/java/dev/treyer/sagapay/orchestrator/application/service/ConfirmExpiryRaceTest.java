@@ -151,8 +151,8 @@ class ConfirmExpiryRaceTest {
                         transfer.getId(),
                         FraudDecision.FLAGGED,
                         new BigDecimal("0.9000"),
-                        List.of("VELOCITY_1H"))))
-                .isTrue();
+                        List.of("VELOCITY"))))
+                .isEqualTo(SagaTransitionWriter.FlagOutcome.BLOCKED);
         return transfer;
     }
 
@@ -337,7 +337,7 @@ class ConfirmExpiryRaceTest {
 
         @Override
         public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
-            return new ReservationResult.Ok(nextReservationId);
+            return new ReservationResult.Ok(nextReservationId, Instant.now().plusSeconds(300));
         }
 
         @Override

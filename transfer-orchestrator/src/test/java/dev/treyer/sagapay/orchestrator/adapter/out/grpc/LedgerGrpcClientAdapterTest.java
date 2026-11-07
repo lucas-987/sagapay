@@ -2,6 +2,8 @@ package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.common.v1.Empty;
+import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
+import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
@@ -31,6 +33,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -114,6 +117,41 @@ class LedgerGrpcClientAdapterTest {
                 adapter.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
+        assertThat(((ReservationResult.Ok) result).expiresAt()).isAfter(Instant.now());
+    }
+
+    @Test
+    void anAnswerWithoutItsExpiryIsNotTakenForAReservation() throws Exception {
+        String serverName = "ledger-without-expiry";
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new LedgerServiceGrpc.LedgerServiceImplBase() {
+                    @Override
+                    public void checkAndReserve(
+                            CheckAndReserveRequest request, StreamObserver<CheckAndReserveResponse> responseObserver) {
+                        responseObserver.onNext(CheckAndReserveResponse.newBuilder()
+                                .setStatus(CheckAndReserveResponse.Status.OK)
+                                .setReservationId(UUID.randomUUID().toString())
+                                .build());
+                        responseObserver.onCompleted();
+                    }
+                })
+                .build()
+                .start();
+        ManagedChannel inProcess =
+                InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try {
+            LedgerGrpcClientAdapter adapterOfAnOldLedger =
+                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+
+            assertThatThrownBy(() -> adapterOfAnOldLedger.checkAndReserve(
+                            UUID.randomUUID().toString(), UUID.randomUUID(), Money.of("1.00", "EUR")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("without its expiry");
+        } finally {
+            inProcess.shutdownNow();
+            server.shutdownNow();
+        }
     }
 
     @Test

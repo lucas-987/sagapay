@@ -70,7 +70,7 @@ class FraudResultListenerTest {
 
     @Test
     void aFlaggedResultIsHandedToTheUseCaseToo() {
-        listener.onFraudResult(event(EVENT_ID, data(TRANSFER_ID, "FLAGGED", "0.9000", "[\"VELOCITY_1H\"]")));
+        listener.onFraudResult(event(EVENT_ID, data(TRANSFER_ID, "FLAGGED", "0.9000", "[\"VELOCITY\"]")));
 
         assertThat(applied)
                 .containsExactly(new FraudResult(
@@ -78,7 +78,7 @@ class FraudResultListenerTest {
                         UUID.fromString(TRANSFER_ID),
                         FraudDecision.FLAGGED,
                         new BigDecimal("0.9000"),
-                        List.of("VELOCITY_1H")));
+                        List.of("VELOCITY")));
     }
 
     @Test

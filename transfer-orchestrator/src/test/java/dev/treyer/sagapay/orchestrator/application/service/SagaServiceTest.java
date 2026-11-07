@@ -5,7 +5,6 @@ import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
-import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
@@ -146,7 +145,8 @@ class SagaServiceTest {
     @DisplayName("A reserved transfer waits for its screening result before any money moves")
     void reservedTransferWaitsForItsScreeningResult() {
         UUID reservationId = UUID.randomUUID();
-        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
+        fakeLedgerPort.willReserve(
+                new ReservationResult.Ok(reservationId, Instant.now().plusSeconds(300)));
         Transfer transfer = initiate(UUID.randomUUID());
 
         Instant before = Instant.now();
@@ -233,7 +233,7 @@ class SagaServiceTest {
                 transferId,
                 FraudDecision.FLAGGED,
                 new BigDecimal("0.9000"),
-                List.of("VELOCITY_1H", "NEW_RECIPIENT"));
+                List.of("VELOCITY", "NEW_RECIPIENT"));
     }
 
     @Test
@@ -241,7 +241,8 @@ class SagaServiceTest {
     @DisplayName("A flagged transfer is blocked with its money held")
     void flaggedTransferIsBlockedWithItsMoneyHeld() {
         UUID reservationId = UUID.randomUUID();
-        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
+        fakeLedgerPort.willReserve(
+                new ReservationResult.Ok(reservationId, Instant.now().plusSeconds(300)));
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
 
@@ -253,7 +254,7 @@ class SagaServiceTest {
         assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.BLOCKED);
         assertThat(reloaded.getReservationId()).isEqualTo(reservationId);
         assertThat(reloaded.getFraudScore()).isEqualByComparingTo("0.9000");
-        assertThat(reloaded.getFraudReasons()).containsExactly("VELOCITY_1H", "NEW_RECIPIENT");
+        assertThat(reloaded.getFraudReasons()).containsExactly("VELOCITY", "NEW_RECIPIENT");
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY");
         SagaStep blockStep = sagaStepRepository.findByTransferIdOrderByAtAscIdAsc(transfer.getId()).stream()
                 .filter(step -> step.getDetail() != null)
@@ -265,7 +266,7 @@ class SagaServiceTest {
                         before.plusMillis(120_000).minus(1, ChronoUnit.MICROS),
                         after.plusMillis(120_000).plus(1, ChronoUnit.MICROS));
         assertThat(jsonMapper.readTree(blockStep.getDetail())).isEqualTo(jsonMapper.readTree("""
-                {"decision": "FLAGGED", "score": 0.9000, "reasons": ["VELOCITY_1H", "NEW_RECIPIENT"]}"""));
+                {"decision": "FLAGGED", "score": 0.9000, "reasons": ["VELOCITY", "NEW_RECIPIENT"]}"""));
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
         assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
         assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "FundsReserved");
@@ -371,7 +372,8 @@ class SagaServiceTest {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId()); // SCREENING
 
-        boolean applied = writer.tryApplyReserved(transfer.getId(), transfer, UUID.randomUUID());
+        boolean applied = writer.tryApplyReserved(
+                transfer.getId(), transfer, UUID.randomUUID(), Instant.now().plusSeconds(300));
 
         assertThat(applied).isFalse();
         assertThat(stepsFor(transfer.getId())).containsExactly("RESERVE OK", "SCREEN RETRY");
@@ -457,7 +459,8 @@ class SagaServiceTest {
     @DisplayName("A refused posting fails the transfer and releases its reservation")
     void postRejectedByTheLedgerFailsTheTransferAndReleasesTheReservation() {
         UUID reservationId = UUID.randomUUID();
-        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
+        fakeLedgerPort.willReserve(
+                new ReservationResult.Ok(reservationId, Instant.now().plusSeconds(300)));
         fakeLedgerPort.willFailPost(new LedgerRejectedException("NOT_FOUND", "no matching reservation", null));
         Transfer transfer = clearedTransfer();
 
@@ -552,7 +555,8 @@ class SagaServiceTest {
 
     /** Reserved, then the deadline of its open SCREEN step moved {@code offsetSeconds} from now. */
     private Transfer screeningTransferWithDeadline(UUID reservationId, long offsetSeconds) {
-        fakeLedgerPort.willReserve(new ReservationResult.Ok(reservationId));
+        fakeLedgerPort.willReserve(
+                new ReservationResult.Ok(reservationId, Instant.now().plusSeconds(300)));
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
         moveLatestScreenDeadline(transfer.getId(), offsetSeconds);
@@ -643,6 +647,32 @@ class SagaServiceTest {
     @EnumSource(
             value = FraudDecision.class,
             names = {"CLEARED", "FLAGGED"})
+    @Tag("M3-S49")
+    @DisplayName("A screening result arriving past the deadline is ignored before the sweep runs")
+    void screeningResultPastTheDeadlineChangesNothingAndTheSweepStillFailsTheTransfer(FraudDecision decision) {
+        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+        UUID eventId = UUID.randomUUID();
+        FraudResult late = decision == FraudDecision.CLEARED
+                ? cleared(transfer.getId(), eventId)
+                : flagged(transfer.getId(), eventId);
+
+        sagaService.applyFraudResult(late);
+
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.SCREENING);
+        assertThat(reload(transfer).getFraudScore()).isNull();
+        assertThat(processedEventCount(eventId)).isEqualTo(1);
+        assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
+
+        sagaService.sweepOverdueTransfers();
+
+        assertThat(reload(transfer).getStatus()).isEqualTo(TransferStatus.FAILED);
+        assertThat(reload(transfer).getFailureReason()).isEqualTo(FailureReason.SCREENING_TIMEOUT);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(
+            value = FraudDecision.class,
+            names = {"CLEARED", "FLAGGED"})
     @Tag("M3-S33")
     @DisplayName("A screening result arriving after the timeout is ignored")
     void screeningResultAfterTheTimeoutIsRecordedAndIgnored(FraudDecision decision) {
@@ -702,7 +732,7 @@ class SagaServiceTest {
 
     @Test
     void timingOutATransferAnotherActorMovedOnChangesNothing() {
-        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), -1);
+        Transfer transfer = screeningTransferWithDeadline(UUID.randomUUID(), 3600);
         sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID())); // POSTED
 
         boolean applied = writer.tryApplyTimedOut(
@@ -936,6 +966,7 @@ class SagaServiceTest {
     }
 
     @Test
+    @Tag("M3-S48")
     void aThirdPartyIsToldTheTransferDoesNotExist() {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
 

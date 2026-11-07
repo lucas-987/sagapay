@@ -24,6 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -99,7 +100,8 @@ class SagaReprisePollerTest {
                 UUID.randomUUID(),
                 new BigDecimal("25.0000"),
                 "EUR",
-                UUID.randomUUID());
+                UUID.randomUUID(),
+                releaseOutcomes.length > 0 && "RETRY".equals(releaseOutcomes[releaseOutcomes.length - 1]));
         for (String outcome : releaseOutcomes) {
             jdbcTemplate.update(
                     "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', ?)", id, outcome);
@@ -307,7 +309,7 @@ class SagaReprisePollerTest {
             if (reserveFailure != null) {
                 throw reserveFailure;
             }
-            return new ReservationResult.Ok(UUID.randomUUID());
+            return new ReservationResult.Ok(UUID.randomUUID(), Instant.now().plusSeconds(300));
         }
 
         @Override

@@ -21,22 +21,12 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
     /** {@code updatedAt} tells how long a transfer has been in its status: only
      * transitions touch it. */
-    List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff);
+    List<Transfer> findByStatusAndUpdatedAtBeforeOrderByUpdatedAtAscIdAsc(
+            TransferStatus status, Instant cutoff, Pageable pageable);
 
-    /** The latest RELEASE step decides, by id: several steps written in one
-     * transaction share the same {@code now()}. */
-    @Query(nativeQuery = true, value = """
-            select t.* from transfers t
-            where t.status = 'FAILED'::transfer_status
-              and t.updated_at < :cutoff
-              and (select s.outcome from saga_steps s
-                   where s.transfer_id = t.id and s.step = :releaseStep
-                   order by s.id desc limit 1) = :pendingOutcome
-            """)
-    List<Transfer> findFailedWithPendingRelease(
-            @Param("cutoff") Instant cutoff,
-            @Param("releaseStep") String releaseStep,
-            @Param("pendingOutcome") String pendingOutcome);
+    @Query("select t from Transfer t where t.releasePending = true and t.updatedAt < :cutoff "
+            + "order by t.updatedAt, t.id")
+    List<Transfer> findFailedWithPendingRelease(@Param("cutoff") Instant cutoff, Pageable pageable);
 
     /** The casts type the optional filters: a parameter used only in
      * {@code ? is null} gives Postgres no type. */
@@ -98,14 +88,15 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("note") String note);
 
     @Modifying
-    @Query(
-            "update Transfer t set t.status = :toStatus, t.reservationId = :reservationId, t.updatedAt = CURRENT_TIMESTAMP "
-                    + "where t.id = :id and t.status = :fromStatus")
+    @Query("update Transfer t set t.status = :toStatus, t.reservationId = :reservationId, "
+            + "t.reservationExpiresAt = :reservationExpiresAt, t.updatedAt = CURRENT_TIMESTAMP "
+            + "where t.id = :id and t.status = :fromStatus")
     int transitionWithReservation(
             @Param("id") UUID id,
             @Param("fromStatus") TransferStatus fromStatus,
             @Param("toStatus") TransferStatus toStatus,
-            @Param("reservationId") UUID reservationId);
+            @Param("reservationId") UUID reservationId,
+            @Param("reservationExpiresAt") Instant reservationExpiresAt);
 
     @Modifying
     @Query("update Transfer t set t.status = :toStatus, t.updatedAt = CURRENT_TIMESTAMP "
@@ -115,21 +106,39 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("fromStatus") TransferStatus fromStatus,
             @Param("toStatus") TransferStatus toStatus);
 
+    /** While a transfer is in screening, its only open SCREEN step is the screening deadline. */
+    String BEFORE_SCREENING_DEADLINE = "t.status = 'SCREENING' and not exists (select 1 from SagaStep s "
+            + "where s.transferId = t.id and s.step = 'SCREEN' and s.outcome = 'RETRY' and s.deadline < :now)";
+
     @Modifying
-    @Query("update Transfer t set t.status = 'CLEARED', t.fraudDecision = 'CLEARED', t.fraudScore = :fraudScore, t.fraudReasons = :fraudReasons, "
-            + "t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and t.status = 'SCREENING'")
+    @Query("update Transfer t set t.status = 'CLEARED', t.fraudDecision = 'CLEARED', t.fraudScore = :fraudScore, "
+            + "t.fraudReasons = :fraudReasons, t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and "
+            + BEFORE_SCREENING_DEADLINE)
     int transitionToCleared(
             @Param("id") UUID id,
             @Param("fraudScore") BigDecimal fraudScore,
-            @Param("fraudReasons") List<String> fraudReasons);
+            @Param("fraudReasons") List<String> fraudReasons,
+            @Param("now") Instant now);
 
     @Modifying
-    @Query("update Transfer t set t.status = 'BLOCKED', t.fraudDecision = 'FLAGGED', t.fraudScore = :fraudScore, t.fraudReasons = :fraudReasons, "
-            + "t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and t.status = 'SCREENING'")
+    @Query("update Transfer t set t.status = 'BLOCKED', t.fraudDecision = 'FLAGGED', t.fraudScore = :fraudScore, "
+            + "t.fraudReasons = :fraudReasons, t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and "
+            + BEFORE_SCREENING_DEADLINE)
     int transitionToBlocked(
             @Param("id") UUID id,
             @Param("fraudScore") BigDecimal fraudScore,
-            @Param("fraudReasons") List<String> fraudReasons);
+            @Param("fraudReasons") List<String> fraudReasons,
+            @Param("now") Instant now);
+
+    @Modifying
+    @Query("update Transfer t set t.status = 'FAILED', t.failureReason = 'VERIFICATION_EXPIRED', "
+            + "t.fraudDecision = 'FLAGGED', t.fraudScore = :fraudScore, t.fraudReasons = :fraudReasons, "
+            + "t.updatedAt = CURRENT_TIMESTAMP where t.id = :id and " + BEFORE_SCREENING_DEADLINE)
+    int transitionFlaggedToExpired(
+            @Param("id") UUID id,
+            @Param("fraudScore") BigDecimal fraudScore,
+            @Param("fraudReasons") List<String> fraudReasons,
+            @Param("now") Instant now);
 
     @Modifying
     @Query(
@@ -157,4 +166,9 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             @Param("now") Instant now,
             @Param("screenStep") String screenStep,
             @Param("openOutcome") String openOutcome);
+
+    // Not a transition: updatedAt stays the moment the transfer entered its status.
+    @Modifying
+    @Query("update Transfer t set t.releasePending = :pending where t.id = :id")
+    int setReleasePending(@Param("id") UUID id, @Param("pending") boolean pending);
 }

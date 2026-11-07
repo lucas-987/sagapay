@@ -50,14 +50,14 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
-    public List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff) {
-        return repository.findByStatusAndUpdatedAtBefore(status, cutoff);
+    public List<Transfer> findByStatusAndUpdatedAtBefore(TransferStatus status, Instant cutoff, int limit) {
+        return repository.findByStatusAndUpdatedAtBeforeOrderByUpdatedAtAscIdAsc(
+                status, cutoff, PageRequest.ofSize(limit));
     }
 
     @Override
-    public List<Transfer> findFailedWithPendingRelease(Instant cutoff) {
-        return repository.findFailedWithPendingRelease(
-                cutoff, SagaStepName.RELEASE.name(), SagaStepOutcome.RETRY.name());
+    public List<Transfer> findFailedWithPendingRelease(Instant cutoff, int limit) {
+        return repository.findFailedWithPendingRelease(cutoff, PageRequest.ofSize(limit));
     }
 
     @Override
@@ -81,8 +81,12 @@ class TransferPersistenceAdapter implements TransferPort {
 
     @Override
     public int transitionWithReservation(
-            UUID id, TransferStatus fromStatus, TransferStatus toStatus, UUID reservationId) {
-        return repository.transitionWithReservation(id, fromStatus, toStatus, reservationId);
+            UUID id,
+            TransferStatus fromStatus,
+            TransferStatus toStatus,
+            UUID reservationId,
+            Instant reservationExpiresAt) {
+        return repository.transitionWithReservation(id, fromStatus, toStatus, reservationId, reservationExpiresAt);
     }
 
     @Override
@@ -91,13 +95,18 @@ class TransferPersistenceAdapter implements TransferPort {
     }
 
     @Override
-    public int transitionToCleared(UUID id, BigDecimal fraudScore, List<String> fraudReasons) {
-        return repository.transitionToCleared(id, fraudScore, fraudReasons);
+    public int transitionToCleared(UUID id, BigDecimal fraudScore, List<String> fraudReasons, Instant now) {
+        return repository.transitionToCleared(id, fraudScore, fraudReasons, now);
     }
 
     @Override
-    public int transitionToBlocked(UUID id, BigDecimal fraudScore, List<String> fraudReasons) {
-        return repository.transitionToBlocked(id, fraudScore, fraudReasons);
+    public int transitionToBlocked(UUID id, BigDecimal fraudScore, List<String> fraudReasons, Instant now) {
+        return repository.transitionToBlocked(id, fraudScore, fraudReasons, now);
+    }
+
+    @Override
+    public int transitionFlaggedToExpired(UUID id, BigDecimal fraudScore, List<String> fraudReasons, Instant now) {
+        return repository.transitionFlaggedToExpired(id, fraudScore, fraudReasons, now);
     }
 
     @Override
@@ -109,5 +118,10 @@ class TransferPersistenceAdapter implements TransferPort {
     public int transitionToFailed(
             UUID id, TransferStatus fromStatus, TransferStatus toStatus, FailureReason failureReason) {
         return repository.transitionToFailed(id, fromStatus, toStatus, failureReason);
+    }
+
+    @Override
+    public void setReleasePending(UUID id, boolean pending) {
+        repository.setReleasePending(id, pending);
     }
 }

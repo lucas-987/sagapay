@@ -4,13 +4,15 @@ import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 class FakeLedgerPort implements LedgerPort {
 
-    private ReservationResult reservationResult = new ReservationResult.Ok(UUID.randomUUID());
+    private ReservationResult reservationResult =
+            new ReservationResult.Ok(UUID.randomUUID(), Instant.now().plusSeconds(300));
     private RuntimeException reservationFailure;
     private RuntimeException postFailure;
     private int postTransferCallCount = 0;
@@ -36,7 +38,7 @@ class FakeLedgerPort implements LedgerPort {
 
     /** The bean is shared by the whole test class. */
     void reset() {
-        willReserve(new ReservationResult.Ok(UUID.randomUUID()));
+        willReserve(new ReservationResult.Ok(UUID.randomUUID(), Instant.now().plusSeconds(300)));
         postFailure = null;
         postTransferCallCount = 0;
         releaseFailure = null;

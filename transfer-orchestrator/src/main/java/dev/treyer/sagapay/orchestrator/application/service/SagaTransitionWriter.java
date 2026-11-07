@@ -31,6 +31,15 @@ import java.util.UUID;
 @Component
 class SagaTransitionWriter {
 
+    /** {@code BLOCKED_SHORTENED}: the reservation expires before the end of the usual window.
+     * {@code EXPIRED}: it leaves no time at all, so the transfer failed with a release pending. */
+    enum FlagOutcome {
+        SKIPPED,
+        BLOCKED,
+        BLOCKED_SHORTENED,
+        EXPIRED
+    }
+
     private static final String FRAUD_CONSUMER = "orchestrator-fraud";
 
     private final TransferPort transfers;
@@ -41,6 +50,7 @@ class SagaTransitionWriter {
     private final Clock clock;
     private final long screeningTimeoutMs;
     private final long confirmationWindowMs;
+    private final long reservationMarginMs;
 
     SagaTransitionWriter(
             TransferPort transfers,
@@ -58,13 +68,14 @@ class SagaTransitionWriter {
         this.clock = clock;
         this.screeningTimeoutMs = settings.screeningTimeoutMs();
         this.confirmationWindowMs = settings.confirmationWindowMs();
+        this.reservationMarginMs = settings.reservationMarginMs();
     }
 
     /** @return false when a concurrent caller already moved the transfer on. */
     @Transactional
-    boolean tryApplyReserved(UUID transferId, Transfer transfer, UUID reservationId) {
+    boolean tryApplyReserved(UUID transferId, Transfer transfer, UUID reservationId, Instant reservationExpiresAt) {
         int updated = transfers.transitionWithReservation(
-                transferId, TransferStatus.INITIATED, TransferStatus.SCREENING, reservationId);
+                transferId, TransferStatus.INITIATED, TransferStatus.SCREENING, reservationId, reservationExpiresAt);
         if (updated == 0) {
             return false;
         }
@@ -81,41 +92,61 @@ class SagaTransitionWriter {
         return true;
     }
 
-    /** The event is recorded even when the transfer is not being screened, whatever the reason.
+    /** The event is recorded even when the transfer is not being screened or its screening
+     * deadline has passed: a late result changes nothing, and the deadline sweep ends the transfer.
      * @return true when this call moved the transfer to {@code CLEARED}. */
     @Transactional
     boolean tryApplyCleared(FraudResult result) {
         if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
             return false;
         }
-        int updated = transfers.transitionToCleared(result.transferId(), result.score(), result.reasons());
+        Instant now = clock.instant();
+        int updated = transfers.transitionToCleared(result.transferId(), result.score(), result.reasons(), now);
         if (updated == 0) {
             return false;
         }
-        sagaSteps.save(new SagaStep(
-                result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.OK, fraudDetail(result), clock.instant()));
+        sagaSteps.save(
+                new SagaStep(result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.OK, fraudDetail(result), now));
         return true;
     }
 
-    /** Same rule as {@link #tryApplyCleared}; the reservation stays held, so the ledger is not called.
-     * @return true when this call moved the transfer to {@code BLOCKED}. */
+    /** Same rule as {@link #tryApplyCleared}. The reservation stays held, so the ledger is not called,
+     * unless it would expire before the sender can answer: see {@link FlagOutcome#EXPIRED}. */
     @Transactional
-    boolean tryApplyFlagged(FraudResult result) {
+    FlagOutcome tryApplyFlagged(FraudResult result) {
         if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
-            return false;
+            return FlagOutcome.SKIPPED;
         }
-        int updated = transfers.transitionToBlocked(result.transferId(), result.score(), result.reasons());
+        Transfer transfer = transfers.findById(result.transferId()).orElse(null);
+        if (transfer == null || transfer.getStatus() != TransferStatus.SCREENING) {
+            return FlagOutcome.SKIPPED;
+        }
+        Instant now = clock.instant();
+        Instant windowEnd = now.plusMillis(confirmationWindowMs);
+        Instant latestDeadline = transfer.getReservationExpiresAt().minusMillis(reservationMarginMs);
+        Instant deadline = windowEnd.isBefore(latestDeadline) ? windowEnd : latestDeadline;
+        if (!deadline.isAfter(now)) {
+            return tryExpireFlagged(transfer, result, now);
+        }
+        int updated = transfers.transitionToBlocked(result.transferId(), result.score(), result.reasons(), now);
         if (updated == 0) {
-            return false;
+            return FlagOutcome.SKIPPED;
         }
         sagaSteps.save(new SagaStep(
-                result.transferId(),
-                SagaStepName.SCREEN,
-                SagaStepOutcome.RETRY,
-                fraudDetail(result),
-                clock.instant().plusMillis(confirmationWindowMs),
-                clock.instant()));
-        return true;
+                result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.RETRY, fraudDetail(result), deadline, now));
+        return deadline.equals(windowEnd) ? FlagOutcome.BLOCKED : FlagOutcome.BLOCKED_SHORTENED;
+    }
+
+    private FlagOutcome tryExpireFlagged(Transfer transfer, FraudResult result, Instant now) {
+        UUID transferId = transfer.getId();
+        int updated = transfers.transitionFlaggedToExpired(transferId, result.score(), result.reasons(), now);
+        if (updated == 0) {
+            return FlagOutcome.SKIPPED;
+        }
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.SCREEN, SagaStepOutcome.FAILED, fraudDetail(result), now));
+        outbox.save(OutboxEvents.forFailedTransfer(jsonMapper, transfer, FailureReason.VERIFICATION_EXPIRED, now));
+        recordReleasePending(transferId);
+        return FlagOutcome.EXPIRED;
     }
 
     /** The sender's verification closes the open SCREEN step, so the transfer is cleared on its
@@ -194,7 +225,7 @@ class SagaTransitionWriter {
         if (!tryFailOnRejection(transferId, transfer, fromStatus, step, failureReason, rejection)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, clock.instant()));
+        recordReleasePending(transferId);
         return true;
     }
 
@@ -206,7 +237,7 @@ class SagaTransitionWriter {
         if (!tryFail(transferId, transfer, fromStatus, failureReason)) {
             return false;
         }
-        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, clock.instant()));
+        recordReleasePending(transferId);
         return true;
     }
 
@@ -214,12 +245,19 @@ class SagaTransitionWriter {
     void recordReleased(UUID transferId) {
         sagaSteps.save(
                 new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.COMPENSATED, null, clock.instant()));
+        transfers.setReleasePending(transferId, false);
     }
 
     @Transactional
     void recordReleaseRefused(UUID transferId, LedgerRejectedException rejection) {
         sagaSteps.save(new SagaStep(
                 transferId, SagaStepName.RELEASE, SagaStepOutcome.FAILED, rejectionDetail(rejection), clock.instant()));
+        transfers.setReleasePending(transferId, false);
+    }
+
+    private void recordReleasePending(UUID transferId) {
+        sagaSteps.save(new SagaStep(transferId, SagaStepName.RELEASE, SagaStepOutcome.RETRY, null, clock.instant()));
+        transfers.setReleasePending(transferId, true);
     }
 
     private boolean tryFailOnRejection(

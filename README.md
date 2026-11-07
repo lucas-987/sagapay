@@ -88,8 +88,12 @@ Settings read from `.env` or the shell:
 | Variable | Meaning | Default |
 |---|---|---|
 | `SAGAPAY_FRAUD_VERIFICATION_CODE` | code the sender submits to confirm a blocked transfer; the curl commands below read it from the shell | none, required |
-| `SAGA_CONFIRMATION_WINDOW_MS` | how long a blocked transfer waits for its confirmation | `120000` |
+| `SAGA_CONFIRMATION_WINDOW_MS` | how long a blocked transfer waits for its confirmation, less if its reservation expires first | `120000` |
 | `SAGA_SCREENING_TIMEOUT_MS` | how long the orchestrator waits for the fraud verdict | `10000` |
+| `SAGA_CONFIRMATION_RESERVATION_MARGIN_MS` | time kept between a confirmation deadline and the expiry of the reservation | `5000` |
+| `SAGA_REPRISE_BATCH_SIZE` | transfers a recovery pass takes per kind of work | `100` |
+| `LEDGER_RESERVATION_TTL_MS` | how long a reservation holds its money, at least 60000 | `300000` |
+| `FRAUD_RULES_VELOCITY_WINDOW_SECONDS` | length of the window the velocity rule counts over | `3600` |
 | `MAVEN_MIRROR_URL` | optional Maven mirror used by the image builds | empty |
 
 ## Trying the fraud flow

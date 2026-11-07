@@ -24,8 +24,11 @@ import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -52,6 +55,7 @@ import static org.assertj.core.api.Assertions.within;
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 @TestPropertySource(properties = "spring.grpc.server.port=0")
+@ExtendWith(OutputCaptureExtension.class)
 class LedgerServiceTest {
 
     @Autowired
@@ -385,6 +389,37 @@ class LedgerServiceTest {
 
         assertThat(((CheckAndReserveResult.Ok) second).expiresAt())
                 .isEqualTo(((CheckAndReserveResult.Ok) first).expiresAt());
+    }
+
+    @Test
+    void aReplayWithOtherParametersIsAWarningNamingTheTransfer(CapturedOutput output) {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+
+        assertThatThrownBy(() ->
+                        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("31.00", "EUR")))
+                .isInstanceOf(IdempotencyConflictException.class);
+
+        assertThat(output.getOut())
+                .contains("\"level\":\"WARN\"")
+                .contains("reservation replayed with other parameters")
+                .contains("\"transfer.id\":\"" + transferId + "\"");
+    }
+
+    @Test
+    void aPostWithoutItsReservationIsAWarningNamingTheTransfer(CapturedOutput output) {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> postTransferUseCase.postTransfer(
+                        transferId, from.getId(), to.getId(), Money.of("10.00", "EUR")))
+                .isInstanceOf(NoMatchingReservationException.class);
+
+        assertThat(output.getOut())
+                .contains("post refused, no matching reservation")
+                .contains("\"transfer.id\":\"" + transferId + "\"");
     }
 
     @Test

@@ -30,6 +30,8 @@ import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -41,6 +43,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Service
 public class LedgerService
         implements CheckAndReserveUseCase,
@@ -51,6 +55,8 @@ public class LedgerService
                 ListPostingsUseCase,
                 LookupAccountUseCase,
                 ExpireReservationsUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(LedgerService.class);
 
     private final AccountPort accounts;
     private final ReservationPort reservations;
@@ -112,6 +118,7 @@ public class LedgerService
                     ResultJson.class);
             if (!previous.fromAccountId().equals(fromAccountId)
                     || previous.amount().compareTo(requestedAmount) != 0) {
+                log.warn("reservation replayed with other parameters", kv("transfer.id", transferId));
                 throw new IdempotencyConflictException(transferId, fromAccountId, requestedAmount);
             }
             return toCheckAndReserveResult(previous);
@@ -119,6 +126,13 @@ public class LedgerService
 
         if (result instanceof CheckAndReserveResult.Ok) {
             reservations.save(new Reservation(reservationId, fromAccountId, transferId, requestedAmount, expiresAt));
+            log.info(
+                    "funds reserved",
+                    kv("transfer.id", transferId),
+                    kv("reservation.id", reservationId),
+                    kv("reservation.expires_at", expiresAt));
+        } else {
+            log.info("reservation refused, insufficient funds", kv("transfer.id", transferId));
         }
         return result;
     }
@@ -161,6 +175,7 @@ public class LedgerService
         int consumed = reservations.consumeIfMatching(
                 transferId, fromAccountId, requestedAmount, ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
         if (consumed == 0) {
+            log.warn("post refused, no matching reservation", kv("transfer.id", transferId));
             throw new NoMatchingReservationException(transferId, fromAccountId, requestedAmount);
         }
 
@@ -179,14 +194,18 @@ public class LedgerService
                 transferId,
                 LedgerOperation.POST.name(),
                 toPostResultJson(posted, fromAccountId, toAccountId, requestedAmount));
+        log.info("transfer posted", kv("transfer.id", transferId), kv("posting.entry_group", entryGroup));
         return posted;
     }
 
     @Override
     @Transactional
     public void releaseReservation(String transferId, UUID reservationId) {
-        reservations.updateStatusByReservationId(
+        int released = reservations.updateStatusByReservationId(
                 transferId, reservationId, ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
+        if (released > 0) {
+            log.info("reservation released", kv("transfer.id", transferId), kv("reservation.id", reservationId));
+        }
     }
 
     @Override
@@ -266,6 +285,7 @@ public class LedgerService
         if (!dto.fromAccountId().equals(fromAccountId)
                 || !dto.toAccountId().equals(toAccountId)
                 || dto.amount().compareTo(amount) != 0) {
+            log.warn("post replayed with other parameters", kv("transfer.id", transferId));
             throw new IdempotencyConflictException(transferId, fromAccountId, amount);
         }
         return Optional.of(dto.posted());

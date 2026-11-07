@@ -147,6 +147,7 @@ public class SagaService
         if (inserted == 1) {
             outbox.save(OutboxEvents.forTransfer(
                     jsonMapper, transfer, TransferEventType.TRANSFER_INITIATED, clock.instant()));
+            log.info("transfer initiated", kv("transfer.id", transfer.getId()));
         }
         return new Result(transfer, inserted == 1);
     }
@@ -166,20 +167,33 @@ public class SagaService
                     transfer.getSenderAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
-            writer.tryApplyRejected(
+            if (writer.tryApplyRejected(
                     transferId,
                     transfer,
                     TransferStatus.INITIATED,
                     SagaStepName.RESERVE,
                     FailureReason.RESERVE_REJECTED,
-                    e);
+                    e)) {
+                log.warn(
+                        "transfer failed, reservation refused by the ledger",
+                        kv("transfer.id", transferId),
+                        kv("ledger.status", e.ledgerStatus()),
+                        e);
+            }
             return;
         }
 
         switch (result) {
-            case ReservationResult.Ok ok ->
-                writer.tryApplyReserved(transferId, transfer, ok.reservationId(), ok.expiresAt());
-            case ReservationResult.InsufficientFunds ignored -> writer.tryApplyInsufficientFunds(transferId, transfer);
+            case ReservationResult.Ok ok -> {
+                if (writer.tryApplyReserved(transferId, transfer, ok.reservationId(), ok.expiresAt())) {
+                    log.info("funds reserved, transfer in screening", kv("transfer.id", transferId));
+                }
+            }
+            case ReservationResult.InsufficientFunds ignored -> {
+                if (writer.tryApplyInsufficientFunds(transferId, transfer)) {
+                    log.info("transfer failed, insufficient funds", kv("transfer.id", transferId));
+                }
+            }
         }
     }
 
@@ -190,8 +204,10 @@ public class SagaService
             return;
         }
         if (!writer.tryApplyCleared(result)) {
+            log.info("cleared fraud result skipped", kv("transfer.id", result.transferId()));
             return;
         }
+        log.info("transfer cleared by fraud screening", kv("transfer.id", result.transferId()));
         try {
             postCleared(result.transferId());
         } catch (LedgerUnavailableException e) {
@@ -247,12 +263,19 @@ public class SagaService
             // a refused postTransfer moved no money, so FAILED is the outcome.
             if (writer.tryApplyRejectedAndRelease(
                     transferId, transfer, TransferStatus.CLEARED, SagaStepName.POST, FailureReason.POST_REJECTED, e)) {
+                log.warn(
+                        "transfer failed, post refused by the ledger",
+                        kv("transfer.id", transferId),
+                        kv("ledger.status", e.ledgerStatus()),
+                        e);
                 releaseReservation(transfer);
             }
             return;
         }
 
-        writer.tryApplyPosted(transferId, transfer);
+        if (writer.tryApplyPosted(transferId, transfer)) {
+            log.info("transfer posted", kv("transfer.id", transferId));
+        }
     }
 
     @Override
@@ -334,9 +357,16 @@ public class SagaService
             ledger.releaseReservation(transferId.toString(), transfer.getReservationId());
         } catch (LedgerRejectedException e) {
             writer.recordReleaseRefused(transferId, e);
+            // Not retried: the money stays held until the reservation expires.
+            log.error(
+                    "reservation release refused by the ledger",
+                    kv("transfer.id", transferId),
+                    kv("ledger.status", e.ledgerStatus()),
+                    e);
             return;
         }
         writer.recordReleased(transferId);
+        log.info("reservation released", kv("transfer.id", transferId));
     }
 
     @Override

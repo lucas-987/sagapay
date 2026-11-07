@@ -27,7 +27,7 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 @Service
 class ScreeningService implements ScreenTransferUseCase, RecordPostedTransferUseCase {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ScreeningService.class);
+    private static final Logger log = LoggerFactory.getLogger(ScreeningService.class);
 
     private final SenderHistoryPort history;
     private final FraudScorer scorer;
@@ -44,9 +44,16 @@ class ScreeningService implements ScreenTransferUseCase, RecordPostedTransferUse
         SenderActivity activity = history.read(transfer.senderId());
         FraudAssessment assessment =
                 scorer.assess(new TransferToScreen(transfer.recipientId(), transfer.amount()), activity);
-        if (decisions.tryStore(transfer, activity, assessment)) {
-            recordInHistory(transfer);
+        if (!decisions.tryStore(transfer, activity, assessment)) {
+            log.info("duplicate transfer event skipped", kv("transfer.id", transfer.transferId()));
+            return;
         }
+        log.info(
+                "fraud decision stored",
+                kv("transfer.id", transfer.transferId()),
+                kv("fraud.decision", assessment.decision()),
+                kv("fraud.score", assessment.score()));
+        recordInHistory(transfer);
     }
 
     @Override
@@ -58,7 +65,7 @@ class ScreeningService implements ScreenTransferUseCase, RecordPostedTransferUse
         try {
             history.recordTransfer(transfer.senderId(), transfer.transferId());
         } catch (RuntimeException e) {
-            LOG.warn(
+            log.warn(
                     "sender history update failed after the decision was committed",
                     kv("transfer.id", transfer.transferId()),
                     kv("sender.id", transfer.senderId()),

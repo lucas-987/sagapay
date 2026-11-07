@@ -9,11 +9,15 @@ import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.application.service.SagaTransitionWriter.FlagOutcome;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
@@ -34,6 +38,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(OutputCaptureExtension.class)
 class SagaServiceSweepAndFlagTest {
 
     private static final int REPRISE_BATCH_SIZE = 7;
@@ -179,5 +184,68 @@ class SagaServiceSweepAndFlagTest {
         when(transfers.findById(id)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.advance(id)).isInstanceOf(TransferNotFoundException.class);
+    }
+
+    @Test
+    void aRefusedReleaseIsAnErrorNamingTheTransferAndTheLedgerStatus(CapturedOutput output) {
+        UUID id = UUID.randomUUID();
+        Transfer transfer = mock(Transfer.class);
+        when(transfer.getId()).thenReturn(id);
+        when(transfers.findById(id)).thenReturn(Optional.of(transfer));
+        FraudResult result = flagged(id);
+        when(writer.tryApplyFlagged(result)).thenReturn(FlagOutcome.EXPIRED);
+        doThrow(new LedgerRejectedException("NOT_FOUND", "no reservation", null))
+                .when(ledger)
+                .releaseReservation(any(), any());
+
+        service.applyFraudResult(result);
+
+        verify(writer).recordReleaseRefused(eq(id), any());
+        assertThat(output.getOut())
+                .contains("\"level\":\"ERROR\"")
+                .contains("reservation release refused by the ledger")
+                .contains("\"transfer.id\":\"" + id + "\"")
+                .contains("\"ledger.status\":\"NOT_FOUND\"");
+    }
+
+    @Test
+    void aRefusedPostIsAWarningNamingTheLedgerStatus(CapturedOutput output) {
+        UUID id = UUID.randomUUID();
+        cleared(id);
+        doThrow(new LedgerRejectedException("NOT_FOUND", "expired", null))
+                .when(ledger)
+                .postTransfer(any(), any(), any(), any(Money.class));
+        when(writer.tryApplyRejectedAndRelease(eq(id), any(), any(), any(), any(), any()))
+                .thenReturn(true);
+
+        service.postCleared(id);
+
+        assertThat(output.getOut())
+                .contains("\"level\":\"WARN\"")
+                .contains("transfer failed, post refused by the ledger")
+                .contains("\"ledger.status\":\"NOT_FOUND\"");
+    }
+
+    @Test
+    void aClearedResultThatChangesNothingIsLoggedAsSkipped(CapturedOutput output) {
+        UUID id = UUID.randomUUID();
+        FraudResult result =
+                new FraudResult(UUID.randomUUID(), id, FraudDecision.CLEARED, new BigDecimal("0.1000"), List.of());
+        when(writer.tryApplyCleared(result)).thenReturn(false);
+
+        service.applyFraudResult(result);
+
+        assertThat(output.getOut()).contains("cleared fraud result skipped").contains(id.toString());
+    }
+
+    @Test
+    void aPostedTransferIsLogged(CapturedOutput output) {
+        UUID id = UUID.randomUUID();
+        cleared(id);
+        when(writer.tryApplyPosted(eq(id), any())).thenReturn(true);
+
+        service.postCleared(id);
+
+        assertThat(output.getOut()).contains("\"message\":\"transfer posted\"").contains(id.toString());
     }
 }

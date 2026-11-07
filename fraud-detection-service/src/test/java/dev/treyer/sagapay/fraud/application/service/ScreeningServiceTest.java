@@ -217,6 +217,16 @@ class ScreeningServiceTest {
     }
 
     @Test
+    void aStoredDecisionIsLoggedWithItsOutcome(CapturedOutput output) {
+        service.screen(reserved(NEW_RECIPIENT, "500.00"));
+
+        assertThat(output.getOut())
+                .contains("fraud decision stored")
+                .contains("\"transfer.id\":\"" + TRANSFER + "\"")
+                .contains("\"fraud.decision\":\"FLAGGED\"");
+    }
+
+    @Test
     void aHistoryUpdateThatFailsAfterTheCommitIsLoggedAndNotRaised(CapturedOutput output) {
         recordFailure = new IllegalStateException("redis down");
 

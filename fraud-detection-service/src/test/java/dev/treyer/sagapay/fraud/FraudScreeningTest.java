@@ -12,8 +12,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -22,14 +25,17 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.RetryListener;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
@@ -43,6 +49,7 @@ import static org.awaitility.Awaitility.await;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
+@ExtendWith(OutputCaptureExtension.class)
 class FraudScreeningTest {
 
     private static final String TOPIC = "payments.transfers";
@@ -409,6 +416,30 @@ class FraudScreeningTest {
         assertThat(outboxEventTypeOf(next)).isEqualTo("TransferCleared");
         assertThat(reasonsOf(next)).containsExactly("AMOUNT_ROUND");
         assertThat(countOf("processed_events", "event_id", paid.toString())).isZero();
+    }
+
+    private Optional<JsonNode> decisionLineOf(CapturedOutput output, UUID transfer) {
+        return output.getOut()
+                .lines()
+                .filter(line -> line.contains("fraud decision stored") && line.contains(transfer.toString()))
+                .findFirst()
+                .map(jsonMapper::readTree);
+    }
+
+    @Test
+    void aStoredDecisionIsLoggedAsAJsonLineOfTheService(CapturedOutput output) {
+        UUID transfer = UUID.randomUUID();
+
+        sendReserved(UUID.randomUUID().toString(), transfer, recipient, "500.00");
+        JsonNode line = await().atMost(PATIENCE)
+                .until(() -> decisionLineOf(output, transfer), Optional::isPresent)
+                .orElseThrow();
+
+        assertThat(line.get("level").asString()).isEqualTo("INFO");
+        assertThat(line.get("service").asString()).isEqualTo("fraud-detection-service");
+        assertThat(line.get("transfer.id").asString()).isEqualTo(transfer.toString());
+        assertThat(line.get("fraud.decision").asString()).isEqualTo("FLAGGED");
+        assertThat(line.get("fraud.score").decimalValue()).isEqualByComparingTo(new BigDecimal("0.70"));
     }
 
     private List<ConsumerRecord<String, String>> deadLettersOf(String key) {

@@ -1,5 +1,9 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
@@ -14,14 +18,15 @@ import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,7 +44,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(OutputCaptureExtension.class)
 class SagaServiceSweepAndFlagTest {
 
     private static final int REPRISE_BATCH_SIZE = 7;
@@ -58,6 +63,26 @@ class SagaServiceSweepAndFlagTest {
             Clock.systemUTC(),
             new SagaSettings(5000, 10000, 120000, 5000, 100, REPRISE_BATCH_SIZE),
             "code");
+
+    // Attached to the service's logger: without a Spring context the JSON format is not
+    // configured, and which test starts one first is not something a unit test may rely on.
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+    private final Logger serviceLogger = (Logger) LoggerFactory.getLogger(SagaService.class);
+
+    @BeforeEach
+    void captureTheServiceLogs() {
+        logs.start();
+        serviceLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseTheServiceLogs() {
+        serviceLogger.detachAppender(logs);
+    }
+
+    private static List<String> fieldsOf(ILoggingEvent event) {
+        return Arrays.stream(event.getArgumentArray()).map(Object::toString).toList();
+    }
 
     private Transfer cleared(UUID id) {
         Transfer transfer = mock(Transfer.class);
@@ -187,7 +212,7 @@ class SagaServiceSweepAndFlagTest {
     }
 
     @Test
-    void aRefusedReleaseIsAnErrorNamingTheTransferAndTheLedgerStatus(CapturedOutput output) {
+    void aRefusedReleaseIsAnErrorNamingTheTransferAndTheLedgerStatus() {
         UUID id = UUID.randomUUID();
         Transfer transfer = mock(Transfer.class);
         when(transfer.getId()).thenReturn(id);
@@ -201,15 +226,21 @@ class SagaServiceSweepAndFlagTest {
         service.applyFraudResult(result);
 
         verify(writer).recordReleaseRefused(eq(id), any());
-        assertThat(output.getOut())
-                .contains("\"level\":\"ERROR\"")
-                .contains("reservation release refused by the ledger")
-                .contains("\"transfer.id\":\"" + id + "\"")
-                .contains("\"ledger.status\":\"NOT_FOUND\"");
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, SagaServiceSweepAndFlagTest::fieldsOf)
+                .containsExactly(
+                        tuple(
+                                Level.WARN,
+                                "flagged transfer failed, its reservation leaves no time to confirm",
+                                List.of("transfer.id=" + id)),
+                        tuple(
+                                Level.ERROR,
+                                "reservation release refused by the ledger",
+                                List.of("transfer.id=" + id, "ledger.status=NOT_FOUND")));
     }
 
     @Test
-    void aRefusedPostIsAWarningNamingTheLedgerStatus(CapturedOutput output) {
+    void aRefusedPostIsAWarningNamingTheLedgerStatus() {
         UUID id = UUID.randomUUID();
         cleared(id);
         doThrow(new LedgerRejectedException("NOT_FOUND", "expired", null))
@@ -220,14 +251,18 @@ class SagaServiceSweepAndFlagTest {
 
         service.postCleared(id);
 
-        assertThat(output.getOut())
-                .contains("\"level\":\"WARN\"")
-                .contains("transfer failed, post refused by the ledger")
-                .contains("\"ledger.status\":\"NOT_FOUND\"");
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, SagaServiceSweepAndFlagTest::fieldsOf)
+                .containsExactly(
+                        tuple(
+                                Level.WARN,
+                                "transfer failed, post refused by the ledger",
+                                List.of("transfer.id=" + id, "ledger.status=NOT_FOUND")),
+                        tuple(Level.INFO, "reservation released", List.of("transfer.id=" + id)));
     }
 
     @Test
-    void aClearedResultThatChangesNothingIsLoggedAsSkipped(CapturedOutput output) {
+    void aClearedResultThatChangesNothingIsLoggedAsSkipped() {
         UUID id = UUID.randomUUID();
         FraudResult result =
                 new FraudResult(UUID.randomUUID(), id, FraudDecision.CLEARED, new BigDecimal("0.1000"), List.of());
@@ -235,17 +270,21 @@ class SagaServiceSweepAndFlagTest {
 
         service.applyFraudResult(result);
 
-        assertThat(output.getOut()).contains("cleared fraud result skipped").contains(id.toString());
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, SagaServiceSweepAndFlagTest::fieldsOf)
+                .containsExactly(tuple(Level.INFO, "cleared fraud result skipped", List.of("transfer.id=" + id)));
     }
 
     @Test
-    void aPostedTransferIsLogged(CapturedOutput output) {
+    void aPostedTransferIsLogged() {
         UUID id = UUID.randomUUID();
         cleared(id);
         when(writer.tryApplyPosted(eq(id), any())).thenReturn(true);
 
         service.postCleared(id);
 
-        assertThat(output.getOut()).contains("\"message\":\"transfer posted\"").contains(id.toString());
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, SagaServiceSweepAndFlagTest::fieldsOf)
+                .containsExactly(tuple(Level.INFO, "transfer posted", List.of("transfer.id=" + id)));
     }
 }

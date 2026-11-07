@@ -1,5 +1,9 @@
 package dev.treyer.sagapay.fraud.application.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.fraud.application.port.out.FraudCasePort;
 import dev.treyer.sagapay.fraud.application.port.out.OutboxPort;
@@ -12,10 +16,10 @@ import dev.treyer.sagapay.fraud.domain.FraudScorer;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
 import dev.treyer.sagapay.fraud.domain.SenderActivity;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
@@ -23,14 +27,15 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
-@ExtendWith(OutputCaptureExtension.class)
 class ScreeningServiceTest {
 
     private static final UUID SENDER = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -216,29 +221,57 @@ class ScreeningServiceTest {
                         + "\"modelVersion\":\"rules-v1\",\"ts\":\"2026-03-01T10:15:30Z\"}");
     }
 
-    @Test
-    void aStoredDecisionIsLoggedWithItsOutcome(CapturedOutput output) {
-        service.screen(reserved(NEW_RECIPIENT, "500.00"));
+    // Attached to the service's logger: without a Spring context the JSON format is not
+    // configured, and which test starts one first is not something a unit test may rely on.
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+    private final Logger serviceLogger = (Logger) LoggerFactory.getLogger(ScreeningService.class);
 
-        assertThat(output.getOut())
-                .contains("fraud decision stored")
-                .contains("\"transfer.id\":\"" + TRANSFER + "\"")
-                .contains("\"fraud.decision\":\"FLAGGED\"");
+    @BeforeEach
+    void captureTheServiceLogs() {
+        logs.start();
+        serviceLogger.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseTheServiceLogs() {
+        serviceLogger.detachAppender(logs);
+    }
+
+    private static List<String> fieldsOf(ILoggingEvent event) {
+        return Arrays.stream(event.getArgumentArray()).map(Object::toString).toList();
     }
 
     @Test
-    void aHistoryUpdateThatFailsAfterTheCommitIsLoggedAndNotRaised(CapturedOutput output) {
+    void aStoredDecisionIsLoggedWithItsOutcome() {
+        service.screen(reserved(NEW_RECIPIENT, "500.00"));
+
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, ScreeningServiceTest::fieldsOf)
+                .containsExactly(tuple(
+                        Level.INFO,
+                        "fraud decision stored",
+                        List.of("transfer.id=" + TRANSFER, "fraud.decision=FLAGGED", "fraud.score=0.70")));
+    }
+
+    @Test
+    void aHistoryUpdateThatFailsAfterTheCommitIsLoggedAndNotRaised() {
         recordFailure = new IllegalStateException("redis down");
 
         service.screen(reserved(NEW_RECIPIENT, "500.00"));
 
         assertThat(savedMessages).hasSize(1);
-        assertThat(output.getOut())
-                .contains("WARN")
-                .contains("sender history update failed after the decision was committed")
-                .contains("\"transfer.id\":\"" + TRANSFER + "\"")
-                .contains("\"sender.id\":\"" + SENDER + "\"")
-                .contains("java.lang.IllegalStateException: redis down");
+        assertThat(logs.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage, ScreeningServiceTest::fieldsOf)
+                .containsExactly(
+                        tuple(
+                                Level.INFO,
+                                "fraud decision stored",
+                                List.of("transfer.id=" + TRANSFER, "fraud.decision=FLAGGED", "fraud.score=0.70")),
+                        tuple(
+                                Level.WARN,
+                                "sender history update failed after the decision was committed",
+                                List.of("transfer.id=" + TRANSFER, "sender.id=" + SENDER)));
+        assertThat(logs.list.getLast().getThrowableProxy().getMessage()).isEqualTo("redis down");
     }
 
     @Test

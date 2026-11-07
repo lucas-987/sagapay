@@ -50,8 +50,34 @@ class MigrationUpgradeTest {
                 UUID.randomUUID(),
                 UUID.randomUUID());
         jdbc.update("insert into saga_steps (transfer_id, step, outcome) values (?, 'RESERVE', 'OK')", transferId);
+        UUID pendingRelease = insertFailedTransfer(jdbc);
+        jdbc.update(
+                "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', 'RETRY')", pendingRelease);
+        UUID finishedRelease = insertFailedTransfer(jdbc);
+        jdbc.update(
+                "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', 'RETRY')", finishedRelease);
+        jdbc.update(
+                "insert into saga_steps (transfer_id, step, outcome) values (?, 'RELEASE', 'COMPENSATED')",
+                finishedRelease);
+
+        UUID keyed = UUID.randomUUID();
+        UUID sender = UUID.randomUUID();
+        insertOutboxRow(jdbc, keyed, "{\"senderId\":\"" + sender + "\"}");
+        UUID unkeyed = UUID.randomUUID();
+        insertOutboxRow(jdbc, unkeyed, "{}");
 
         flyway("latest").migrate();
+
+        assertThat(jdbc.queryForObject("select partition_key from outbox where id = ?", String.class, keyed))
+                .isEqualTo(sender.toString());
+        assertThat(jdbc.queryForObject(
+                        "select partition_key = aggregate_id::text from outbox where id = ?", Boolean.class, unkeyed))
+                .isTrue();
+        assertThat(jdbc.queryForObject(
+                        "select has_table_privilege('orchestrator_app', 'outbox_quarantine', 'INSERT')"
+                                + " and not has_table_privilege('orchestrator_app', 'outbox_quarantine', 'DELETE')",
+                        Boolean.class))
+                .isTrue();
 
         assertThat(jdbc.queryForObject("select status::text from transfers where id = ?", String.class, transferId))
                 .isEqualTo("POSTED");
@@ -63,6 +89,8 @@ class MigrationUpgradeTest {
         assertThat(jdbc.queryForObject(
                         "select deadline is null from saga_steps where transfer_id = ?", Boolean.class, transferId))
                 .isTrue();
+        assertThat(jdbc.queryForList("select id from transfers where release_pending", UUID.class))
+                .containsExactly(pendingRelease);
         assertThat(jdbc.queryForObject(
                         "select data_type from information_schema.columns"
                                 + " where table_name = 'transfers' and column_name = 'status'",

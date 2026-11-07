@@ -41,6 +41,7 @@ final class OutboxEvents {
                 UUID.randomUUID(),
                 "Transfer",
                 transfer.getId(),
+                transfer.getSenderId().toString(),
                 eventType.wireName(),
                 jsonMapper.writeValueAsString(payload),
                 null,

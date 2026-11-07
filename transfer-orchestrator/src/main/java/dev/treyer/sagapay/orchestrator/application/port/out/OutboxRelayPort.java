@@ -7,8 +7,19 @@ import java.util.UUID;
 
 public interface OutboxRelayPort {
 
-    /** Locks the rows it returns until the surrounding transaction ends; rows locked elsewhere are skipped. */
-    List<OutboxRow> findUnpublishedForUpdateSkipLocked(int limit);
+    /** Held until the surrounding transaction ends, even on a crash.
+     * @return false when another instance is publishing. */
+    boolean tryLockPublisher();
+
+    /** Oldest first, without the rows of a quarantined key. */
+    List<OutboxRow> findPublishable(int limit);
 
     void markPublished(UUID id);
+
+    void quarantine(String partitionKey, UUID outboxId, String reason);
+
+    /** 0 when nothing is waiting. */
+    double oldestPublishableAgeSeconds();
+
+    long countQuarantinedKeys();
 }

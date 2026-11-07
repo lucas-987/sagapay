@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Positive;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/** A larger batch holds its row locks longer and republishes more rows after a rollback: every
+/** A larger batch holds the publisher lock longer and republishes more rows after a rollback: every
  * send is awaited inside the transaction. */
 @Validated
 @ConfigurationProperties(prefix = "outbox")

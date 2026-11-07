@@ -8,6 +8,8 @@ import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -16,14 +18,22 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
- * The row locks must be held until the rows are marked published, hence one transaction around
- * the batch. A failed publish leaves its row, and the rows after it, for the next run.
+ * One instance publishes at a time, hence the lock: two at once could send the events of a key out
+ * of order. A run stops at a temporary failure, so that the rows already sent stay marked and those
+ * after it keep their order; a permanent one sets its key aside, and the other keys go on.
  */
 @Component
 class OutboxPoller {
+
+    private static final Logger log = LoggerFactory.getLogger(OutboxPoller.class);
 
     static final String TOPIC = "payments.fraud.results";
     private static final String TRACEPARENT_VERSION = "00";
@@ -53,9 +63,36 @@ class OutboxPoller {
             initialDelayString = "${outbox.poll-interval-ms:500}")
     @Transactional
     public void drain() {
-        List<OutboxMessage> batch = outbox.findUnpublishedForUpdateSkipLocked(batchSize);
-        for (OutboxMessage message : batch) {
-            publish(message);
+        if (!outbox.tryLockPublisher()) {
+            return;
+        }
+        Set<UUID> quarantined = new HashSet<>();
+        for (OutboxMessage message : outbox.findPublishable(batchSize)) {
+            UUID key = message.aggregateId();
+            if (quarantined.contains(key)) {
+                continue;
+            }
+            try {
+                publish(message);
+            } catch (RuntimeException e) {
+                Optional<Throwable> permanent = PermanentPublishFailure.causeOf(e);
+                if (permanent.isEmpty()) {
+                    log.warn(
+                            "outbox publish failed, retrying on the next run",
+                            kv("outbox.id", message.id()),
+                            kv("event.type", message.eventType()),
+                            e);
+                    return;
+                }
+                log.error(
+                        "outbox key quarantined",
+                        kv("outbox.id", message.id()),
+                        kv("event.type", message.eventType()),
+                        e);
+                outbox.quarantine(key, message.id(), permanent.get().toString());
+                quarantined.add(key);
+                continue;
+            }
             outbox.markPublished(message.id());
         }
     }

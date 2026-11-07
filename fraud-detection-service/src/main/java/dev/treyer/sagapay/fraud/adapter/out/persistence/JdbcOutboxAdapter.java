@@ -12,6 +12,9 @@ import java.util.UUID;
 @Component
 class JdbcOutboxAdapter implements OutboxPort, OutboxRelayPort {
 
+    // Each service has its own database, so this only has to differ from its other advisory locks.
+    private static final long PUBLISHER_LOCK = 1;
+
     private final JdbcClient jdbc;
 
     JdbcOutboxAdapter(JdbcClient jdbc) {
@@ -33,14 +36,22 @@ class JdbcOutboxAdapter implements OutboxPort, OutboxRelayPort {
     }
 
     @Override
-    public List<OutboxMessage> findUnpublishedForUpdateSkipLocked(int limit) {
+    public boolean tryLockPublisher() {
+        return jdbc.sql("select pg_try_advisory_xact_lock(:lockId)")
+                .param("lockId", PUBLISHER_LOCK)
+                .query(Boolean.class)
+                .single();
+    }
+
+    @Override
+    public List<OutboxMessage> findPublishable(int limit) {
         return jdbc.sql("""
-                        select id, aggregate_type, aggregate_id, event_type, payload::text as payload
-                        from outbox
-                        where published_at is null
-                        order by created_at
+                        select o.id, o.aggregate_type, o.aggregate_id, o.event_type, o.payload::text as payload
+                        from outbox o
+                        where o.published_at is null
+                          and not exists (select 1 from outbox_quarantine q where q.aggregate_id = o.aggregate_id)
+                        order by o.created_at, o.id
                         limit :limit
-                        for update skip locked
                         """)
                 .param("limit", limit)
                 .query((rs, row) -> new OutboxMessage(
@@ -57,5 +68,34 @@ class JdbcOutboxAdapter implements OutboxPort, OutboxRelayPort {
         jdbc.sql("update outbox set published_at = now() where id = :id")
                 .param("id", id)
                 .update();
+    }
+
+    @Override
+    public void quarantine(UUID aggregateId, UUID outboxId, String reason) {
+        jdbc.sql("""
+                        insert into outbox_quarantine (aggregate_id, outbox_id, reason)
+                        values (:aggregateId, :outboxId, :reason)
+                        on conflict (aggregate_id) do nothing
+                        """)
+                .param("aggregateId", aggregateId)
+                .param("outboxId", outboxId)
+                .param("reason", reason)
+                .update();
+    }
+
+    @Override
+    public double oldestPublishableAgeSeconds() {
+        return jdbc.sql("""
+                        select coalesce(extract(epoch from now() - min(o.created_at)), 0) from outbox o
+                        where o.published_at is null
+                          and not exists (select 1 from outbox_quarantine q where q.aggregate_id = o.aggregate_id)
+                        """).query(Double.class).single();
+    }
+
+    @Override
+    public long countQuarantinedKeys() {
+        return jdbc.sql("select count(*) from outbox_quarantine")
+                .query(Long.class)
+                .single();
     }
 }

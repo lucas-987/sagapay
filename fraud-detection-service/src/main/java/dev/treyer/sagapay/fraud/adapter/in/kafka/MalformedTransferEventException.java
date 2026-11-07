@@ -6,4 +6,8 @@ public class MalformedTransferEventException extends RuntimeException {
     public MalformedTransferEventException(String message) {
         super(message);
     }
+
+    public MalformedTransferEventException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

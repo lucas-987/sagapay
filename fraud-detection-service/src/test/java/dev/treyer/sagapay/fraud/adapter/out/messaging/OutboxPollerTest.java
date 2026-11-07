@@ -2,8 +2,10 @@ package dev.treyer.sagapay.fraud.adapter.out.messaging;
 
 import dev.treyer.sagapay.fraud.FraudResultsTopic;
 import dev.treyer.sagapay.fraud.TestcontainersConfiguration;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -35,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
@@ -59,6 +60,9 @@ class OutboxPollerTest {
     @Autowired
     private ConsumerFactory<?, ?> consumerFactory;
 
+    @Autowired
+    private MeterRegistry meters;
+
     // Raw: the bean is declared as KafkaTemplate<?, ?>, which a parameterised field does not match.
     @SuppressWarnings("rawtypes")
     @MockitoSpyBean
@@ -69,6 +73,7 @@ class OutboxPollerTest {
     // The outbox is shared by the tests of this class: start each one with nothing left to send.
     @BeforeEach
     void startWithAnEmptyOutbox() {
+        jdbc.update("delete from outbox_quarantine");
         jdbc.update("update outbox set published_at = now() where published_at is null");
     }
 
@@ -233,7 +238,9 @@ class OutboxPollerTest {
     }
 
     @Test
-    void aFailedSendRollsBackTheRowsAlreadySentOfTheBatchAndTheNextDrainSendsThemAgain() {
+    @Tag("M3-S53")
+    @DisplayName("A Kafka outage quarantines nothing and keeps the order")
+    void aFailedSendKeepsTheRowsAlreadySentAndTheNextDrainResumesAtTheFailedOne() {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
         UUID firstRow = insertRowCreatedAt(T0, first);
@@ -243,32 +250,82 @@ class OutboxPollerTest {
                 .when(kafka)
                 .send(recordKeyedBy(second));
 
-        assertThatThrownBy(poller::drain).hasRootCauseMessage("broker down");
-
-        assertThat(isPublished(firstRow)).isFalse();
-        assertThat(isPublished(secondRow)).isFalse();
-        assertThat(recordsOf(first)).hasSize(1);
-        assertThat(recordsOf(second)).isEmpty();
-
         poller.drain();
 
         assertThat(isPublished(firstRow)).isTrue();
+        assertThat(isPublished(secondRow)).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from outbox_quarantine", Integer.class))
+                .isZero();
+
+        poller.drain();
+
         assertThat(isPublished(secondRow)).isTrue();
-        assertThat(recordsOf(first).stream()
-                        .map(r -> jsonMapper.readTree(r.value()).get("id").asString()))
-                .containsExactly(firstRow.toString(), firstRow.toString());
-        assertThat(recordsOf(second).stream()
-                        .map(r -> jsonMapper.readTree(r.value()).get("id").asString()))
-                .containsExactly(secondRow.toString());
+        assertThat(recordsOf(first)).hasSize(1);
+        assertThat(recordsOf(second)).hasSize(1);
     }
 
     @Test
-    void aDrainSkipsTheRowsLockedByAnotherDrainInsteadOfWaitingForThem() throws Exception {
+    @Tag("M3-S52")
+    @DisplayName("A row that cannot be published blocks only its own key")
+    void aQuarantinedKeyStaysOutOfTheQueriesAndTheMetricsCountIt() {
+        UUID stuck = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        UUID stuckRow = insertRowCreatedAt(T0, stuck);
+        UUID otherRow = insertRowCreatedAt(T0.plusSeconds(1), other);
+        doReturn(CompletableFuture.failedFuture(new RecordTooLargeException("too large")))
+                .when(kafka)
+                .send(recordKeyedBy(stuck));
+
+        poller.drain();
+        poller.drain();
+
+        assertThat(isPublished(stuckRow)).isFalse();
+        assertThat(isPublished(otherRow)).isTrue();
+        assertThat(jdbc.queryForObject(
+                        "select outbox_id from outbox_quarantine where aggregate_id = ?", UUID.class, stuck))
+                .isEqualTo(stuckRow);
+        verify(kafka, times(1)).send(recordKeyedBy(stuck));
+        assertThat(meters.get("outbox.quarantined.keys").gauge().value()).isEqualTo(1);
+        assertThat(meters.get("outbox.oldest.unpublished.age").gauge().value()).isZero();
+    }
+
+    @Test
+    @Tag("M3-S54")
+    @DisplayName("A key released from quarantine publishes in order")
+    void aKeyDeletedFromTheQuarantinePublishesItsRowsInOrder() {
+        UUID key = UUID.randomUUID();
+        UUID firstRow = insertRowCreatedAt(T0, key);
+        UUID secondRow = insertRowCreatedAt(T0.plusSeconds(1), key);
+        doReturn(CompletableFuture.failedFuture(new RecordTooLargeException("too large")))
+                .doCallRealMethod()
+                .when(kafka)
+                .send(recordKeyedBy(key));
+        poller.drain();
+
+        jdbc.update("delete from outbox_quarantine where aggregate_id = ?", key);
+        poller.drain();
+
+        assertThat(recordsOf(key).stream()
+                        .map(r -> jsonMapper.readTree(r.value()).get("id").asString()))
+                .containsExactly(firstRow.toString(), secondRow.toString());
+    }
+
+    @Test
+    void theAgeOfTheOutboxIsThatOfItsOldestUnpublishedRow() {
+        insertRowCreatedAt(OffsetDateTime.now(ZoneOffset.UTC).minusHours(1), UUID.randomUUID());
+
+        assertThat(meters.get("outbox.oldest.unpublished.age").gauge().value()).isGreaterThanOrEqualTo(3600);
+    }
+
+    @Test
+    @Tag("M3-S55")
+    @DisplayName("Only one instance publishes at a time")
+    void aDrainWhileAnotherOnePublishesLeavesEverythingToItWithoutWaiting() throws Exception {
         UUID[] transfers = {UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()};
         for (int i = 0; i < transfers.length; i++) {
             insertRowCreatedAt(T0.plusSeconds(i), transfers[i]);
         }
-        // The first drain holds its locks while its first send waits for the second drain to finish.
+        // The first drain holds the lock while its first send waits for the second drain to finish.
         CountDownLatch firstIsSending = new CountDownLatch(1);
         CountDownLatch secondIsDone = new CountDownLatch(1);
         doAnswer(invocation -> {

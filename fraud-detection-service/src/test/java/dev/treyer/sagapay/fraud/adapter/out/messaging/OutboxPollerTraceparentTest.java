@@ -20,7 +20,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -51,7 +50,8 @@ class OutboxPollerTraceparentTest {
         when(span.context()).thenReturn(context);
         when(context.traceId()).thenReturn(TRACE_ID);
         when(context.spanId()).thenReturn(SPAN_ID);
-        when(outbox.findUnpublishedForUpdateSkipLocked(100))
+        when(outbox.tryLockPublisher()).thenReturn(true);
+        when(outbox.findPublishable(100))
                 .thenReturn(List.of(
                         new OutboxMessage(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferCleared", "{}")));
     }
@@ -81,11 +81,12 @@ class OutboxPollerTraceparentTest {
         when(kafka.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
 
-        Throwable thrown = catchThrowable(poller::drain);
+        poller.drain();
 
-        assertThat(thrown).hasRootCauseMessage("broker down");
+        ArgumentCaptor<Throwable> recorded = ArgumentCaptor.forClass(Throwable.class);
         var order = inOrder(span);
-        order.verify(span).error(thrown);
+        order.verify(span).error(recorded.capture());
         order.verify(span).end();
+        assertThat(recorded.getValue()).hasRootCauseMessage("broker down");
     }
 }

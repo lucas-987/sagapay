@@ -52,7 +52,7 @@ public class TransferEventListener {
         try {
             return Money.of(amount, currency);
         } catch (IllegalArgumentException | ArithmeticException e) {
-            throw new MalformedTransferEventException("FundsReserved event has an invalid amount or currency");
+            throw new MalformedTransferEventException("FundsReserved event has an invalid amount or currency", e);
         }
     }
 

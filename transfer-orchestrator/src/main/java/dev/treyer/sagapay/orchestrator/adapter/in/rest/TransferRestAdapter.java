@@ -19,7 +19,6 @@ import dev.treyer.sagapay.transfer.model.ConfirmBlockedTransferRequest;
 import dev.treyer.sagapay.transfer.model.CreateTransferRequest;
 import dev.treyer.sagapay.transfer.model.ListTransfers200Response;
 import dev.treyer.sagapay.transfer.model.TransferDetail;
-import dev.treyer.sagapay.transfer.model.TransferDetailAllOfFraud;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -148,8 +147,7 @@ public class TransferRestAdapter implements V1Api {
                 .note(transfer.getNote())
                 .failureReason(toRestFailureReason(transfer))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
-                .steps(result.steps().stream().map(this::toRestStep).toList())
-                .fraud(toRestFraud(result.fraud()));
+                .steps(result.steps().stream().map(this::toRestStep).toList());
         return ResponseEntity.ok(detail);
     }
 
@@ -241,17 +239,6 @@ public class TransferRestAdapter implements V1Api {
                 .note(transfer.getNote())
                 .failureReason(toRestFailureReason(transfer))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC));
-    }
-
-    private static TransferDetailAllOfFraud toRestFraud(GetTransferUseCase.ScreeningVerdict verdict) {
-        if (verdict == null) {
-            return null;
-        }
-        return new TransferDetailAllOfFraud()
-                .decision(TransferDetailAllOfFraud.DecisionEnum.fromValue(
-                        verdict.decision().name()))
-                .score(verdict.score())
-                .reasons(verdict.reasons());
     }
 
     private dev.treyer.sagapay.transfer.model.SagaStep toRestStep(SagaStep step) {

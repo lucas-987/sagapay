@@ -8,9 +8,11 @@ import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCa
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
-import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
+import dev.treyer.sagapay.orchestrator.domain.SagaStep;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
+import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -37,8 +40,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
-import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -368,51 +371,42 @@ class TransferRestAdapterTest {
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
         when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of()));
 
         mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(Party.class)
     @Tag("M3-S22")
-    @DisplayName("The transfer shows its fraud result once screened")
-    void transferShowsItsFraudResultOnceScreened() throws Exception {
-        UUID senderId = UUID.randomUUID();
-        Transfer notScreened = newTransfer(senderId, UUID.randomUUID());
-        Transfer cleared = newTransfer(senderId, UUID.randomUUID());
-        Transfer flagged = newTransfer(senderId, UUID.randomUUID());
-        when(getTransferUseCase.getTransfer(notScreened.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(notScreened, List.of(), null));
-        when(getTransferUseCase.getTransfer(cleared.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(
-                        cleared,
-                        List.of(),
-                        new GetTransferUseCase.ScreeningVerdict(
-                                FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND"))));
+    @DisplayName("A transfer never shows the outcome of its fraud screening")
+    void transferNeverShowsItsFraudResult(Party party) throws Exception {
+        UUID senderId = party == Party.SENDER ? CALLER_ID : UUID.randomUUID();
+        UUID recipientId = party == Party.RECIPIENT ? CALLER_ID : UUID.randomUUID();
+        Transfer flagged = newTransfer(senderId, recipientId);
+        SagaStep screen = new SagaStep(
+                flagged.getId(),
+                SagaStepName.SCREEN,
+                SagaStepOutcome.RETRY,
+                "{\"decision\":\"FLAGGED\",\"score\":0.9,\"reasons\":[\"NEW_RECIPIENT\"]}",
+                Instant.now());
         when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(
-                        flagged,
-                        List.of(),
-                        new GetTransferUseCase.ScreeningVerdict(
-                                FraudDecision.FLAGGED,
-                                new BigDecimal("0.9000"),
-                                List.of("VELOCITY_1H", "NEW_RECIPIENT"))));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(flagged, List.of(screen)));
 
-        mockMvc.perform(get("/v1/transfers/{id}", notScreened.getId()).header("X-User-Id", CALLER_ID.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fraud").value(nullValue()));
-        mockMvc.perform(get("/v1/transfers/{id}", cleared.getId()).header("X-User-Id", CALLER_ID.toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fraud.decision").value("CLEARED"))
-                .andExpect(jsonPath("$.fraud.score").value(0.15))
-                .andExpect(jsonPath("$.fraud.reasons").value(contains("AMOUNT_ROUND")));
         mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).header("X-User-Id", CALLER_ID.toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fraud.decision").value("FLAGGED"))
-                .andExpect(jsonPath("$.fraud.score").value(0.9))
-                .andExpect(jsonPath("$.fraud.reasons").value(contains("VELOCITY_1H", "NEW_RECIPIENT")));
+                .andExpect(jsonPath("$.steps[0].step").value("SCREEN"))
+                .andExpect(jsonPath("$.fraud").doesNotExist())
+                .andExpect(jsonPath("$.steps[0].detail").doesNotExist())
+                .andExpect(content().string(not(containsString("NEW_RECIPIENT"))))
+                .andExpect(content().string(not(containsString("FLAGGED"))));
+    }
+
+    private enum Party {
+        SENDER,
+        RECIPIENT
     }
 
     @TestConfiguration

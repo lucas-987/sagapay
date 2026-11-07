@@ -272,62 +272,22 @@ class SagaServiceTest {
     }
 
     @Test
-    void aTransferNotScreenedYetHasNoVerdict() {
+    void aTransferNotScreenedYetHasNoDecision() {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
 
-        assertThat(sagaService
-                        .getTransfer(transfer.getId(), transfer.getSenderId())
-                        .fraud())
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getFraudDecision())
                 .isNull();
     }
 
     @Test
-    void aClearedTransferHasItsVerdict() {
+    void aClearedTransferKeepsItsDecision() {
         Transfer transfer = initiate(UUID.randomUUID());
         sagaService.advance(transfer.getId());
         sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
 
-        assertThat(sagaService
-                        .getTransfer(transfer.getId(), transfer.getSenderId())
-                        .fraud())
-                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
-                        FraudDecision.CLEARED, new BigDecimal("0.1500"), List.of("AMOUNT_ROUND")));
-    }
-
-    @Test
-    void aScoredTransferWithoutAVerdictStepIsAnInconsistency() {
-        Transfer transfer = initiate(UUID.randomUUID());
-        jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
-
-        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), transfer.getSenderId()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
-    }
-
-    @Test
-    void aScreenStepWithoutADecisionIsAnInconsistency() {
-        Transfer transfer = initiate(UUID.randomUUID());
-        jdbcTemplate.update("update transfers set fraud_score = 0.5 where id = ?", transfer.getId());
-        sagaStepRepository.save(
-                new SagaStep(transfer.getId(), SagaStepName.SCREEN, SagaStepOutcome.OK, "{}", Instant.now()));
-
-        assertThatThrownBy(() -> sagaService.getTransfer(transfer.getId(), transfer.getSenderId()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("screened transfer " + transfer.getId() + " has no verdict step");
-    }
-
-    @Test
-    void aFlaggedTransferHasItsVerdict() {
-        Transfer transfer = initiate(UUID.randomUUID());
-        sagaService.advance(transfer.getId());
-        sagaService.applyFraudResult(flagged(transfer.getId(), UUID.randomUUID()));
-
-        assertThat(sagaService
-                        .getTransfer(transfer.getId(), transfer.getSenderId())
-                        .fraud())
-                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
-                        FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getFraudDecision())
+                .isEqualTo(FraudDecision.CLEARED);
     }
 
     @Test
@@ -852,11 +812,8 @@ class SagaServiceTest {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
         sagaService.confirmTransfer(transfer.getId(), transfer.getSenderId(), VERIFICATION_CODE);
 
-        assertThat(sagaService
-                        .getTransfer(transfer.getId(), transfer.getSenderId())
-                        .fraud())
-                .isEqualTo(new GetTransferUseCase.ScreeningVerdict(
-                        FraudDecision.FLAGGED, new BigDecimal("0.9000"), List.of("VELOCITY_1H", "NEW_RECIPIENT")));
+        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getFraudDecision())
+                .isEqualTo(FraudDecision.FLAGGED);
     }
 
     @Test

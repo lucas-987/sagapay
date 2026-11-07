@@ -163,7 +163,6 @@ components:
         amount: { $ref: '#/components/schemas/Money' }
         note: { type: string }
         status: { $ref: '#/components/schemas/TransferStatus' }
-        riskTier: { type: string, enum: [LOW, MEDIUM, HIGH] }
         failureReason: { type: string, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -173,22 +172,12 @@ components:
         at: { type: string, format: date-time }
         step: { type: string, examples: [RESERVE, SCREEN, POST, RELEASE, REVERSE] }
         outcome: { type: string, examples: [OK, RETRY, FAILED, COMPENSATED] }
-        detail: { type: object, additionalProperties: true }
     TransferDetail:
       allOf:
         - $ref: '#/components/schemas/Transfer'
         - type: object
           properties:
             steps: { type: array, items: { $ref: '#/components/schemas/SagaStep' } }
-            fraud:
-              description: Fraud screening verdict; null until the transfer has been screened.
-              type: object
-              nullable: true
-              required: [decision, score, reasons]
-              properties:
-                decision: { type: string, enum: [CLEARED, FLAGGED] }
-                score: { type: number }
-                reasons: { type: array, items: { type: string } }
     Problem:
       type: object
       properties:

@@ -316,26 +316,7 @@ public class SagaService
                 .findById(transferId)
                 .filter(found -> userId.equals(found.getSenderId()) || userId.equals(found.getRecipientId()))
                 .orElseThrow(() -> new TransferNotFoundException(transferId));
-        List<SagaStep> steps = sagaSteps.findByTransferId(transferId);
-        return new TransferWithSteps(transfer, steps, screeningVerdict(transfer, steps));
-    }
-
-    /** The decision is read from the first SCREEN step that carries one: the
-     * transfer keeps the score and reasons, not the decision, and a later
-     * confirmation changes its status but not what fraud decided. */
-    private ScreeningVerdict screeningVerdict(Transfer transfer, List<SagaStep> steps) {
-        if (transfer.getFraudScore() == null) {
-            return null;
-        }
-        FraudDecision decision = steps.stream()
-                .filter(step -> step.getStep() == SagaStepName.SCREEN && step.getDetail() != null)
-                .map(step -> jsonMapper.readTree(step.getDetail()).get("decision"))
-                .filter(node -> node != null)
-                .map(node -> FraudDecision.valueOf(node.asString()))
-                .findFirst()
-                .orElseThrow(() ->
-                        new IllegalStateException("screened transfer " + transfer.getId() + " has no verdict step"));
-        return new ScreeningVerdict(decision, transfer.getFraudScore(), transfer.getFraudReasons());
+        return new TransferWithSteps(transfer, sagaSteps.findByTransferId(transferId));
     }
 
     @Override

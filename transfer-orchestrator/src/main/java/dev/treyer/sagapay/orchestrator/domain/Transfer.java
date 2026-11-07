@@ -59,6 +59,10 @@ public class Transfer {
     @Column(name = "failure_reason", length = 64)
     private FailureReason failureReason;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "fraud_decision")
+    private FraudDecision fraudDecision;
+
     @Column(name = "fraud_score", precision = 5, scale = 4)
     private BigDecimal fraudScore;
 
@@ -145,6 +149,10 @@ public class Transfer {
 
     public FailureReason getFailureReason() {
         return failureReason;
+    }
+
+    public FraudDecision getFraudDecision() {
+        return fraudDecision;
     }
 
     public BigDecimal getFraudScore() {

@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /** Hexagonal dependency rules. */
 @AnalyzeClasses(packages = "dev.treyer.sagapay.fraud", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -57,4 +58,8 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage("..fraud.adapter.in..", "..fraud.application.port.in..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotDependOnEachOther =
+            slices().matching("..fraud.adapter.out.(*)..").should().notDependOnEachOther();
 }

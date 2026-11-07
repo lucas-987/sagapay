@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /** Hexagonal dependency rules. JPA mapping annotations stay allowed in the domain. */
 @AnalyzeClasses(packages = "dev.treyer.sagapay.ledger", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -60,4 +61,8 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage("..ledger.adapter.in..", "..ledger.application.port.in..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotDependOnEachOther =
+            slices().matching("..ledger.adapter.out.(*)..").should().notDependOnEachOther();
 }

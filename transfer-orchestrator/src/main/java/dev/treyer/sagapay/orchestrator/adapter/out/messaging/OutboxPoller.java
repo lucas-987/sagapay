@@ -1,7 +1,7 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
-import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
+import dev.treyer.sagapay.orchestrator.application.port.out.OutboxRelayPort;
 import dev.treyer.sagapay.orchestrator.config.OutboxProperties;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
 import io.micrometer.tracing.Span;
@@ -29,14 +29,14 @@ public class OutboxPoller {
     private static final String SOURCE = "transfer-orchestrator";
     private static final String TRACEPARENT_VERSION = "00";
 
-    private final OutboxRepository outbox;
+    private final OutboxRelayPort outbox;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
     private final int batchSize;
 
     public OutboxPoller(
-            OutboxRepository outbox,
+            OutboxRelayPort outbox,
             KafkaTemplate<String, String> kafkaTemplate,
             JsonMapper jsonMapper,
             Tracer tracer,

@@ -35,7 +35,7 @@
         <!-- Must stay aligned with the protobuf-java runtime pulled in by grpc-bom below. -->
         <protobuf.version>4.31.1</protobuf.version>
         <grpc.version>1.83.1</grpc.version>
-        <protobuf-plugin.version>5.1.8</protobuf-plugin.version>
+        <protobuf-plugin.version>5.1.11</protobuf-plugin.version>
         <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
         <archunit.version>1.5.1</archunit.version>
         <spotless.version>3.10.3</spotless.version>

@@ -173,10 +173,10 @@ public class TransferRestAdapter implements V1Api {
         // V1Api.getRequest() is an extension point that returns empty by default.
         ServletRequestAttributes attributes =
                 (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+        // Local stand-in for the token subject, until M4 wires real authentication.
         String value = attributes.getRequest().getHeader(USER_ID_HEADER);
         if (value == null) {
-            throw new MalformedRequestException("missing " + USER_ID_HEADER
-                    + " header (dev/local stand-in for the JWT subject, until M4 wires real auth)");
+            throw new MalformedRequestException("missing " + USER_ID_HEADER + " header");
         }
         try {
             return UUID.fromString(value);

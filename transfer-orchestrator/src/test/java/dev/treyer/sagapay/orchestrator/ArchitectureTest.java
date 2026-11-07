@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 /** Hexagonal dependency rules. JPA mapping annotations stay allowed in the domain. */
 @AnalyzeClasses(packages = "dev.treyer.sagapay.orchestrator", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -44,4 +45,24 @@ class ArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("..orchestrator.adapter.out..");
+
+    @ArchTest
+    static final ArchRule inboundAdaptersGoThroughUseCases = noClasses()
+            .that()
+            .resideInAPackage("..orchestrator.adapter.in..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("..orchestrator.application.port.out..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotReachTheInboundSide = noClasses()
+            .that()
+            .resideInAPackage("..orchestrator.adapter.out..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage("..orchestrator.adapter.in..", "..orchestrator.application.port.in..");
+
+    @ArchTest
+    static final ArchRule outboundAdaptersDoNotDependOnEachOther =
+            slices().matching("..orchestrator.adapter.out.(*)..").should().notDependOnEachOther();
 }

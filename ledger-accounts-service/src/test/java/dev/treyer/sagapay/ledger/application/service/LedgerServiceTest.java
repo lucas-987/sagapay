@@ -24,14 +24,19 @@ import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -43,13 +48,18 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 /** Against a real Postgres: row locks and CHECK constraints cannot be mocked. No
  * test transaction: concurrent threads must see committed state. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 @TestPropertySource(properties = "spring.grpc.server.port=0")
+@ExtendWith(OutputCaptureExtension.class)
 class LedgerServiceTest {
+
+    @Autowired
+    private ReservationSettings reservationSettings;
 
     @Autowired
     private CheckAndReserveUseCase checkAndReserveUseCase;
@@ -284,6 +294,63 @@ class LedgerServiceTest {
     }
 
     @Test
+    void releaseReservationOnAnAlreadyReleasedReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        releaseReservationUseCase.releaseReservation(transferId, reservationId);
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.RELEASED);
+    }
+
+    @Test
+    void releaseReservationOnAnExpiredReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        jdbcTemplate.update(
+                "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?", transferId);
+        expireReservationsUseCase.expireOverdueReservations();
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.EXPIRED);
+    }
+
+    @Test
+    void releaseReservationOnAConsumedReservationChangesNothing() {
+        Account account = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+        UUID reservationId = reserve(transferId, account, "40.00");
+        postTransferUseCase.postTransfer(transferId, account.getId(), to.getId(), Money.of("40.00", "EUR"));
+
+        assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.CONSUMED);
+    }
+
+    private UUID reserve(String transferId, Account account, String amount) {
+        CheckAndReserveResult result =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of(amount, "EUR"));
+        return ((CheckAndReserveResult.Ok) result).reservationId();
+    }
+
+    private void assertReleaseChangesNothing(
+            String transferId, UUID reservationId, Account account, ReservationStatus expectedStatus) {
+        WalletSnapshot before = getWalletUseCase.getWallet(account.getId());
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(expectedStatus);
+
+        releaseReservationUseCase.releaseReservation(transferId, reservationId);
+
+        WalletSnapshot after = getWalletUseCase.getWallet(account.getId());
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(expectedStatus);
+        assertThat(after.balance().amount())
+                .isEqualByComparingTo(before.balance().amount());
+        assertThat(after.available().amount())
+                .isEqualByComparingTo(before.available().amount());
+        assertThat(after.held().amount()).isEqualByComparingTo(before.held().amount());
+    }
+
+    @Test
     void getWalletAvailableIsBalanceMinusHeld() {
         Account account = newAccount("EUR", "200.0000");
         Money holdAmount = Money.of("50.00", "EUR");
@@ -294,6 +361,65 @@ class LedgerServiceTest {
         assertThat(wallet.balance().amount()).isEqualByComparingTo("200.0000");
         assertThat(wallet.held().amount()).isEqualByComparingTo("50.0000");
         assertThat(wallet.available().amount()).isEqualByComparingTo("150.0000");
+    }
+
+    @Test
+    void aReservationAnswersTheDateItIsStoredWith() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        Instant before = Instant.now();
+
+        CheckAndReserveResult.Ok result = (CheckAndReserveResult.Ok)
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+
+        assertThat(result.expiresAt()).isAfterOrEqualTo(before.plusMillis(reservationSettings.ttlMs()));
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getExpiresAt())
+                .isCloseTo(result.expiresAt(), within(1, ChronoUnit.MILLIS));
+    }
+
+    @Test
+    void aReplayAnswersTheDateOfTheFirstCall() throws Exception {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.of("30.00", "EUR");
+        CheckAndReserveResult first = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+
+        Thread.sleep(5);
+        CheckAndReserveResult second = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+
+        assertThat(((CheckAndReserveResult.Ok) second).expiresAt())
+                .isEqualTo(((CheckAndReserveResult.Ok) first).expiresAt());
+    }
+
+    @Test
+    void aReplayWithOtherParametersIsAWarningNamingTheTransfer(CapturedOutput output) {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+
+        assertThatThrownBy(() ->
+                        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("31.00", "EUR")))
+                .isInstanceOf(IdempotencyConflictException.class);
+
+        assertThat(output.getOut())
+                .contains("\"level\":\"WARN\"")
+                .contains("reservation replayed with other parameters")
+                .contains("\"transfer.id\":\"" + transferId + "\"");
+    }
+
+    @Test
+    void aPostWithoutItsReservationIsAWarningNamingTheTransfer(CapturedOutput output) {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> postTransferUseCase.postTransfer(
+                        transferId, from.getId(), to.getId(), Money.of("10.00", "EUR")))
+                .isInstanceOf(NoMatchingReservationException.class);
+
+        assertThat(output.getOut())
+                .contains("post refused, no matching reservation")
+                .contains("\"transfer.id\":\"" + transferId + "\"");
     }
 
     @Test

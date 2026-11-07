@@ -8,5 +8,5 @@ import java.util.UUID;
 
 public interface SagaStepRepository extends JpaRepository<SagaStep, Long> {
 
-    List<SagaStep> findByTransferIdOrderByAtAsc(UUID transferId);
+    List<SagaStep> findByTransferIdOrderByAtAscIdAsc(UUID transferId);
 }

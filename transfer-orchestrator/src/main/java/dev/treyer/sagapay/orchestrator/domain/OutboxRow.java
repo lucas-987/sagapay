@@ -26,6 +26,9 @@ public class OutboxRow {
     @Column(name = "aggregate_id", nullable = false, updatable = false)
     private UUID aggregateId;
 
+    @Column(name = "partition_key", nullable = false, updatable = false)
+    private String partitionKey;
+
     @Column(name = "event_type", nullable = false, updatable = false, length = 32)
     private String eventType;
 
@@ -46,14 +49,22 @@ public class OutboxRow {
     protected OutboxRow() {}
 
     public OutboxRow(
-            UUID id, String aggregateType, UUID aggregateId, String eventType, String payload, String headers) {
+            UUID id,
+            String aggregateType,
+            UUID aggregateId,
+            String partitionKey,
+            String eventType,
+            String payload,
+            String headers,
+            Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.aggregateType = Objects.requireNonNull(aggregateType, "aggregateType");
         this.aggregateId = Objects.requireNonNull(aggregateId, "aggregateId");
+        this.partitionKey = Objects.requireNonNull(partitionKey, "partitionKey");
         this.eventType = Objects.requireNonNull(eventType, "eventType");
         this.payload = Objects.requireNonNull(payload, "payload");
         this.headers = headers == null ? "{}" : headers;
-        this.createdAt = Instant.now();
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
 
     public UUID getId() {
@@ -66,6 +77,10 @@ public class OutboxRow {
 
     public UUID getAggregateId() {
         return aggregateId;
+    }
+
+    public String getPartitionKey() {
+        return partitionKey;
     }
 
     public String getEventType() {

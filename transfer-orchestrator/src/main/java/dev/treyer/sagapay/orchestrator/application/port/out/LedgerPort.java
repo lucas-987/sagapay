@@ -9,5 +9,8 @@ public interface LedgerPort {
 
     ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount);
 
-    boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount);
+    void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount);
+
+    /** Succeeds when the reservation is already released, expired or consumed. */
+    void releaseReservation(String transferId, UUID reservationId);
 }

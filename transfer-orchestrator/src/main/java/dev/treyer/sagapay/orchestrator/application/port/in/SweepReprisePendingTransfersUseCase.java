@@ -1,6 +1,6 @@
 package dev.treyer.sagapay.orchestrator.application.port.in;
 
-/** Resumes transfers stuck in {@code INITIATED} or {@code RESERVED} past the
+/** Resumes transfers stuck in {@code INITIATED} or {@code CLEARED} past the
  * grace period, through the same code as the eager path. */
 public interface SweepReprisePendingTransfersUseCase {
 

@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -21,15 +22,11 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
@@ -50,42 +47,14 @@ class TransferOrchestratorE2ETest {
     private static final Network NETWORK = Network.newNetwork();
 
     @Container
-    private static final PostgreSQLContainer LEDGER_POSTGRES = new PostgreSQLContainer("postgres:17")
-            .withNetwork(NETWORK)
-            .withNetworkAliases("ledger-postgres")
-            .withDatabaseName("ledger_svc")
-            .withUsername("sagapay")
-            .withPassword("sagapay-test");
+    private static final PostgreSQLContainer LEDGER_POSTGRES = E2ESupport.ledgerPostgres(NETWORK);
 
     @Container
-    private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-                    .withFileFromPath(".", repoRoot())
-                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
-            .withNetwork(NETWORK)
-            .dependsOn(LEDGER_POSTGRES)
-            .withExposedPorts(8081, 9091)
-            .withEnv(Map.of(
-                    "SPRING_PROFILES_ACTIVE", "local,local-noauth",
-                    "SPRING_DATASOURCE_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_DATASOURCE_USERNAME", "ledger_app",
-                    "SPRING_DATASOURCE_PASSWORD", "ledger-app-test",
-                    "SPRING_FLYWAY_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_FLYWAY_USER", "sagapay",
-                    "SPRING_FLYWAY_PASSWORD", "sagapay-test",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
-            .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
-
-    private static Path repoRoot() {
-        return Paths.get(System.getProperty("user.dir")).getParent();
-    }
+    private static final GenericContainer<?> LEDGER = E2ESupport.ledger(NETWORK, LEDGER_POSTGRES);
 
     @DynamicPropertySource
     static void ledgerGrpcTarget(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.grpc.client.channel.ledger.target",
-                () -> "static://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(9091));
-        registry.add("ledger.rest.base-url", () -> "http://" + LEDGER.getHost() + ":" + LEDGER.getMappedPort(8081));
+        E2ESupport.pointOrchestratorAt(registry, LEDGER);
     }
 
     @LocalServerPort
@@ -93,6 +62,9 @@ class TransferOrchestratorE2ETest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private KafkaTemplate<String, String> kafka;
 
     private RestClient orchestratorClient;
     private RestClient ledgerClient;
@@ -129,44 +101,19 @@ class TransferOrchestratorE2ETest {
     }
 
     private UUID lookupAccountId(String handle) {
-        Map<?, ?> response = ledger().get()
-                .uri("/v1/users/lookup?handle={handle}", handle)
-                .retrieve()
-                .body(Map.class);
-        return UUID.fromString((String) response.get("accountId"));
+        return E2ESupport.lookupAccountId(ledger(), handle);
     }
 
     private BigDecimal balanceOf(UUID accountId) {
-        Map<?, ?> response = ledger().get()
-                .uri("/v1/wallet?accountId={id}", accountId)
-                .retrieve()
-                .body(Map.class);
-        Map<?, ?> balance = (Map<?, ?>) response.get("balance");
-        return new BigDecimal((String) balance.get("amount"));
+        return E2ESupport.balanceOf(ledger(), accountId);
     }
 
-    private Map<?, ?> waitForStatus(UUID transferId, String expectedStatus, Duration timeout) {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        Map<?, ?> last = null;
-        while (System.nanoTime() < deadline) {
-            last = orchestrator()
-                    .get()
-                    .uri("/v1/transfers/{id}", transferId)
-                    .header("X-User-Id", UUID.randomUUID().toString())
-                    .retrieve()
-                    .body(Map.class);
-            if (expectedStatus.equals(last.get("status"))) {
-                return last;
-            }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
-        }
-        throw new AssertionError(
-                "transfer " + transferId + " never reached " + expectedStatus + ", last seen: " + last);
+    private Map<?, ?> waitForStatus(UUID transferId, UUID senderId, String expectedStatus, Duration timeout) {
+        return E2ESupport.waitForStatus(orchestrator(), transferId, senderId, expectedStatus, timeout);
+    }
+
+    private void clearOnceScreening(UUID transferId, UUID senderId) {
+        E2ESupport.publishFraudResultOnceScreening(orchestrator(), kafka, transferId, senderId, "CLEARED");
     }
 
     @Test
@@ -189,7 +136,8 @@ class TransferOrchestratorE2ETest {
         UUID transferId = UUID.fromString((String) created.get("id"));
         assertThat(created.get("status")).isEqualTo("INITIATED");
 
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         BigDecimal senderAfter = balanceOf(senderId);
         BigDecimal recipientAfter = balanceOf(recipientId);
@@ -218,7 +166,8 @@ class TransferOrchestratorE2ETest {
                 .retrieve()
                 .body(Map.class);
         UUID transferId = UUID.fromString((String) first.get("id"));
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         try {
             orchestrator()
@@ -259,13 +208,13 @@ class TransferOrchestratorE2ETest {
                 .body(Map.class);
         UUID transferId = UUID.fromString((String) created.get("id"));
 
-        waitForStatus(transferId, "FAILED", Duration.ofSeconds(15));
+        waitForStatus(transferId, senderId, "FAILED", Duration.ofSeconds(15));
 
         assertThat(balanceOf(senderId)).isEqualByComparingTo(senderBefore); // nothing reserved, nothing moved
     }
 
     @Test
-    void reprisePollerAloneCompletesATransferForcedIntoReservedWithoutTheEagerPath() {
+    void reprisePollerAlonePostsATransferForcedIntoClearedWithoutTheEagerPath() {
         UUID senderId = lookupAccountId("julien"); // seeded 15000.00 EUR
         UUID recipientId = lookupAccountId("tomasz");
         BigDecimal senderBefore = balanceOf(senderId);
@@ -289,7 +238,7 @@ class TransferOrchestratorE2ETest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED'::transfer_status, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLEARED', ?)
                 """,
                 transferId,
                 UUID.randomUUID(),
@@ -302,16 +251,16 @@ class TransferOrchestratorE2ETest {
                 "crash recovery e2e",
                 UUID.fromString(reserved.getReservationId()));
 
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("40.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("40.00");
     }
 
-    /** Crash after the ledger reserved, before RESERVED was recorded: the replayed
+    /** Crash after the ledger reserved, before the reservation was recorded: the replayed
      * checkAndReserve returns the same reservation instead of holding twice. */
     @Test
-    void reprisePollerAloneCompletesATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
+    void reprisePollerAloneScreensATransferLeftInitiatedAfterTheLedgerAlreadyReserved() {
         UUID senderId = lookupAccountId("julien");
         UUID recipientId = lookupAccountId("tomasz");
         BigDecimal senderBefore = balanceOf(senderId);
@@ -332,7 +281,7 @@ class TransferOrchestratorE2ETest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED'::transfer_status)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED')
                 """,
                 transferId,
                 UUID.randomUUID(),
@@ -342,9 +291,10 @@ class TransferOrchestratorE2ETest {
                 recipientId,
                 new BigDecimal("15.00"),
                 "EUR",
-                "crash before RESERVED e2e");
+                "crash before the reservation was recorded e2e");
 
-        waitForStatus(transferId, "POSTED", Duration.ofSeconds(15));
+        clearOnceScreening(transferId, senderId);
+        waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("15.00");
         assertThat(balanceOf(recipientId).subtract(recipientBefore)).isEqualByComparingTo("15.00");

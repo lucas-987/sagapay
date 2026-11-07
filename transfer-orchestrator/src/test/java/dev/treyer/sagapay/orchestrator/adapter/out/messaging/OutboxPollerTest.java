@@ -11,14 +11,21 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.kafka.KafkaContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -28,6 +35,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,6 +48,16 @@ class OutboxPollerTest {
 
     @Autowired
     private OutboxRepository outboxRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private JsonMapper jsonMapper;
+
+    @Autowired
+    private DataSource dataSource;
+
     // Not the bootstrap-servers property: @ServiceConnection bypasses it, so it
     // still holds the static default address.
     @Autowired
@@ -66,8 +84,15 @@ class OutboxPollerTest {
 
     private OutboxRow newUnpublishedRow(UUID senderId) {
         String payload = "{\"senderId\":\"" + senderId + "\"}";
-        return outboxRepository.saveAndFlush(
-                new OutboxRow(UUID.randomUUID(), "Transfer", UUID.randomUUID(), "TransferInitiated", payload, null));
+        return outboxRepository.saveAndFlush(new OutboxRow(
+                UUID.randomUUID(),
+                "Transfer",
+                UUID.randomUUID(),
+                senderId.toString(),
+                "TransferInitiated",
+                payload,
+                null,
+                Instant.now()));
     }
 
     /** Polls for the whole timeout: stopping at the expected count would hide a
@@ -117,6 +142,23 @@ class OutboxPollerTest {
     }
 
     @Test
+    void aRowPublishedTwiceCarriesTheSameCloudEventIdEqualToTheRowId() {
+        UUID senderId = UUID.randomUUID();
+        OutboxRow row = newUnpublishedRow(senderId);
+
+        outboxPoller.drain();
+        jdbcTemplate.update("update outbox set published_at = null where id = ?", row.getId());
+        outboxPoller.drain();
+
+        List<ConsumerRecord<String, String>> found = pollFor(Set.of(senderId.toString()), Duration.ofSeconds(15));
+        assertThat(found).hasSize(2);
+        assertThat(found)
+                .allSatisfy(record -> assertThat(
+                                jsonMapper.readTree(record.value()).get("id").asString())
+                        .isEqualTo(row.getId().toString()));
+    }
+
+    @Test
     void concurrentDrainsPublishEachRowExactlyOnce() throws Exception {
         Set<String> senderIds = new HashSet<>();
         for (int i = 0; i < 8; i++) {
@@ -140,5 +182,30 @@ class OutboxPollerTest {
         List<ConsumerRecord<String, String>> found = pollFor(senderIds, Duration.ofSeconds(20));
         // Records, not distinct keys, so a duplicate publish is caught.
         assertThat(found).hasSize(senderIds.size());
+    }
+
+    @Test
+    @Tag("M3-S55")
+    @DisplayName("Only one instance publishes at a time")
+    void nothingIsPublishedWhileAnotherInstanceHoldsThePublisherLock() throws Exception {
+        UUID senderId = UUID.randomUUID();
+        OutboxRow row;
+        try (Connection otherInstance = dataSource.getConnection()) {
+            otherInstance.setAutoCommit(false);
+            try (Statement statement = otherInstance.createStatement()) {
+                statement.execute("select pg_advisory_xact_lock(1)");
+            }
+            row = newUnpublishedRow(senderId);
+
+            outboxPoller.drain();
+
+            assertThat(outboxRepository.findById(row.getId()).orElseThrow().getPublishedAt())
+                    .isNull();
+            otherInstance.rollback();
+        }
+
+        outboxPoller.drain();
+
+        assertThat(pollFor(Set.of(senderId.toString()), Duration.ofSeconds(10))).hasSize(1);
     }
 }

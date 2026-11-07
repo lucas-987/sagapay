@@ -1,0 +1,141 @@
+package dev.treyer.sagapay.fraud.adapter.in.kafka;
+
+import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.fraud.domain.ReservedTransfer;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class TransferEventListenerTest {
+
+    private static final UUID EVENT_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+    private static final UUID TRANSFER = UUID.fromString("44444444-4444-4444-4444-444444444444");
+    private static final UUID SENDER = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID RECIPIENT = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+    private final List<ReservedTransfer> screened = new ArrayList<>();
+    private final List<String> posted = new ArrayList<>();
+    private final TransferEventListener listener = new TransferEventListener(
+            screened::add, (senderId, recipientId) -> posted.add(senderId + " -> " + recipientId));
+
+    private static TransferEventMessage.Data data(String eventType) {
+        return new TransferEventMessage.Data(eventType, TRANSFER, SENDER, RECIPIENT, new BigDecimal("500.00"), "EUR");
+    }
+
+    private static TransferEventMessage message(UUID id, TransferEventMessage.Data data) {
+        return new TransferEventMessage(id, data);
+    }
+
+    @Test
+    void aFundsReservedEventIsScreenedWithTheEventIdOfTheEnvelope() {
+        listener.onTransferEvent(message(EVENT_ID, data("FundsReserved")));
+
+        assertThat(screened)
+                .containsExactly(
+                        new ReservedTransfer(EVENT_ID, TRANSFER, SENDER, RECIPIENT, Money.of("500.00", "EUR")));
+    }
+
+    @ParameterizedTest(name = "{0} is ignored")
+    @ValueSource(strings = {"TransferInitiated", "TransferFailed", "SomethingNew"})
+    void otherEventTypesAreIgnored(String eventType) {
+        listener.onTransferEvent(message(EVENT_ID, data(eventType)));
+
+        assertThat(screened).isEmpty();
+        assertThat(posted).isEmpty();
+    }
+
+    @Test
+    void aTransferPostedEventRecordsItsRecipientAndIsNotScreened() {
+        listener.onTransferEvent(message(EVENT_ID, data("TransferPosted")));
+
+        assertThat(posted).containsExactly(SENDER + " -> " + RECIPIENT);
+        assertThat(screened).isEmpty();
+    }
+
+    @Test
+    void aTransferPostedEventWithoutItsRecipientIsRefused() {
+        assertThatThrownBy(() -> listener.onTransferEvent(message(
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "TransferPosted", TRANSFER, SENDER, null, new BigDecimal("5.00"), "EUR"))))
+                .isExactlyInstanceOf(MalformedTransferEventException.class)
+                .hasMessage("transfer event has no recipientId");
+
+        assertThat(posted).isEmpty();
+    }
+
+    static Stream<Arguments> malformedReservations() {
+        return Stream.of(
+                malformed("no data", EVENT_ID, null, "transfer event has no data"),
+                malformed("no event type", EVENT_ID, data(null), "transfer event has no eventType"),
+                malformed("no id", null, data("FundsReserved"), "transfer event has no id"),
+                malformed(
+                        "no transferId",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", null, SENDER, RECIPIENT, new BigDecimal("5.00"), "EUR"),
+                        "transfer event has no transferId"),
+                malformed(
+                        "no senderId",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", TRANSFER, null, RECIPIENT, new BigDecimal("5.00"), "EUR"),
+                        "transfer event has no senderId"),
+                malformed(
+                        "no recipientId",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", TRANSFER, SENDER, null, new BigDecimal("5.00"), "EUR"),
+                        "transfer event has no recipientId"),
+                malformed(
+                        "no amount",
+                        EVENT_ID,
+                        new TransferEventMessage.Data("FundsReserved", TRANSFER, SENDER, RECIPIENT, null, "EUR"),
+                        "transfer event has no amount"),
+                malformed(
+                        "no currency",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00"), null),
+                        "transfer event has no currency"),
+                malformed(
+                        "an unknown currency",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00"), "ZZZ"),
+                        "FundsReserved event has an invalid amount or currency"),
+                malformed(
+                        "an amount finer than four decimals",
+                        EVENT_ID,
+                        new TransferEventMessage.Data(
+                                "FundsReserved", TRANSFER, SENDER, RECIPIENT, new BigDecimal("5.00001"), "EUR"),
+                        "FundsReserved event has an invalid amount or currency"));
+    }
+
+    private static Arguments malformed(String name, UUID id, TransferEventMessage.Data data, String expectedMessage) {
+        return Arguments.of(name, message(id, data), expectedMessage);
+    }
+
+    @ParameterizedTest(name = "a reservation with {0} is refused")
+    @MethodSource("malformedReservations")
+    void aMalformedReservationIsRefusedWithoutBeingScreened(
+            String name, TransferEventMessage message, String expectedMessage) {
+        assertThatThrownBy(() -> listener.onTransferEvent(message))
+                .isExactlyInstanceOf(MalformedTransferEventException.class)
+                .hasMessage(expectedMessage);
+
+        assertThat(screened).isEmpty();
+    }
+}

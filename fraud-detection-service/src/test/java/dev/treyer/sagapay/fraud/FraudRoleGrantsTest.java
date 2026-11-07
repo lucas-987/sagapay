@@ -1,0 +1,93 @@
+package dev.treyer.sagapay.fraud;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@DataJpaTest
+@Import(TestcontainersConfiguration.class)
+class FraudRoleGrantsTest {
+
+    private static final String INSERT_CASE =
+            "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
+                    + " values (gen_random_uuid(), gen_random_uuid(), 10, 'EUR', 0.5, array['VELOCITY'])";
+    private static final String INSERT_OUTBOX = "insert into outbox (aggregate_type, aggregate_id, event_type, payload)"
+            + " values ('FraudCase', gen_random_uuid(), 'TransferCleared', '{}'::jsonb)";
+    private static final String INSERT_PROCESSED =
+            "insert into processed_events (event_id, consumer)" + " values (gen_random_uuid(), 'transfers')";
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    // Rolled back with the test transaction.
+    private void actAsRuntimeRole() {
+        jdbcTemplate.execute("set local role fraud_app");
+    }
+
+    @Test
+    void runtimeRoleCannotRunDdl() {
+        actAsRuntimeRole();
+
+        assertThatThrownBy(() -> jdbcTemplate.execute("create table intruder (id int)"))
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void runtimeRoleCannotDeleteFraudCases() {
+        actAsRuntimeRole();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("delete from fraud_cases"))
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void runtimeRoleCannotUpdateProcessedEvents() {
+        actAsRuntimeRole();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("update processed_events set consumer = 'x'"))
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void runtimeRoleCannotReleaseAQuarantinedKey() {
+        actAsRuntimeRole();
+
+        assertThatThrownBy(() -> jdbcTemplate.update("delete from outbox_quarantine"))
+                .rootCause()
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void runtimeRoleCanQuarantineAKey() {
+        UUID row = jdbcTemplate.queryForObject(INSERT_OUTBOX + " returning id", UUID.class);
+        actAsRuntimeRole();
+
+        int inserted = jdbcTemplate.update(
+                "insert into outbox_quarantine (aggregate_id, outbox_id, reason) values (gen_random_uuid(), ?, 'r')",
+                row);
+
+        assertThat(inserted).isEqualTo(1);
+    }
+
+    @Test
+    void runtimeRoleCanWriteTheTablesItOwnsAtRuntime() {
+        actAsRuntimeRole();
+
+        jdbcTemplate.update(INSERT_CASE);
+        jdbcTemplate.update(INSERT_OUTBOX);
+        jdbcTemplate.update(INSERT_PROCESSED);
+
+        assertThat(jdbcTemplate.queryForObject("select count(*) from fraud_cases", Integer.class))
+                .isEqualTo(1);
+    }
+}

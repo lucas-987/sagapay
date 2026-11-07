@@ -23,6 +23,7 @@ import org.springframework.grpc.client.GrpcChannelFactory;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,6 +98,8 @@ class LedgerGrpcAdapterTest {
 
         assertThat(response.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
         assertThat(response.getReservationId()).isNotBlank();
+        assertThat(response.getExpiresAt().getSeconds())
+                .isGreaterThan(Instant.now().getEpochSecond());
     }
 
     @Test

@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 @Component
 class CircuitBreakerTransitionLogger {
 
@@ -20,9 +22,13 @@ class CircuitBreakerTransitionLogger {
         circuitBreaker
                 .getEventPublisher()
                 .onStateTransition(event -> log.warn(
-                        "Circuit breaker '{}' went from {} to {}",
-                        event.getCircuitBreakerName(),
-                        event.getStateTransition().getFromState(),
-                        event.getStateTransition().getToState()));
+                        "circuit breaker state changed",
+                        kv("circuit_breaker.name", event.getCircuitBreakerName()),
+                        kv(
+                                "circuit_breaker.state.from",
+                                event.getStateTransition().getFromState()),
+                        kv(
+                                "circuit_breaker.state.to",
+                                event.getStateTransition().getToState())));
     }
 }

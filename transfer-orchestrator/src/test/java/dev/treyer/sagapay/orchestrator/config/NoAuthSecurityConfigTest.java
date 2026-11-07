@@ -29,6 +29,7 @@ class NoAuthSecurityConfigTest {
                 .send(
                         HttpRequest.newBuilder(
                                         URI.create("http://localhost:" + port + "/v1/transfers/" + UUID.randomUUID()))
+                                .header("X-User-Id", UUID.randomUUID().toString())
                                 .GET()
                                 .build(),
                         HttpResponse.BodyHandlers.discarding());

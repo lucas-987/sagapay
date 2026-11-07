@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -47,17 +48,33 @@ public class Transfer {
     @Column(name = "note", updatable = false, length = 200)
     private String note;
 
-    // NAMED_ENUM binds the field to the native Postgres enum type.
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false)
     private TransferStatus status;
 
     @Column(name = "reservation_id")
     private UUID reservationId;
 
+    @Column(name = "reservation_expires_at")
+    private Instant reservationExpiresAt;
+
+    @Column(name = "release_pending", nullable = false)
+    private boolean releasePending;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "failure_reason", length = 64)
-    private String failureReason;
+    private FailureReason failureReason;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "fraud_decision")
+    private FraudDecision fraudDecision;
+
+    @Column(name = "fraud_score", precision = 5, scale = 4)
+    private BigDecimal fraudScore;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "fraud_reasons", columnDefinition = "text[]")
+    private List<String> fraudReasons;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -76,7 +93,8 @@ public class Transfer {
             UUID recipientAccountId,
             BigDecimal amount,
             String currency,
-            String note) {
+            String note,
+            Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.idempotencyKey = Objects.requireNonNull(idempotencyKey, "idempotencyKey");
         this.senderId = Objects.requireNonNull(senderId, "senderId");
@@ -87,7 +105,7 @@ public class Transfer {
         this.currency = Objects.requireNonNull(currency, "currency");
         this.note = note;
         this.status = TransferStatus.INITIATED;
-        this.createdAt = Instant.now();
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = this.createdAt;
     }
 
@@ -135,8 +153,28 @@ public class Transfer {
         return reservationId;
     }
 
-    public String getFailureReason() {
+    public Instant getReservationExpiresAt() {
+        return reservationExpiresAt;
+    }
+
+    public boolean isReleasePending() {
+        return releasePending;
+    }
+
+    public FailureReason getFailureReason() {
         return failureReason;
+    }
+
+    public FraudDecision getFraudDecision() {
+        return fraudDecision;
+    }
+
+    public BigDecimal getFraudScore() {
+        return fraudScore;
+    }
+
+    public List<String> getFraudReasons() {
+        return fraudReasons;
     }
 
     public Instant getCreatedAt() {

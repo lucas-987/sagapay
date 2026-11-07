@@ -20,6 +20,8 @@ services:
     build:
       context: ..
       dockerfile: ledger-accounts-service/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,6 +29,8 @@ services:
       - "8081:8081"
       - "9091:9091"
     environment:
+      # `local` seeds the sample accounts; `local-noauth` opens REST and gRPC until auth lands.
+      SPRING_PROFILES_ACTIVE: local,local-noauth
       # Same DB as the postgres service above, addressed by its network hostname.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc
       SPRING_DATASOURCE_USERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
@@ -69,6 +73,12 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       # Topics are created by kafka-init, never on first publish.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # A single broker: the internal topics cannot keep their default of three replicas, and
+      # without __consumer_offsets no consumer group ever gets a coordinator.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
     ports:
       - "29092:29092"
@@ -101,6 +111,8 @@ services:
     build:
       context: ..
       dockerfile: transfer-orchestrator/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
     depends_on:
       postgres-orchestrator:
         condition: service_healthy
@@ -109,6 +121,7 @@ services:
     ports:
       - "8082:8082"
     environment:
+      SPRING_PROFILES_ACTIVE: local,local-noauth
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-orchestrator:5432/orchestrator_svc
       SPRING_DATASOURCE_USERNAME: ${ORCHESTRATOR_APP_USERNAME:-orchestrator_app}
       SPRING_DATASOURCE_PASSWORD: ${ORCHESTRATOR_APP_PASSWORD}
@@ -120,7 +133,66 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
       LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
+      # The deadline also covers connecting: the first call on a cold channel needs more than the 500 ms default.
+      LEDGER_GRPC_DEADLINE_MS: ${LEDGER_GRPC_DEADLINE_MS:-5000}
+      SAGAPAY_FRAUD_VERIFICATION_CODE: ${SAGAPAY_FRAUD_VERIFICATION_CODE}
+      SAGA_CONFIRMATION_WINDOW_MS: ${SAGA_CONFIRMATION_WINDOW_MS:-120000}
+      SAGA_SCREENING_TIMEOUT_MS: ${SAGA_SCREENING_TIMEOUT_MS:-10000}
+
+  postgres-fraud:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      POSTGRES_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      POSTGRES_DB: fraud_svc
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-fraud:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d fraud_svc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  fraud-detection-service:
+    build:
+      context: ..
+      dockerfile: fraud-detection-service/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
+    depends_on:
+      postgres-fraud:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-fraud:5432/fraud_svc
+      SPRING_DATASOURCE_USERNAME: ${FRAUD_APP_USERNAME:-fraud_app}
+      SPRING_DATASOURCE_PASSWORD: ${FRAUD_APP_PASSWORD}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres-fraud:5432/fraud_svc
+      SPRING_FLYWAY_USER: ${SAGAPAY_DB_USERNAME:-sagapay}
+      SPRING_FLYWAY_PASSWORD: ${SAGAPAY_DB_PASSWORD}
+      SPRING_FLYWAY_PLACEHOLDERS_FRAUDAPPUSERNAME: ${FRAUD_APP_USERNAME:-fraud_app}
+      SPRING_FLYWAY_PLACEHOLDERS_FRAUDAPPPASSWORD: ${FRAUD_APP_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
 volumes:
   pgdata:
   pgdata-orchestrator:
+  pgdata-fraud:

@@ -30,17 +30,20 @@ import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 @Service
 public class LedgerService
@@ -53,25 +56,28 @@ public class LedgerService
                 LookupAccountUseCase,
                 ExpireReservationsUseCase {
 
-    private static final long RESERVATION_TTL_MINUTES = 5;
+    private static final Logger log = LoggerFactory.getLogger(LedgerService.class);
 
     private final AccountPort accounts;
     private final ReservationPort reservations;
     private final PostingPort postings;
     private final LedgerIdempotencyPort idempotency;
     private final JsonMapper jsonMapper;
+    private final long reservationTtlMs;
 
     public LedgerService(
             AccountPort accounts,
             ReservationPort reservations,
             PostingPort postings,
             LedgerIdempotencyPort idempotency,
-            JsonMapper jsonMapper) {
+            JsonMapper jsonMapper,
+            ReservationSettings reservationSettings) {
         this.accounts = accounts;
         this.reservations = reservations;
         this.postings = postings;
         this.idempotency = idempotency;
         this.jsonMapper = jsonMapper;
+        this.reservationTtlMs = reservationSettings.ttlMs();
     }
 
     @Override
@@ -94,8 +100,9 @@ public class LedgerService
         BigDecimal available = account.getBalance().subtract(held);
 
         UUID reservationId = UUID.randomUUID();
+        Instant expiresAt = Instant.now().plusMillis(reservationTtlMs);
         CheckAndReserveResult result = available.compareTo(requestedAmount) >= 0
-                ? new CheckAndReserveResult.Ok(reservationId)
+                ? new CheckAndReserveResult.Ok(reservationId, expiresAt)
                 : new CheckAndReserveResult.InsufficientFunds();
 
         int inserted = idempotency.insertIfAbsent(
@@ -111,18 +118,21 @@ public class LedgerService
                     ResultJson.class);
             if (!previous.fromAccountId().equals(fromAccountId)
                     || previous.amount().compareTo(requestedAmount) != 0) {
+                log.warn("reservation replayed with other parameters", kv("transfer.id", transferId));
                 throw new IdempotencyConflictException(transferId, fromAccountId, requestedAmount);
             }
             return toCheckAndReserveResult(previous);
         }
 
         if (result instanceof CheckAndReserveResult.Ok) {
-            reservations.save(new Reservation(
-                    reservationId,
-                    fromAccountId,
-                    transferId,
-                    requestedAmount,
-                    Instant.now().plus(RESERVATION_TTL_MINUTES, ChronoUnit.MINUTES)));
+            reservations.save(new Reservation(reservationId, fromAccountId, transferId, requestedAmount, expiresAt));
+            log.info(
+                    "funds reserved",
+                    kv("transfer.id", transferId),
+                    kv("reservation.id", reservationId),
+                    kv("reservation.expires_at", expiresAt));
+        } else {
+            log.info("reservation refused, insufficient funds", kv("transfer.id", transferId));
         }
         return result;
     }
@@ -165,6 +175,7 @@ public class LedgerService
         int consumed = reservations.consumeIfMatching(
                 transferId, fromAccountId, requestedAmount, ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
         if (consumed == 0) {
+            log.warn("post refused, no matching reservation", kv("transfer.id", transferId));
             throw new NoMatchingReservationException(transferId, fromAccountId, requestedAmount);
         }
 
@@ -183,14 +194,18 @@ public class LedgerService
                 transferId,
                 LedgerOperation.POST.name(),
                 toPostResultJson(posted, fromAccountId, toAccountId, requestedAmount));
+        log.info("transfer posted", kv("transfer.id", transferId), kv("posting.entry_group", entryGroup));
         return posted;
     }
 
     @Override
     @Transactional
     public void releaseReservation(String transferId, UUID reservationId) {
-        reservations.updateStatusByReservationId(
+        int released = reservations.updateStatusByReservationId(
                 transferId, reservationId, ReservationStatus.ACTIVE, ReservationStatus.RELEASED);
+        if (released > 0) {
+            log.info("reservation released", kv("transfer.id", transferId), kv("reservation.id", reservationId));
+        }
     }
 
     @Override
@@ -270,6 +285,7 @@ public class LedgerService
         if (!dto.fromAccountId().equals(fromAccountId)
                 || !dto.toAccountId().equals(toAccountId)
                 || dto.amount().compareTo(amount) != 0) {
+            log.warn("post replayed with other parameters", kv("transfer.id", transferId));
             throw new IdempotencyConflictException(transferId, fromAccountId, amount);
         }
         return Optional.of(dto.posted());
@@ -278,22 +294,24 @@ public class LedgerService
     // Flat records rather than the sealed result type: no polymorphic Jackson setup.
     // They keep the call's parameters so a replay can be checked against them.
 
-    private record ResultJson(String status, UUID reservationId, UUID fromAccountId, BigDecimal amount) {}
+    private record ResultJson(
+            String status, UUID reservationId, Instant expiresAt, UUID fromAccountId, BigDecimal amount) {}
 
     private record PostResultJson(boolean posted, UUID fromAccountId, UUID toAccountId, BigDecimal amount) {}
 
     private String toResultJson(CheckAndReserveResult result, UUID fromAccountId, BigDecimal amount) {
         ResultJson dto = switch (result) {
-            case CheckAndReserveResult.Ok ok -> new ResultJson("OK", ok.reservationId(), fromAccountId, amount);
+            case CheckAndReserveResult.Ok ok ->
+                new ResultJson("OK", ok.reservationId(), ok.expiresAt(), fromAccountId, amount);
             case CheckAndReserveResult.InsufficientFunds ignored ->
-                new ResultJson("INSUFFICIENT_FUNDS", null, fromAccountId, amount);
+                new ResultJson("INSUFFICIENT_FUNDS", null, null, fromAccountId, amount);
         };
         return jsonMapper.writeValueAsString(dto);
     }
 
     private static CheckAndReserveResult toCheckAndReserveResult(ResultJson dto) {
         return "OK".equals(dto.status())
-                ? new CheckAndReserveResult.Ok(dto.reservationId())
+                ? new CheckAndReserveResult.Ok(dto.reservationId(), dto.expiresAt())
                 : new CheckAndReserveResult.InsufficientFunds();
     }
 

@@ -1,13 +1,26 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
 import dev.treyer.sagapay.common.domain.Money;
+import dev.treyer.sagapay.common.v1.Empty;
+import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
+import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
+import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
+import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
+import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Server;
+import io.grpc.Status;
+import io.grpc.inprocess.InProcessChannelBuilder;
+import io.grpc.inprocess.InProcessServerBuilder;
+import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -20,6 +33,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -43,7 +57,8 @@ class LedgerGrpcClientAdapterTest {
     @Container
     private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
                     .withFileFromPath(".", repoRoot())
-                    .withDockerfilePath("ledger-accounts-service/Dockerfile"))
+                    .withDockerfilePath("ledger-accounts-service/Dockerfile")
+                    .withBuildArg("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")))
             .withNetwork(NETWORK)
             .dependsOn(LEDGER_POSTGRES)
             .withExposedPorts(8081, 9091)
@@ -75,7 +90,7 @@ class LedgerGrpcClientAdapterTest {
         channel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        adapter = new LedgerGrpcClientAdapter(channel, 5000);
+        adapter = new LedgerGrpcClientAdapter(channel, new LedgerProperties(new LedgerProperties.Grpc(5000)));
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");
@@ -102,6 +117,41 @@ class LedgerGrpcClientAdapterTest {
                 adapter.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
+        assertThat(((ReservationResult.Ok) result).expiresAt()).isAfter(Instant.now());
+    }
+
+    @Test
+    void anAnswerWithoutItsExpiryIsNotTakenForAReservation() throws Exception {
+        String serverName = "ledger-without-expiry";
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new LedgerServiceGrpc.LedgerServiceImplBase() {
+                    @Override
+                    public void checkAndReserve(
+                            CheckAndReserveRequest request, StreamObserver<CheckAndReserveResponse> responseObserver) {
+                        responseObserver.onNext(CheckAndReserveResponse.newBuilder()
+                                .setStatus(CheckAndReserveResponse.Status.OK)
+                                .setReservationId(UUID.randomUUID().toString())
+                                .build());
+                        responseObserver.onCompleted();
+                    }
+                })
+                .build()
+                .start();
+        ManagedChannel inProcess =
+                InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try {
+            LedgerGrpcClientAdapter adapterOfAnOldLedger =
+                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+
+            assertThatThrownBy(() -> adapterOfAnOldLedger.checkAndReserve(
+                            UUID.randomUUID().toString(), UUID.randomUUID(), Money.of("1.00", "EUR")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("without its expiry");
+        } finally {
+            inProcess.shutdownNow();
+            server.shutdownNow();
+        }
     }
 
     @Test
@@ -111,5 +161,53 @@ class LedgerGrpcClientAdapterTest {
                 .isInstanceOfSatisfying(
                         LedgerRejectedException.class,
                         e -> assertThat(e.ledgerStatus()).isEqualTo("NOT_FOUND"));
+    }
+
+    @Test
+    void releaseReservationRoundTripsToARealLedgerContainer() {
+        UUID transferId = UUID.randomUUID();
+        ReservationResult result =
+                adapter.checkAndReserve(transferId.toString(), bobAccountId, Money.of("1.00", "EUR"));
+        UUID reservationId = ((ReservationResult.Ok) result).reservationId();
+
+        adapter.releaseReservation(transferId.toString(), reservationId);
+        // The ledger answers success for a hold that is already released.
+        adapter.releaseReservation(transferId.toString(), reservationId);
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = Status.Code.class,
+            names = {"NOT_FOUND", "INVALID_ARGUMENT", "ALREADY_EXISTS"})
+    void releaseReservationRefusalCodesBecomeALedgerRejection(Status.Code code) throws Exception {
+        String serverName = "ledger-refusing-" + code;
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new LedgerServiceGrpc.LedgerServiceImplBase() {
+                    @Override
+                    public void releaseReservation(
+                            ReleaseReservationRequest request, StreamObserver<Empty> responseObserver) {
+                        responseObserver.onError(
+                                code.toStatus().withDescription("refused").asRuntimeException());
+                    }
+                })
+                .build()
+                .start();
+        ManagedChannel inProcess =
+                InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try {
+            LedgerGrpcClientAdapter refusing =
+                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+
+            assertThatThrownBy(
+                            () -> refusing.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))
+                    .isInstanceOfSatisfying(LedgerRejectedException.class, e -> {
+                        assertThat(e.ledgerStatus()).isEqualTo(code.name());
+                        assertThat(e.getMessage()).isEqualTo("refused");
+                    });
+        } finally {
+            inProcess.shutdownNow();
+            server.shutdownNow();
+        }
     }
 }

@@ -13,18 +13,40 @@ public interface OutboxRepository extends JpaRepository<OutboxRow, UUID> {
 
     List<OutboxRow> findByAggregateIdOrderByCreatedAt(UUID aggregateId);
 
-    /** SKIP LOCKED lets concurrent pollers share rows without waiting or
-     * publishing twice; it has no JPQL equivalent. */
+    @Query(nativeQuery = true, value = "select pg_try_advisory_xact_lock(:lockId)")
+    boolean tryAdvisoryTransactionLock(@Param("lockId") long lockId);
+
     @Query(nativeQuery = true, value = """
-            select * from outbox
-            where published_at is null
-            order by created_at
-            for update skip locked
+            select o.* from outbox o
+            where o.published_at is null
+              and not exists (select 1 from outbox_quarantine q where q.partition_key = o.partition_key)
+            order by o.created_at, o.id
             limit :limit
             """)
-    List<OutboxRow> findUnpublishedForUpdateSkipLocked(@Param("limit") int limit);
+    List<OutboxRow> findPublishable(@Param("limit") int limit);
 
     @Modifying
     @Query("update OutboxRow o set o.publishedAt = CURRENT_TIMESTAMP where o.id = :id and o.publishedAt is null")
     int markPublished(@Param("id") UUID id);
+
+    @Modifying
+    @Query(nativeQuery = true, value = """
+            insert into outbox_quarantine (partition_key, outbox_id, reason)
+            values (:partitionKey, :outboxId, :reason)
+            on conflict (partition_key) do nothing
+            """)
+    int quarantine(
+            @Param("partitionKey") String partitionKey,
+            @Param("outboxId") UUID outboxId,
+            @Param("reason") String reason);
+
+    @Query(nativeQuery = true, value = """
+            select coalesce(extract(epoch from now() - min(o.created_at)), 0) from outbox o
+            where o.published_at is null
+              and not exists (select 1 from outbox_quarantine q where q.partition_key = o.partition_key)
+            """)
+    double oldestPublishableAgeSeconds();
+
+    @Query(nativeQuery = true, value = "select count(*) from outbox_quarantine")
+    long countQuarantinedKeys();
 }

@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.ledger.adapter.in.grpc;
 
+import com.google.protobuf.Timestamp;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.common.v1.Empty;
 import dev.treyer.sagapay.ledger.application.port.in.CheckAndReserveUseCase;
@@ -12,6 +13,7 @@ import dev.treyer.sagapay.ledger.v1.*;
 import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /** Exceptions are left to {@code LedgerGrpcExceptionAdvice}, which maps them to a
@@ -48,6 +50,7 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
                 CheckAndReserveResponse.newBuilder()
                         .setStatus(CheckAndReserveResponse.Status.OK)
                         .setReservationId(ok.reservationId().toString())
+                        .setExpiresAt(toTimestamp(ok.expiresAt()))
                         .build();
             case CheckAndReserveResult.InsufficientFunds ignored ->
                 CheckAndReserveResponse.newBuilder()
@@ -105,6 +108,13 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
         } catch (IllegalArgumentException e) {
             throw new MalformedRequestException("amount", money.getAmount() + " " + money.getCurrency(), e);
         }
+    }
+
+    private static Timestamp toTimestamp(Instant instant) {
+        return Timestamp.newBuilder()
+                .setSeconds(instant.getEpochSecond())
+                .setNanos(instant.getNano())
+                .build();
     }
 
     private static dev.treyer.sagapay.common.v1.Money toProto(Money money) {

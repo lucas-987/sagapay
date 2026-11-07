@@ -198,9 +198,8 @@ public class SagaService
             return;
         }
 
-        boolean posted;
         try {
-            posted = ledger.postTransfer(
+            ledger.postTransfer(
                     transferId.toString(),
                     transfer.getSenderAccountId(),
                     transfer.getRecipientAccountId(),
@@ -212,10 +211,6 @@ public class SagaService
                     transferId, transfer, TransferStatus.CLEARED, SagaStepName.POST, FailureReason.POST_REJECTED, e)) {
                 releaseReservation(transfer);
             }
-            return;
-        }
-        if (!posted) {
-            // Not expected once cleared: left CLEARED for the poller to retry.
             return;
         }
 

@@ -5,7 +5,6 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
-import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
@@ -76,10 +75,9 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
 
     @Override
     @CircuitBreaker(name = "ledger", fallbackMethod = "postTransferFallback")
-    public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
-        PostTransferResponse response;
+    public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         try {
-            response = stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
+            stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
                     .postTransfer(PostTransferRequest.newBuilder()
                             .setTransferId(transferId)
                             .setFromAccountId(fromAccountId.toString())
@@ -89,11 +87,10 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         } catch (StatusRuntimeException e) {
             throw classify(e);
         }
-        return response.getPosted();
     }
 
     @SuppressWarnings("unused")
-    private boolean postTransferFallback(
+    private void postTransferFallback(
             String transferId, UUID fromAccountId, UUID toAccountId, Money amount, Throwable t) {
         throw toFallbackException(t);
     }

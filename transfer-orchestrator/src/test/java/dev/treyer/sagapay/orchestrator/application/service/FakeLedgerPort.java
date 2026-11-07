@@ -12,7 +12,6 @@ class FakeLedgerPort implements LedgerPort {
 
     private ReservationResult reservationResult = new ReservationResult.Ok(UUID.randomUUID());
     private RuntimeException reservationFailure;
-    private boolean postResult = true;
     private RuntimeException postFailure;
     private int postTransferCallCount = 0;
     private RuntimeException releaseFailure;
@@ -27,11 +26,6 @@ class FakeLedgerPort implements LedgerPort {
         this.reservationFailure = failure;
     }
 
-    void willPost(boolean result) {
-        this.postResult = result;
-        this.postFailure = null;
-    }
-
     void willFailPost(RuntimeException failure) {
         this.postFailure = failure;
     }
@@ -43,7 +37,7 @@ class FakeLedgerPort implements LedgerPort {
     /** The bean is shared by the whole test class. */
     void reset() {
         willReserve(new ReservationResult.Ok(UUID.randomUUID()));
-        willPost(true);
+        postFailure = null;
         postTransferCallCount = 0;
         releaseFailure = null;
         releasedReservations.clear();
@@ -67,12 +61,11 @@ class FakeLedgerPort implements LedgerPort {
     }
 
     @Override
-    public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
+    public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         postTransferCallCount++;
         if (postFailure != null) {
             throw postFailure;
         }
-        return postResult;
     }
 
     @Override

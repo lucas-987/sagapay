@@ -432,19 +432,6 @@ class SagaServiceTest {
     }
 
     @Test
-    void aClearedTransferTheLedgerDoesNotPostStaysClearedForThePoller() {
-        fakeLedgerPort.willPost(false);
-        Transfer transfer = clearedTransfer();
-
-        sagaService.postCleared(transfer.getId());
-
-        assertThat(transferRepository.findById(transfer.getId()).orElseThrow().getStatus())
-                .isEqualTo(TransferStatus.CLEARED);
-        assertThat(eventTypesFor(transfer.getId())).doesNotContain("TransferPosted");
-        assertThat(fakeLedgerPort.postTransferCallCount()).isEqualTo(1);
-    }
-
-    @Test
     void insufficientFundsFailsWithoutEverCallingPostTransfer() {
         fakeLedgerPort.willReserve(new ReservationResult.InsufficientFunds());
 

@@ -341,9 +341,8 @@ class ConfirmExpiryRaceTest {
         }
 
         @Override
-        public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
+        public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
             calls.add("POST " + transferId);
-            return true;
         }
 
         @Override

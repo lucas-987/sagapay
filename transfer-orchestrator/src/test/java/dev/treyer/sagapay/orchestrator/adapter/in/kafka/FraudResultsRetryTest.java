@@ -194,9 +194,8 @@ class FraudResultsRetryTest {
         }
 
         @Override
-        public boolean postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
+        public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
             postedTransferIds.add(transferId);
-            return true;
         }
 
         @Override

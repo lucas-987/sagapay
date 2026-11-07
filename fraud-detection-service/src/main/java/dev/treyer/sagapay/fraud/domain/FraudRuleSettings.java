@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 
 public record FraudRuleSettings(
         BigDecimal velocityWeight,
-        int velocityMaxPerHour,
+        int velocityMaxInWindow,
         BigDecimal newRecipientWeight,
         BigDecimal amountRoundWeight,
         BigDecimal amountRoundThreshold,
@@ -14,7 +14,7 @@ public record FraudRuleSettings(
 
     BigDecimal weightOf(FraudRule rule) {
         return switch (rule) {
-            case VELOCITY_1H -> velocityWeight;
+            case VELOCITY -> velocityWeight;
             case NEW_RECIPIENT -> newRecipientWeight;
             case AMOUNT_ROUND -> amountRoundWeight;
         };

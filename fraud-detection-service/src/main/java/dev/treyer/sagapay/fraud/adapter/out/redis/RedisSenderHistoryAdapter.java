@@ -19,10 +19,7 @@ import java.util.stream.Collectors;
 @Component
 class RedisSenderHistoryAdapter implements SenderHistoryPort {
 
-    // Fixed by the rule itself, velocity over one hour.
-    private static final Duration VELOCITY_WINDOW = Duration.ofHours(1);
-
-    // A sorted set scored by time, so that the count covers exactly the last hour: a counter whose
+    // A sorted set scored by time, so that the count covers exactly the window: a counter whose
     // expiry restarts on each transfer never falls back for a regular sender. Keyed by transfer, so
     // that counting one twice changes nothing. One script so that a crash cannot leave a key
     // without its expiry.
@@ -41,23 +38,30 @@ class RedisSenderHistoryAdapter implements SenderHistoryPort {
 
     private final StringRedisTemplate redis;
     private final Clock clock;
+    private final Duration velocityWindow;
     private final long recipientMemorySeconds;
 
     @Autowired
     RedisSenderHistoryAdapter(StringRedisTemplate redis, Clock clock, FraudRulesProperties properties) {
-        this(redis, clock, properties.newRecipient().memorySeconds());
+        this(
+                redis,
+                clock,
+                Duration.ofSeconds(properties.velocity().windowSeconds()),
+                properties.newRecipient().memorySeconds());
     }
 
-    RedisSenderHistoryAdapter(StringRedisTemplate redis, Clock clock, long recipientMemorySeconds) {
+    RedisSenderHistoryAdapter(
+            StringRedisTemplate redis, Clock clock, Duration velocityWindow, long recipientMemorySeconds) {
         this.redis = redis;
         this.clock = clock;
+        this.velocityWindow = velocityWindow;
         this.recipientMemorySeconds = recipientMemorySeconds;
     }
 
     @Override
     public SenderActivity read(UUID senderId) {
         long now = clock.millis();
-        Long count = redis.opsForZSet().count(velocityKey(senderId), now - VELOCITY_WINDOW.toMillis(), now);
+        Long count = redis.opsForZSet().count(velocityKey(senderId), now - velocityWindow.toMillis(), now);
         Set<String> recipients = redis.opsForSet().members(recipientsKey(senderId));
         return new SenderActivity(
                 count == null ? 0 : count.intValue(),
@@ -72,8 +76,8 @@ class RedisSenderHistoryAdapter implements SenderHistoryPort {
                 List.of(velocityKey(senderId)),
                 String.valueOf(now),
                 transferId.toString(),
-                String.valueOf(now - VELOCITY_WINDOW.toMillis()),
-                String.valueOf(VELOCITY_WINDOW.toSeconds()));
+                String.valueOf(now - velocityWindow.toMillis()),
+                String.valueOf(velocityWindow.toSeconds()));
     }
 
     @Override
@@ -86,7 +90,7 @@ class RedisSenderHistoryAdapter implements SenderHistoryPort {
     }
 
     private static String velocityKey(UUID senderId) {
-        return "vel:" + senderId + ":1h";
+        return "vel:" + senderId;
     }
 
     private static String recipientsKey(UUID senderId) {

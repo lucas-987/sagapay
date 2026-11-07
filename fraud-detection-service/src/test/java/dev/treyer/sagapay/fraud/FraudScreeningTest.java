@@ -103,7 +103,7 @@ class FraudScreeningTest {
     }
 
     private long transfersCountedFor(UUID senderId) {
-        return redis.opsForZSet().zCard("vel:" + senderId + ":1h");
+        return redis.opsForZSet().zCard("vel:" + senderId);
     }
 
     private int countOf(String table, String column, String value) {
@@ -188,12 +188,12 @@ class FraudScreeningTest {
         UUID transfer = UUID.randomUUID();
         UUID otherRecipient = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
-        redis.opsForZSet().add("vel:" + sender + ":1h", UUID.randomUUID().toString(), System.currentTimeMillis());
-        redis.opsForZSet().add("vel:" + sender + ":1h", UUID.randomUUID().toString(), System.currentTimeMillis());
+        redis.opsForZSet().add("vel:" + sender, UUID.randomUUID().toString(), System.currentTimeMillis());
+        redis.opsForZSet().add("vel:" + sender, UUID.randomUUID().toString(), System.currentTimeMillis());
         redis.opsForSet().add("recipients:" + sender, otherRecipient.toString());
         jdbc.update(
                 "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
-                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY_1H'])",
+                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY'])",
                 transfer,
                 sender);
 
@@ -282,7 +282,7 @@ class FraudScreeningTest {
         String eventId = UUID.randomUUID().toString();
         jdbc.update(
                 "insert into fraud_cases (transfer_id, sender_id, amount, currency, score, reasons)"
-                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY_1H'])",
+                        + " values (?, ?, 1, 'EUR', 0.5, array['VELOCITY'])",
                 transfer,
                 sender);
 

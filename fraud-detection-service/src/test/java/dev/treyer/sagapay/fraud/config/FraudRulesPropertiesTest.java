@@ -26,7 +26,7 @@ class FraudRulesPropertiesTest {
                     context.getBean(FraudRulesProperties.class).toSettings();
 
             assertThat(settings.velocityWeight()).isEqualByComparingTo("0.40");
-            assertThat(settings.velocityMaxPerHour()).isEqualTo(5);
+            assertThat(settings.velocityMaxInWindow()).isEqualTo(5);
             assertThat(settings.newRecipientWeight()).isEqualByComparingTo("0.35");
             assertThat(settings.amountRoundWeight()).isEqualByComparingTo("0.35");
             assertThat(settings.amountRoundThreshold()).isEqualByComparingTo("500");
@@ -39,8 +39,9 @@ class FraudRulesPropertiesTest {
     @Test
     void environmentVariablesOverrideTheDefaults() {
         runner.withSystemProperties(
-                        "FRAUD_RULES_VELOCITY_1H_WEIGHT=0.55",
-                        "FRAUD_RULES_VELOCITY_1H_MAX_PER_HOUR=9",
+                        "FRAUD_RULES_VELOCITY_WEIGHT=0.55",
+                        "FRAUD_RULES_VELOCITY_MAX_IN_WINDOW=9",
+                        "FRAUD_RULES_VELOCITY_WINDOW_SECONDS=600",
                         "FRAUD_RULES_NEW_RECIPIENT_WEIGHT=0.10",
                         "FRAUD_RULES_AMOUNT_ROUND_WEIGHT=0.20",
                         "FRAUD_RULES_AMOUNT_ROUND_THRESHOLD=1000",
@@ -52,7 +53,11 @@ class FraudRulesPropertiesTest {
                             context.getBean(FraudRulesProperties.class).toSettings();
 
                     assertThat(settings.velocityWeight()).isEqualByComparingTo("0.55");
-                    assertThat(settings.velocityMaxPerHour()).isEqualTo(9);
+                    assertThat(settings.velocityMaxInWindow()).isEqualTo(9);
+                    assertThat(context.getBean(FraudRulesProperties.class)
+                                    .velocity()
+                                    .windowSeconds())
+                            .isEqualTo(600);
                     assertThat(settings.newRecipientWeight()).isEqualByComparingTo("0.10");
                     assertThat(settings.amountRoundWeight()).isEqualByComparingTo("0.20");
                     assertThat(settings.amountRoundThreshold()).isEqualByComparingTo("1000");
@@ -65,8 +70,9 @@ class FraudRulesPropertiesTest {
     @ParameterizedTest
     @ValueSource(
             strings = {
-                "fraud.rules.velocity-1h.weight=-0.01",
-                "fraud.rules.velocity-1h.max-per-hour=-1",
+                "fraud.rules.velocity.weight=-0.01",
+                "fraud.rules.velocity.max-in-window=-1",
+                "fraud.rules.velocity.window-seconds=0",
                 "fraud.rules.new-recipient.weight=-0.01",
                 "fraud.rules.new-recipient.memory-seconds=0",
                 "fraud.rules.amount-round.weight=-0.01",

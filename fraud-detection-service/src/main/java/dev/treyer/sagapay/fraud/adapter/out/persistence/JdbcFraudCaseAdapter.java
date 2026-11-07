@@ -24,7 +24,7 @@ class JdbcFraudCaseAdapter implements FraudCasePort {
     @Override
     public void open(FraudCase fraudCase) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("transfersInLastHour", fraudCase.velocitySnapshot().transfersInLastHour());
+        snapshot.put("transfersInWindow", fraudCase.velocitySnapshot().transfersInWindow());
         snapshot.put(
                 "recentRecipientCount",
                 fraudCase.velocitySnapshot().recentRecipients().size());

@@ -27,7 +27,7 @@ class FraudRuleTest {
     @ParameterizedTest
     @CsvSource({"0,false", "5,false", "6,true", "50,true"})
     void velocityFiresOnlyAboveTheMaximumPerHour(int inLastHour, boolean fires) {
-        assertThat(FraudRule.VELOCITY_1H.fires(transferOf("10.00"), activity(inLastHour, Set.of(RECIPIENT)), SETTINGS))
+        assertThat(FraudRule.VELOCITY.fires(transferOf("10.00"), activity(inLastHour, Set.of(RECIPIENT)), SETTINGS))
                 .isEqualTo(fires);
     }
 

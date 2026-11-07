@@ -36,7 +36,7 @@ class FraudScorerTest {
 
         assertThat(result.decision()).isEqualTo(FraudDecision.CLEARED);
         assertThat(result.score()).isEqualByComparingTo("0.40");
-        assertThat(result.reasons()).containsExactly(FraudRule.VELOCITY_1H);
+        assertThat(result.reasons()).containsExactly(FraudRule.VELOCITY);
     }
 
     @Test
@@ -72,7 +72,7 @@ class FraudScorerTest {
 
         assertThat(result.decision()).isEqualTo(FraudDecision.FLAGGED);
         assertThat(result.score()).isEqualByComparingTo("0.75");
-        assertThat(result.reasons()).containsExactly(FraudRule.VELOCITY_1H, FraudRule.NEW_RECIPIENT);
+        assertThat(result.reasons()).containsExactly(FraudRule.VELOCITY, FraudRule.NEW_RECIPIENT);
     }
 
     @Test
@@ -82,7 +82,7 @@ class FraudScorerTest {
         assertThat(result.decision()).isEqualTo(FraudDecision.FLAGGED);
         assertThat(result.score()).isEqualByComparingTo("1.00");
         assertThat(result.reasons())
-                .containsExactly(FraudRule.VELOCITY_1H, FraudRule.NEW_RECIPIENT, FraudRule.AMOUNT_ROUND);
+                .containsExactly(FraudRule.VELOCITY, FraudRule.NEW_RECIPIENT, FraudRule.AMOUNT_ROUND);
     }
 
     @Test

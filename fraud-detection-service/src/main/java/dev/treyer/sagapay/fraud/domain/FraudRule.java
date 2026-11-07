@@ -3,10 +3,10 @@ package dev.treyer.sagapay.fraud.domain;
 import java.math.BigDecimal;
 
 public enum FraudRule {
-    VELOCITY_1H {
+    VELOCITY {
         @Override
         boolean fires(TransferToScreen transfer, SenderActivity activity, FraudRuleSettings settings) {
-            return activity.transfersInLastHour() > settings.velocityMaxPerHour();
+            return activity.transfersInWindow() > settings.velocityMaxInWindow();
         }
     },
     NEW_RECIPIENT {

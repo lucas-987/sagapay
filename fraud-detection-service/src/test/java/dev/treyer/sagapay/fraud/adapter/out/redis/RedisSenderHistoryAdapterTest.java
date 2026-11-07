@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RedisSenderHistoryAdapterTest {
 
     private static final long ONE_HOUR = 3600;
+    private static final Duration WINDOW = Duration.ofSeconds(3600);
     private static final long MEMORY = 1234567;
 
     private static GenericContainer<?> redis;
@@ -32,7 +33,7 @@ class RedisSenderHistoryAdapterTest {
     private static StringRedisTemplate template;
 
     private final MovableClock clock = new MovableClock();
-    private final RedisSenderHistoryAdapter adapter = new RedisSenderHistoryAdapter(template, clock, MEMORY);
+    private final RedisSenderHistoryAdapter adapter = new RedisSenderHistoryAdapter(template, clock, WINDOW, MEMORY);
     private final UUID sender = UUID.randomUUID();
     private final UUID recipient = UUID.randomUUID();
 
@@ -78,7 +79,7 @@ class RedisSenderHistoryAdapterTest {
             clock.advance(Duration.ofMinutes(50));
         }
 
-        assertThat(adapter.read(sender).transfersInLastHour()).isEqualTo(1);
+        assertThat(adapter.read(sender).transfersInWindow()).isEqualTo(1);
     }
 
     @Test
@@ -86,10 +87,10 @@ class RedisSenderHistoryAdapterTest {
         adapter.recordTransfer(sender, UUID.randomUUID());
 
         clock.advance(Duration.ofHours(1));
-        assertThat(adapter.read(sender).transfersInLastHour()).isEqualTo(1);
+        assertThat(adapter.read(sender).transfersInWindow()).isEqualTo(1);
 
         clock.advance(Duration.ofMillis(1));
-        assertThat(adapter.read(sender).transfersInLastHour()).isZero();
+        assertThat(adapter.read(sender).transfersInWindow()).isZero();
     }
 
     @Test
@@ -99,7 +100,7 @@ class RedisSenderHistoryAdapterTest {
 
         adapter.recordTransfer(sender, UUID.randomUUID());
 
-        assertThat(template.opsForZSet().zCard("vel:" + sender + ":1h")).isEqualTo(1);
+        assertThat(template.opsForZSet().zCard("vel:" + sender)).isEqualTo(1);
     }
 
     @Test
@@ -109,7 +110,21 @@ class RedisSenderHistoryAdapterTest {
         adapter.recordTransfer(sender, transfer);
         adapter.recordTransfer(sender, transfer);
 
-        assertThat(adapter.read(sender).transfersInLastHour()).isEqualTo(1);
+        assertThat(adapter.read(sender).transfersInWindow()).isEqualTo(1);
+    }
+
+    @Test
+    void theWindowFollowsItsSetting() {
+        RedisSenderHistoryAdapter shortWindow =
+                new RedisSenderHistoryAdapter(template, clock, Duration.ofMinutes(10), MEMORY);
+        shortWindow.recordTransfer(sender, UUID.randomUUID());
+
+        clock.advance(Duration.ofMinutes(10));
+        assertThat(shortWindow.read(sender).transfersInWindow()).isEqualTo(1);
+
+        clock.advance(Duration.ofMillis(1));
+        assertThat(shortWindow.read(sender).transfersInWindow()).isZero();
+        assertThat(template.getExpire("vel:" + sender)).isBetween(590L, 600L);
     }
 
     @Test
@@ -117,7 +132,7 @@ class RedisSenderHistoryAdapterTest {
         adapter.recordTransfer(sender, UUID.randomUUID());
         adapter.recordRecipient(sender, recipient);
 
-        assertThat(template.getExpire("vel:" + sender + ":1h")).isBetween(ONE_HOUR - 10, ONE_HOUR);
+        assertThat(template.getExpire("vel:" + sender)).isBetween(ONE_HOUR - 10, ONE_HOUR);
         assertThat(template.getExpire("recipients:" + sender)).isBetween(MEMORY - 10, MEMORY);
     }
 

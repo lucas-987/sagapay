@@ -18,7 +18,7 @@ import java.math.BigDecimal;
 @Validated
 @ConfigurationProperties(prefix = "fraud.rules")
 public record FraudRulesProperties(
-        @NotNull @Valid Velocity velocity1h,
+        @NotNull @Valid Velocity velocity,
         @NotNull @Valid NewRecipient newRecipient,
         @NotNull @Valid AmountRound amountRound,
         @NotNull @DecimalMin("0") @DecimalMax("1") BigDecimal flagThreshold,
@@ -26,7 +26,8 @@ public record FraudRulesProperties(
 
     public record Velocity(
             @NotNull @DecimalMin("0") BigDecimal weight,
-            @PositiveOrZero int maxPerHour) {}
+            @PositiveOrZero int maxInWindow,
+            @Positive long windowSeconds) {}
 
     public record NewRecipient(
             @NotNull @DecimalMin("0") BigDecimal weight,
@@ -39,8 +40,8 @@ public record FraudRulesProperties(
 
     public FraudRuleSettings toSettings() {
         return new FraudRuleSettings(
-                velocity1h.weight(),
-                velocity1h.maxPerHour(),
+                velocity.weight(),
+                velocity.maxInWindow(),
                 newRecipient.weight(),
                 amountRound.weight(),
                 amountRound.threshold(),

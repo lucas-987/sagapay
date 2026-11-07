@@ -110,7 +110,6 @@ class FraudResultPublishingTest {
                 () -> assertThat(FraudResultsTopic.recordsKeyedBy(consumerFactory, transfer.toString()))
                         .hasSize(1),
                 () -> assertThat(count("fraud_cases", "transfer_id", transfer)).isEqualTo(1),
-                () -> assertThat(redis.opsForZSet().zCard("vel:" + sender + ":1h"))
-                        .isEqualTo(2));
+                () -> assertThat(redis.opsForZSet().zCard("vel:" + sender)).isEqualTo(2));
     }
 }

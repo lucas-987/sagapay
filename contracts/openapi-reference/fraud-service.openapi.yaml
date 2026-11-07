@@ -77,7 +77,7 @@ paths:
                   type: object
                   properties:
                     id: { type: string }
-                    name: { type: string, examples: [VELOCITY_1H, NEW_RECIPIENT, ROUND_TRIP, AMOUNT_ROUND] }
+                    name: { type: string, examples: [VELOCITY, NEW_RECIPIENT, ROUND_TRIP, AMOUNT_ROUND] }
                     weight: { type: number }
                     threshold: { type: number }
                     enabled: { type: boolean }

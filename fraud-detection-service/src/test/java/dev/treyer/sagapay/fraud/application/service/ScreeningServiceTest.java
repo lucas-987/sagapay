@@ -212,7 +212,7 @@ class ScreeningServiceTest {
 
         assertThat(savedMessages.getFirst().payload())
                 .isEqualTo("{\"transferId\":\"" + TRANSFER + "\",\"senderId\":\"" + SENDER
-                        + "\",\"decision\":\"CLEARED\",\"score\":0.40,\"reasons\":[\"VELOCITY_1H\"],"
+                        + "\",\"decision\":\"CLEARED\",\"score\":0.40,\"reasons\":[\"VELOCITY\"],"
                         + "\"modelVersion\":\"rules-v1\",\"ts\":\"2026-03-01T10:15:30Z\"}");
     }
 

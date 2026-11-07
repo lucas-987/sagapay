@@ -86,7 +86,7 @@ class FraudPersistenceAdaptersTest {
         assertThat(row.get("transfer_outcome")).isNull();
         assertThat(row.get("decided_at")).isNull();
         assertThat(jsonMapper.readTree((String) row.get("snapshot")))
-                .isEqualTo(jsonMapper.readTree("{\"transfersInLastHour\":3,\"recentRecipientCount\":1}"));
+                .isEqualTo(jsonMapper.readTree("{\"transfersInWindow\":3,\"recentRecipientCount\":1}"));
     }
 
     @Test

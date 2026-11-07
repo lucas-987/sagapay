@@ -11,13 +11,20 @@ import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotFoundException;
 import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+/** The parent class answers the errors Spring detects itself: without it the catch-all below would
+ * turn them, a missing parameter for instance, into a 500. */
 @RestControllerAdvice(basePackageClasses = TransferRestAdapter.class)
-public class TransferRestExceptionHandler {
+public class TransferRestExceptionHandler extends ResponseEntityExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(TransferRestExceptionHandler.class);
 
     @ExceptionHandler(TransferNotFoundException.class)
     public ProblemDetail handleTransferNotFound(TransferNotFoundException e) {
@@ -63,5 +70,12 @@ public class TransferRestExceptionHandler {
     @ExceptionHandler(LedgerUnavailableException.class)
     public ProblemDetail handleLedgerUnavailable(LedgerUnavailableException e) {
         return Problems.of(HttpStatus.SERVICE_UNAVAILABLE, AppErrorCode.LEDGER_UNAVAILABLE, e.getMessage());
+    }
+
+    /** The message stays in the log: it may name internals the caller has no use for. */
+    @ExceptionHandler(Exception.class)
+    public ProblemDetail handleUnexpected(Exception e) {
+        log.error("request failed unexpectedly", e);
+        return Problems.of(HttpStatus.INTERNAL_SERVER_ERROR, AppErrorCode.INTERNAL_ERROR, "unexpected error");
     }
 }

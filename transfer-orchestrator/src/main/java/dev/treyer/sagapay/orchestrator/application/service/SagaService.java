@@ -374,8 +374,6 @@ public class SagaService
     }
 
     private Transfer requireTransfer(UUID transferId) {
-        return transfers
-                .findById(transferId)
-                .orElseThrow(() -> new IllegalArgumentException("unknown transfer " + transferId));
+        return transfers.findById(transferId).orElseThrow(() -> new TransferNotFoundException(transferId));
     }
 }

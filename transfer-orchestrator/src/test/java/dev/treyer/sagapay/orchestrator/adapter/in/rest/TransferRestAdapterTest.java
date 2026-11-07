@@ -409,6 +409,29 @@ class TransferRestAdapterTest {
         RECIPIENT
     }
 
+    @Test
+    void anUnexpectedFailureIsAProblemWithoutItsInternalMessage() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(getTransferUseCase.getTransfer(id, CALLER_ID)).thenThrow(new IllegalStateException("secret internals"));
+
+        mockMvc.perform(get("/v1/transfers/{id}", id).header("X-User-Id", CALLER_ID.toString()))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(content().string(not(containsString("secret internals"))));
+    }
+
+    @Test
+    void aMissingRequiredHeaderStaysA400() throws Exception {
+        mockMvc.perform(post("/v1/transfers")
+                        .header("X-User-Id", CALLER_ID.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "10.00"}}
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isBadRequest());
+    }
+
     @TestConfiguration
     static class SyncExecutorConfig {
         @Bean("applicationTaskExecutor")

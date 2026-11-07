@@ -140,8 +140,7 @@ class TransferRepositoryTest {
     @EnumSource(TransferStatus.class)
     void everyStatusRoundTripsThroughTheNativeEnumColumn(TransferStatus status) {
         Transfer saved = newTransfer();
-        jdbcTemplate.update(
-                "update transfers set status = ?::transfer_status where id = ?", status.name(), saved.getId());
+        jdbcTemplate.update("update transfers set status = ? where id = ?", status.name(), saved.getId());
         entityManager.clear();
 
         assertThat(transfers.findById(saved.getId()).orElseThrow().getStatus()).isEqualTo(status);
@@ -177,7 +176,7 @@ class TransferRepositoryTest {
     private UUID transferWith(TransferStatus status, Instant updatedAt, String... releaseOutcomes) {
         UUID id = newTransfer().getId();
         jdbcTemplate.update(
-                "update transfers set status = ?::transfer_status, updated_at = ? where id = ?",
+                "update transfers set status = ?, updated_at = ? where id = ?",
                 status.name(),
                 java.sql.Timestamp.from(updatedAt),
                 id);

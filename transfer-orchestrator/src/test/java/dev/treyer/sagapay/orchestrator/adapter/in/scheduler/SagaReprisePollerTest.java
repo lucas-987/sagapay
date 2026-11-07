@@ -67,7 +67,7 @@ class SagaReprisePollerTest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, status, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?::transfer_status, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 UUID.randomUUID(),
@@ -87,8 +87,9 @@ class SagaReprisePollerTest {
         jdbcTemplate.update(
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
-                    recipient_id, recipient_account_id, amount, currency, status, failure_reason, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, 'FAILED'::transfer_status, 'POST_REJECTED', ?)
+                    recipient_id, recipient_account_id, amount, currency, status, failure_reason, reservation_id,
+                    release_pending)
+                values (?, ?, ?, ?, ?, ?, ?, ?, 'FAILED', 'POST_REJECTED', ?, ?)
                 """,
                 id,
                 UUID.randomUUID(),
@@ -120,16 +121,14 @@ class SagaReprisePollerTest {
     @Test
     @Tag("M3-S05")
     @DisplayName("A cleared transfer whose posting was interrupted is posted by recovery")
-    void pollerPostsAClearedTransferOnceAndNeverAReservedOrScreeningOne() {
+    void pollerPostsAClearedTransferOnceAndNeverAScreeningOne() {
         UUID cleared = forceTransferInto(TransferStatus.CLEARED);
-        UUID reserved = forceTransferInto(TransferStatus.RESERVED);
         UUID screening = forceTransferInto(TransferStatus.SCREENING);
 
         reprisePoller.sweep();
         reprisePoller.sweep();
 
         assertThat(reload(cleared).getStatus()).isEqualTo(TransferStatus.POSTED);
-        assertThat(reload(reserved).getStatus()).isEqualTo(TransferStatus.RESERVED);
         assertThat(reload(screening).getStatus()).isEqualTo(TransferStatus.SCREENING);
         assertThat(fakeLedgerPort.postedTransferIds()).containsExactly(cleared.toString());
         assertThat(fakeLedgerPort.checkAndReserveCallCount()).isZero();

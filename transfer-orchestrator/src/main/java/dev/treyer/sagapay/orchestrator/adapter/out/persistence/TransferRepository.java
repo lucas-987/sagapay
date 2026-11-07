@@ -63,7 +63,7 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             join lateral (select s.deadline from saga_steps s
                           where s.transfer_id = t.id and s.step = :screenStep and s.outcome = :openOutcome
                           order by s.id desc limit 1) d on true
-            where t.status = cast(:status as transfer_status)
+            where t.status = :status
               and d.deadline < :now
             order by d.deadline, t.id
             limit :limit
@@ -83,7 +83,7 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
             insert into transfers (id, idempotency_key, sender_id, sender_account_id, recipient_id,
                 recipient_account_id, amount, currency, note, status, created_at, updated_at)
             values (:id, :idempotencyKey, :senderId, :senderAccountId, :recipientId, :recipientAccountId,
-                :amount, :currency, :note, 'INITIATED'::transfer_status, now(), now())
+                :amount, :currency, :note, 'INITIATED', now(), now())
             on conflict (sender_id, idempotency_key) do nothing
             """)
     int insertIfAbsent(
@@ -146,8 +146,8 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
      * open-session-in-view request that already loaded it. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(nativeQuery = true, value = """
-            update transfers t set status = 'CLEARED'::transfer_status, updated_at = now()
-            where t.id = :id and t.status = 'BLOCKED'::transfer_status
+            update transfers t set status = 'CLEARED', updated_at = now()
+            where t.id = :id and t.status = 'BLOCKED'
               and (select s.deadline from saga_steps s
                    where s.transfer_id = t.id and s.step = :screenStep and s.outcome = :openOutcome
                    order by s.id desc limit 1) >= :now

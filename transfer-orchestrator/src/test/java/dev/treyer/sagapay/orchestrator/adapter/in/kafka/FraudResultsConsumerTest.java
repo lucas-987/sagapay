@@ -70,7 +70,7 @@ class FraudResultsConsumerTest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, status, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?::transfer_status, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 UUID.randomUUID(),

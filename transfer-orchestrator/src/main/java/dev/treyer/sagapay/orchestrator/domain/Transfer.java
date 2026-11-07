@@ -48,9 +48,7 @@ public class Transfer {
     @Column(name = "note", updatable = false, length = 200)
     private String note;
 
-    // NAMED_ENUM binds the field to the native Postgres enum type.
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false)
     private TransferStatus status;
 

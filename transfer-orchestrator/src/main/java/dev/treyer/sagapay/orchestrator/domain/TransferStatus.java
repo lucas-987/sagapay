@@ -6,7 +6,6 @@ package dev.treyer.sagapay.orchestrator.domain;
  */
 public enum TransferStatus {
     INITIATED,
-    RESERVED,
     POSTED,
     FAILED,
     SCREENING,

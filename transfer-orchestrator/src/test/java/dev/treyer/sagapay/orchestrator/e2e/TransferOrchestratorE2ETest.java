@@ -238,7 +238,7 @@ class TransferOrchestratorE2ETest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status, reservation_id)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLEARED'::transfer_status, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLEARED', ?)
                 """,
                 transferId,
                 UUID.randomUUID(),
@@ -281,7 +281,7 @@ class TransferOrchestratorE2ETest {
                 """
                 insert into transfers (id, idempotency_key, sender_id, sender_account_id,
                     recipient_id, recipient_account_id, amount, currency, note, status)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED'::transfer_status)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'INITIATED')
                 """,
                 transferId,
                 UUID.randomUUID(),

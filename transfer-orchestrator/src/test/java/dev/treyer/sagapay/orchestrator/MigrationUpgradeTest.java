@@ -63,7 +63,38 @@ class MigrationUpgradeTest {
         assertThat(jdbc.queryForObject(
                         "select deadline is null from saga_steps where transfer_id = ?", Boolean.class, transferId))
                 .isTrue();
-        assertThat(jdbc.queryForList("select unnest(enum_range(null::transfer_status))::text", String.class))
-                .contains("SCREENING", "CLEARED", "BLOCKED");
+        assertThat(jdbc.queryForObject(
+                        "select data_type from information_schema.columns"
+                                + " where table_name = 'transfers' and column_name = 'status'",
+                        String.class))
+                .isEqualTo("text");
+        assertThat(jdbc.queryForObject("select count(*) from pg_type where typname = 'transfer_status'", Integer.class))
+                .isZero();
+    }
+
+    private static void insertOutboxRow(JdbcTemplate jdbc, UUID id, String payload) {
+        jdbc.update(
+                "insert into outbox (id, aggregate_type, aggregate_id, event_type, payload)"
+                        + " values (?, 'Transfer', ?, 'TransferInitiated', cast(? as jsonb))",
+                id,
+                UUID.randomUUID(),
+                payload);
+    }
+
+    private static UUID insertFailedTransfer(JdbcTemplate jdbc) {
+        UUID transferId = UUID.randomUUID();
+        jdbc.update(
+                """
+                insert into transfers (id, idempotency_key, sender_id, sender_account_id,
+                    recipient_id, recipient_account_id, amount, currency, status)
+                values (?, ?, ?, ?, ?, ?, 10, 'EUR', 'FAILED')
+                """,
+                transferId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID());
+        return transferId;
     }
 }

@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Import({TestcontainersConfiguration.class, SagaServiceTest.FakeLedgerPortConfig.class})
-@SpringBootTest
+@SpringBootTest(properties = {"saga.deadline.sweep-interval-ms=3600000", "saga.reprise.sweep-interval-ms=3600000"})
 @ExtendWith(OutputCaptureExtension.class)
 class SagaServiceTest {
 
@@ -269,7 +269,8 @@ class SagaServiceTest {
                 {"decision": "FLAGGED", "score": 0.9000, "reasons": ["VELOCITY", "NEW_RECIPIENT"]}"""));
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
         assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
-        assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "FundsReserved");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked");
     }
 
     @Test
@@ -617,7 +618,7 @@ class SagaServiceTest {
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
         assertThat(after.getFailureReason()).isEqualTo(FailureReason.VERIFICATION_EXPIRED);
         assertThat(eventTypesFor(transfer.getId()))
-                .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("VERIFICATION_EXPIRED");
         assertThat(fakeLedgerPort.releaseCalls()).containsExactly(reservationId);
         assertThat(stepsFor(transfer.getId()))
@@ -820,7 +821,7 @@ class SagaServiceTest {
         assertThat(stepsFor(transfer.getId()))
                 .containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY", "SCREEN OK", "POST OK");
         assertThat(eventTypesFor(transfer.getId()))
-                .containsExactly("TransferInitiated", "FundsReserved", "TransferPosted");
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked", "TransferPosted");
     }
 
     @Test

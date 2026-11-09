@@ -11,10 +11,12 @@ import org.testcontainers.utility.DockerImageName;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
+    // The JVM image: the GraalVM native one ("apache/kafka-native") crashes at startup now and then
+    // (SIGSEGV in the broker process), which fails whichever context starts it.
     @Bean
     @ServiceConnection
     KafkaContainer kafkaContainer() {
-        return new KafkaContainer(DockerImageName.parse("apache/kafka-native:latest"));
+        return new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.1"));
     }
 
     @Bean

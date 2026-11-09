@@ -1,0 +1,182 @@
+asyncapi: 3.0.0
+info:
+  title: P2 Kafka events
+  version: 1.0.0
+  description: >-
+    Kafka is the only asynchronous channel of v0.1. Values are JSON in a CloudEvents envelope,
+    `type` = `<Event>.v1`, `data` = the payload of the event. The envelope `id` is the id of
+    the outbox row the event is published from, so a replay carries the same `id`.
+servers:
+  kafka:
+    host: kafka:9092
+    protocol: kafka
+
+channels:
+  payments.transfers:
+    address: payments.transfers
+    description: >-
+      Events of the transfer saga, keyed by `senderId`. Every type shares one payload,
+      told apart by `eventType`.
+    messages:
+      TransferInitiated: { $ref: '#/components/messages/TransferInitiated' }
+      FundsReserved: { $ref: '#/components/messages/FundsReserved' }
+      TransferPosted: { $ref: '#/components/messages/TransferPosted' }
+      TransferBlocked: { $ref: '#/components/messages/TransferBlocked' }
+      TransferFailed: { $ref: '#/components/messages/TransferFailed' }
+  payments.fraud.results:
+    address: payments.fraud.results
+    description: Outcome of the fraud screening of a transfer, keyed by `transferId`.
+    messages:
+      TransferCleared: { $ref: '#/components/messages/TransferCleared' }
+      TransferFlagged: { $ref: '#/components/messages/TransferFlagged' }
+
+operations:
+  publishTransferEvents:
+    action: send
+    channel: { $ref: '#/channels/payments.transfers' }
+    summary: transfer-orchestrator publishes the events of a transfer, through its outbox.
+  screenTransfers:
+    action: receive
+    channel: { $ref: '#/channels/payments.transfers' }
+    summary: fraud-detection-service (group `fraud-screening`) screens each `FundsReserved`.
+  streamTransferActivity:
+    action: receive
+    channel: { $ref: '#/channels/payments.transfers' }
+    summary: >-
+      transfer-orchestrator, one consumer group per instance, pushes `TransferPosted`,
+      `TransferBlocked` and `TransferFailed` on its activity stream.
+  publishFraudResults:
+    action: send
+    channel: { $ref: '#/channels/payments.fraud.results' }
+    summary: fraud-detection-service publishes the decision, through its outbox.
+  applyFraudResults:
+    action: receive
+    channel: { $ref: '#/channels/payments.fraud.results' }
+    summary: transfer-orchestrator (group `orchestrator-fraud`) applies the decision.
+
+components:
+  messages:
+    TransferInitiated:
+      name: TransferInitiated
+      title: TransferInitiated
+      summary: The transfer is created, before the reservation.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferInitiated.v1 }
+              data: { $ref: '#/components/schemas/TransferEventData' }
+    FundsReserved:
+      name: FundsReserved
+      title: FundsReserved
+      summary: The hold is placed on the ledger and the transfer enters screening.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: FundsReserved.v1 }
+              data: { $ref: '#/components/schemas/TransferEventData' }
+    TransferPosted:
+      name: TransferPosted
+      title: TransferPosted
+      summary: Settlement postings are written.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferPosted.v1 }
+              data: { $ref: '#/components/schemas/TransferEventData' }
+    TransferBlocked:
+      name: TransferBlocked
+      title: TransferBlocked
+      summary: The fraud screening held the transfer and it waits for the sender's confirmation. Carries no fraud decision, score or reason.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferBlocked.v1 }
+              data: { $ref: '#/components/schemas/TransferEventData' }
+    TransferFailed:
+      name: TransferFailed
+      title: TransferFailed
+      summary: The transfer is refused or abandoned; `reason` is the code of `transfers.failure_reason`.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferFailed.v1 }
+              data: { $ref: '#/components/schemas/TransferFailedData' }
+    TransferCleared:
+      name: TransferCleared
+      title: TransferCleared
+      summary: The screening cleared the transfer.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferCleared.v1 }
+              data: { $ref: '#/components/schemas/FraudResultData' }
+    TransferFlagged:
+      name: TransferFlagged
+      title: TransferFlagged
+      summary: The screening flagged the transfer.
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEvent'
+          - properties:
+              type: { const: TransferFlagged.v1 }
+              data: { $ref: '#/components/schemas/FraudResultData' }
+  schemas:
+    CloudEvent:
+      type: object
+      required: [id, source, type, time, subject, data]
+      properties:
+        id: { type: string, format: uuid }
+        source: { type: string, description: Producing service, example: transfer-orchestrator }
+        type: { type: string, example: TransferPosted.v1 }
+        time: { type: string, format: date-time }
+        subject: { type: string, description: Id of the transfer }
+        traceparent: { type: [string, 'null'], description: Null in the body; the W3C header travels as a Kafka header }
+        data: { type: object }
+    TransferEventData:
+      type: object
+      required: [eventType, transferId, senderId, recipientId, amount, currency]
+      properties:
+        eventType:
+          type: string
+          enum: [TransferInitiated, FundsReserved, TransferPosted, TransferBlocked, TransferFailed]
+        transferId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        recipientId: { type: string, format: uuid }
+        amount: { type: string, description: Decimal string, example: '25.00' }
+        currency: { type: string, example: EUR }
+    TransferFailedData:
+      allOf:
+        - $ref: '#/components/schemas/TransferEventData'
+        - type: object
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              description: Code of `transfers.failure_reason`.
+              enum: [INSUFFICIENT_FUNDS, RESERVE_REJECTED, POST_REJECTED, SCREENING_TIMEOUT, VERIFICATION_EXPIRED]
+    FraudResultData:
+      type: object
+      required: [transferId, senderId, decision, score, reasons, modelVersion, ts]
+      properties:
+        transferId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        decision: { type: string, enum: [CLEARED, FLAGGED] }
+        score: { type: number, minimum: 0, maximum: 1 }
+        reasons:
+          type: array
+          items: { type: string, enum: [VELOCITY, NEW_RECIPIENT, AMOUNT_ROUND] }
+        modelVersion: { type: string }
+        ts: { type: string, format: date-time }

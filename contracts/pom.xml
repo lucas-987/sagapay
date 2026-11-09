@@ -12,7 +12,7 @@
     </parent>
 
     <artifactId>contracts</artifactId>
-    <description>Contracts shared between modules: gRPC definitions (proto) that several modules compile against</description>
+    <description>Contracts shared between modules: gRPC definitions (proto) that several modules compile against, and the AsyncAPI document of the Kafka events</description>
 
     <dependencies>
         <dependency>
@@ -35,6 +35,21 @@
             <artifactId>annotations-api</artifactId>
             <version>6.0.53</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

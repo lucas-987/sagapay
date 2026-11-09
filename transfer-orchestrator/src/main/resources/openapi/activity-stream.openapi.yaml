@@ -1,0 +1,105 @@
+openapi: 3.1.0
+info:
+  title: P2 Activity Stream API
+  version: 1.0.0
+  description: >-
+    Server-sent events pushed to a signed-in user about the transfers they send or receive.
+    Served by the transfer orchestrator, exposed via api-gateway under `/v1`. The document is
+    hand-written and no code is generated from it. No event carries a balance (the client
+    reads `GET /v1/wallet` again after `transfer.posted` and `transfer.failed`), and none
+    carries the fraud decision, score or reasons. The stream replays nothing: it declares no
+    `Last-Event-ID` header.
+servers:
+  - url: https://api.sagapay.example.com
+security:
+  - bearer: []
+
+paths:
+  /v1/stream/activity:
+    get:
+      operationId: streamActivity
+      summary: Stream the activity of the caller's transfers
+      description: >-
+        Long-lived `text/event-stream` response. Each event is pushed to the sender and to the
+        recipient of the transfer, and the SSE `id` is the id of the Kafka event (CloudEvent)
+        it comes from. The `cause` of `transfer.failed` is sent to the sender only.
+      responses:
+        '200':
+          description: stream open
+          content:
+            text/event-stream:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TransferPostedEvent'
+                  - $ref: '#/components/schemas/TransferBlockedEvent'
+                  - $ref: '#/components/schemas/TransferFailedEvent'
+        '401':
+          description: missing, expired or invalid bearer token
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TransferPostedEvent:
+      type: object
+      description: The transfer is settled.
+      required: [event, id, data]
+      properties:
+        event: { const: transfer.posted }
+        id: { $ref: '#/components/schemas/EventId' }
+        data: { $ref: '#/components/schemas/TransferPostedData' }
+    TransferBlockedEvent:
+      type: object
+      description: The transfer is held and waits for the sender's confirmation.
+      required: [event, id, data]
+      properties:
+        event: { const: transfer.blocked }
+        id: { $ref: '#/components/schemas/EventId' }
+        data: { $ref: '#/components/schemas/TransferBlockedData' }
+    TransferFailedEvent:
+      type: object
+      description: The transfer is refused or abandoned.
+      required: [event, id, data]
+      properties:
+        event: { const: transfer.failed }
+        id: { $ref: '#/components/schemas/EventId' }
+        data: { $ref: '#/components/schemas/TransferFailedData' }
+    EventId:
+      type: string
+      format: uuid
+      description: Id of the Kafka event (CloudEvent) the stream event comes from.
+    TransferPostedData:
+      type: object
+      required: [transferId, senderId, recipientId, amount, currency]
+      properties:
+        transferId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        recipientId: { type: string, format: uuid }
+        amount: { type: string, description: Decimal string, example: '25.00' }
+        currency: { type: string, example: EUR }
+    TransferBlockedData:
+      type: object
+      required: [transferId, senderId, recipientId, amount, currency]
+      properties:
+        transferId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        recipientId: { type: string, format: uuid }
+        amount: { type: string, description: Decimal string, example: '25.00' }
+        currency: { type: string, example: EUR }
+    TransferFailedData:
+      type: object
+      required: [transferId, senderId, recipientId, amount, currency]
+      properties:
+        transferId: { type: string, format: uuid }
+        senderId: { type: string, format: uuid }
+        recipientId: { type: string, format: uuid }
+        amount: { type: string, description: Decimal string, example: '25.00' }
+        currency: { type: string, example: EUR }
+        cause:
+          type: string
+          description: >-
+            Code of `transfers.failure_reason`, for example `INSUFFICIENT_FUNDS`. Sent to the
+            sender only and absent for the recipient, since it could reveal the sender's balance.

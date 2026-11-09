@@ -110,8 +110,10 @@ class SagaTransitionWriter {
         return true;
     }
 
-    /** Same rule as {@link #tryApplyCleared}. The reservation stays held, so the ledger is not called,
-     * unless it would expire before the sender can answer: see {@link FlagOutcome#EXPIRED}. */
+    /** Same rule as {@link #tryApplyCleared}. A transfer moved to {@code BLOCKED} also gets its
+     * {@code TransferBlocked} event, which carries neither the score nor the reasons. The
+     * reservation stays held, so the ledger is not called, unless it would expire before the
+     * sender can answer: see {@link FlagOutcome#EXPIRED}. */
     @Transactional
     FlagOutcome tryApplyFlagged(FraudResult result) {
         if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
@@ -134,6 +136,7 @@ class SagaTransitionWriter {
         }
         sagaSteps.save(new SagaStep(
                 result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.RETRY, fraudDetail(result), deadline, now));
+        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_BLOCKED, now));
         return deadline.equals(windowEnd) ? FlagOutcome.BLOCKED : FlagOutcome.BLOCKED_SHORTENED;
     }
 

@@ -11,7 +11,6 @@ COPY ledger-accounts-service/pom.xml ledger-accounts-service/
 COPY transfer-orchestrator/pom.xml transfer-orchestrator/
 COPY fraud-detection-service/pom.xml fraud-detection-service/
 COPY api-gateway/pom.xml api-gateway/
-COPY notification-consumer/pom.xml notification-consumer/
 # Optional Maven mirror, for builds without direct access to Maven Central.
 ARG MAVEN_MIRROR_URL=
 RUN if [ -n "$MAVEN_MIRROR_URL" ]; then \

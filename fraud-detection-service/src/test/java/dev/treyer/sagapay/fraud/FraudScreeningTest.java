@@ -283,6 +283,25 @@ class FraudScreeningTest {
     }
 
     @Test
+    @DisplayName("A TransferBlocked event is acknowledged by fraud with no write and no counter change")
+    void aTransferBlockedEventIsAcknowledgedWithoutAnyEffect() {
+        String blockedEventId = UUID.randomUUID().toString();
+        UUID blocked = UUID.randomUUID();
+        send(event(blockedEventId, "TransferBlocked", blocked, sender, recipient, "500.00"));
+        UUID reserved = UUID.randomUUID();
+        sendReserved(UUID.randomUUID().toString(), reserved, recipient, "20.00");
+
+        awaitResultFor(reserved);
+
+        assertThat(countOf("processed_events", "event_id", blockedEventId)).isZero();
+        assertThat(countOf("outbox", "aggregate_id", blocked.toString())).isZero();
+        assertThat(countOf("fraud_cases", "transfer_id", blocked.toString())).isZero();
+        assertThat(transfersCountedFor(sender)).isEqualTo(1);
+        assertThat(redis.opsForSet().members("recipients:" + sender)).isEmpty();
+        assertThat(failedDeliveries).isEmpty();
+    }
+
+    @Test
     @DisplayName("A failing screening is retried three times, then set aside as dead letter")
     void aFailingScreeningIsRetriedThreeTimesThenDeadLettered() {
         UUID transfer = UUID.randomUUID();

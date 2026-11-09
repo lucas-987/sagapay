@@ -179,9 +179,47 @@
 
 	<build>
 		<plugins>
+			<!-- The interfaces and models generated from the OpenAPI document hold no
+			     hand-written logic: they stay out of the coverage ratio. -->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>dev/treyer/sagapay/transfer/api/**</exclude>
+						<exclude>dev/treyer/sagapay/transfer/model/**</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.openapitools</groupId>
+				<artifactId>openapi-generator-maven-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>transfer-api</id>
+						<goals>
+							<goal>generate</goal>
+						</goals>
+						<configuration>
+							<inputSpec>${project.basedir}/src/main/resources/openapi/transfer-service.openapi.yaml</inputSpec>
+							<output>${project.build.directory}/generated-sources/openapi-transfer</output>
+							<generatorName>spring</generatorName>
+							<apiPackage>dev.treyer.sagapay.transfer.api</apiPackage>
+							<modelPackage>dev.treyer.sagapay.transfer.model</modelPackage>
+							<configOptions>
+								<interfaceOnly>true</interfaceOnly>
+								<useSpringBoot3>true</useSpringBoot3>
+								<documentationProvider>none</documentationProvider>
+								<annotationLibrary>none</annotationLibrary>
+								<openApiNullable>false</openApiNullable>
+							</configOptions>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

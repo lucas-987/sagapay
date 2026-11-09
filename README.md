@@ -37,30 +37,24 @@ Dependencies point inwards only: adapters depend on the application, the applica
 the domain. JPA entities live in `domain/` and are not duplicated as pure domain classes
 behind a mapper.
 
-## Contracts (`contracts`)
+## Contracts
 
-The `contracts` module is the source of truth for the interfaces (gRPC proto +
-OpenAPI); the other modules compile against the code generated from it.
+The `contracts` module holds the definitions several modules compile against: the gRPC
+proto files. Each service owns its OpenAPI document and generates its own Spring MVC
+interfaces from it, in `interfaceOnly` mode (no controller is generated):
+
+- `ledger-accounts-service/src/main/resources/openapi/ledger-accounts-service.openapi.yaml`
+- `transfer-orchestrator/src/main/resources/openapi/transfer-service.openapi.yaml`
 
 ### Regenerating the contracts
 
 ```bash
-./mvnw -pl contracts generate-sources
+./mvnw -pl contracts,ledger-accounts-service,transfer-orchestrator generate-sources
 ```
 
-### Where the generated sources land
-
-Everything under `contracts/target/generated-sources/` (not versioned,
-regenerated on every build):
-
-- `protobuf/` — gRPC messages + stubs generated from `src/main/proto/**`.
-- `openapi-transfer/src/main/java/` — Spring MVC interfaces generated from
-  `src/main/resources/openapi/transfer-service.openapi.yaml`.
-- `openapi-ledger/src/main/java/` — same, generated from
-  `ledger-accounts-service.openapi.yaml`.
-
-Both OpenAPI executions run in `interfaceOnly` mode: only the interfaces to
-implement are generated, no controller.
+Generated sources are under each module's `target/generated-sources/` (not versioned,
+regenerated on every build): `protobuf/` in `contracts`, `openapi-ledger/` in
+`ledger-accounts-service`, `openapi-transfer/` in `transfer-orchestrator`.
 
 ## Running the stack locally
 

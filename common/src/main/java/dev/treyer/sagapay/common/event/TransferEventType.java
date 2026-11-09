@@ -5,7 +5,8 @@ public enum TransferEventType {
     TRANSFER_INITIATED("TransferInitiated"),
     FUNDS_RESERVED("FundsReserved"),
     TRANSFER_POSTED("TransferPosted"),
-    TRANSFER_FAILED("TransferFailed");
+    TRANSFER_FAILED("TransferFailed"),
+    TRANSFER_BLOCKED("TransferBlocked");
 
     private final String wireName;
 

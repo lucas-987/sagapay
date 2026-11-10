@@ -1,0 +1,67 @@
+{
+  "realm": "sagapay",
+  "enabled": true,
+  "sslRequired": "none",
+  "users": [
+    {
+      "id": "00000000-0000-4000-a000-000000000013",
+      "username": "marco",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Marco",
+      "lastName": "Bianchi",
+      "email": "marco@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${MARCO_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000009",
+      "username": "ines",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Inès",
+      "lastName": "Moreau",
+      "email": "ines@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${INES_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000008",
+      "username": "hugo",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Hugo",
+      "lastName": "Leroy",
+      "email": "hugo@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${HUGO_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "sagapay-cli",
+      "name": "Command-line token client",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false
+    }
+  ]
+}

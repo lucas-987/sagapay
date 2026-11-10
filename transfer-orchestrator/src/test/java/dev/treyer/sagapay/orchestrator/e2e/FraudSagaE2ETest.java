@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.e2e;
 
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
+import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -12,7 +13,6 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.HttpClientErrorException;
@@ -37,8 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * test; the screening deadline and the confirmation window are shortened.
  */
 @Testcontainers
-@Import(TestcontainersConfiguration.class)
-@ActiveProfiles("local-noauth")
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -108,7 +107,7 @@ class FraudSagaE2ETest {
         Map<?, ?> created = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("""
@@ -122,7 +121,7 @@ class FraudSagaE2ETest {
         orchestrator()
                 .post()
                 .uri("/v1/transfers/{id}/confirm", transferId)
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"verificationToken\": \"%s\"}".formatted(VERIFICATION_CODE))
                 .retrieve()

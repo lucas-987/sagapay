@@ -60,9 +60,9 @@ regenerated on every build): `protobuf/` in `contracts`, `openapi-ledger/` in
 
 The Docker Compose stack runs the ledger, the transfer orchestrator and the fraud
 service with their databases, Kafka and Redis. The ledger and the orchestrator start
-with the `local,local-noauth` profiles: the ledger seeds sample accounts (`marco` holds
-150000.00 EUR) and both open their REST endpoints without credentials until
-authentication lands.
+with the `local` profile, and the ledger also with `local-noauth`: the ledger seeds sample
+accounts (`marco` holds 150000.00 EUR) and opens its endpoints without credentials until it
+checks tokens. The orchestrator refuses a call without a valid token.
 
 ```bash
 cp .env.example .env     # then fill in every empty password
@@ -71,11 +71,12 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build
 ```
 
 The published ports (8081 to 8083, 8180, the databases, Redis and Kafka) are bound on every
-host interface and the `local-noauth` profile asks for no credentials: run the stack on
-a trusted network only. They must be free on the host, so stop any other stack first.
+host interface and the ledger's `local-noauth` profile asks for no credentials: run the stack
+on a trusted network only. They must be free on the host, so stop any other stack first.
 
-Every service answers `GET /actuator/health` with `{"status":"UP"}`: ledger on 8081,
-orchestrator on 8082, fraud service on 8083.
+Every service answers `GET /actuator/health` with `{"status":"UP"}`, with no token: ledger on
+8081, orchestrator on 8082, fraud service on 8083. The orchestrator refuses every other
+Actuator endpoint, with or without a token.
 
 Settings read from `.env` or the shell:
 
@@ -115,33 +116,40 @@ With the default fraud rules, 500.00 EUR sent to a recipient the sender never pa
 flagged. This holds once per recipient: after the transfer is posted the recipient is no
 longer new and the same amount is not flagged again. To start over, reset the stack with
 `docker compose --env-file .env -f infra/docker-compose.yml down -v`. The commands below
-use `marco` as sender and `ines` as recipient; the transfer endpoints take the sender in
-`X-User-Id`. They need `curl`, `jq` and `uuidgen`, and the verification code in the
-shell, which `--env-file` does not provide:
+use `marco` as sender and `ines` as recipient; the transfer endpoints take the sender from
+the subject of the token sent in `Authorization: Bearer`. They need `curl`, `jq` and
+`uuidgen`, the verification code in the shell, which `--env-file` does not provide, and
+`marco`'s password (see "Getting a token"):
 
 ```bash
-set -a; . ./.env; set +a    # exports SAGAPAY_FRAUD_VERIFICATION_CODE
+set -a; . ./.env; . infra/keycloak.env; set +a    # exports SAGAPAY_FRAUD_VERIFICATION_CODE, MARCO_PASSWORD
+
+# 0. Get marco's token: it names the sender of every call below.
+TOKEN=$(curl -s http://localhost:8180/realms/sagapay/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=sagapay-cli -d username=marco -d password="$MARCO_PASSWORD" \
+  | jq -r .access_token)
 
 SENDER=$(curl -s 'http://localhost:8081/v1/users/lookup?handle=marco' | jq -r .accountId)
 RECIPIENT=$(curl -s 'http://localhost:8081/v1/users/lookup?handle=ines' | jq -r .accountId)
 
-# 1. Send the transfer: 202, the body holds the transfer id.
+# 1. Send the transfer: 202, the body holds the transfer id. The token expires after a few
+#    minutes: get a new one when a call answers 401.
 ID=$(curl -s -X POST http://localhost:8082/v1/transfers \
-  -H "X-User-Id: $SENDER" -H "Idempotency-Key: $(uuidgen)" \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: $(uuidgen)" \
   -H 'Content-Type: application/json' \
   -d "{\"toUserId\": \"$RECIPIENT\", \"amount\": {\"currency\": \"EUR\", \"amount\": \"500.00\"}}" \
   | jq -r .id)
 
 # 2. A moment later the transfer is flagged: "status": "BLOCKED".
-curl -s -H "X-User-Id: $SENDER" http://localhost:8082/v1/transfers/$ID | jq .status
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8082/v1/transfers/$ID | jq .status
 
 # 3. Confirm it with the configured code: 202.
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8082/v1/transfers/$ID/confirm \
-  -H "X-User-Id: $SENDER" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"verificationToken\": \"$SAGAPAY_FRAUD_VERIFICATION_CODE\"}"
 
 # 4. The transfer is posted: "status": "POSTED".
-curl -s -H "X-User-Id: $SENDER" http://localhost:8082/v1/transfers/$ID | jq .status
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8082/v1/transfers/$ID | jq .status
 ```
 
 To watch a flagged transfer expire, repeat step 1 to another seeded recipient (`hugo`)

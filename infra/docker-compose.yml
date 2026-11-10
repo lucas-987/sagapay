@@ -118,10 +118,16 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
     ports:
       - "8082:8082"
     environment:
-      SPRING_PROFILES_ACTIVE: local,local-noauth
+      # The ledger keeps `local-noauth` until it checks tokens, so the gRPC calls still work.
+      SPRING_PROFILES_ACTIVE: local
+      # The address Keycloak's tokens name as issuer, which the stack resolves from every container.
+      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-orchestrator:5432/orchestrator_svc
       SPRING_DATASOURCE_USERNAME: ${ORCHESTRATOR_APP_USERNAME:-orchestrator_app}
       SPRING_DATASOURCE_PASSWORD: ${ORCHESTRATOR_APP_PASSWORD}

@@ -4,6 +4,7 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
+import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import org.junit.jupiter.api.AfterAll;
@@ -15,7 +16,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -38,8 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * actually moves and the sum of balances is asserted unchanged.
  */
 @Testcontainers
-@Import(TestcontainersConfiguration.class)
-@ActiveProfiles("local-noauth")
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
 @TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=1000"})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "ledger.grpc.deadline-ms=5000")
 class TransferOrchestratorE2ETest {
@@ -126,7 +125,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> created = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""
@@ -159,7 +158,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> first = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", idempotencyKey.toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(requestBody)
@@ -173,7 +172,7 @@ class TransferOrchestratorE2ETest {
             orchestrator()
                     .post()
                     .uri("/v1/transfers")
-                    .header("X-User-Id", senderId.toString())
+                    .header("Authorization", E2ESupport.bearer(senderId))
                     .header("Idempotency-Key", idempotencyKey.toString())
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                     .body(requestBody)
@@ -199,7 +198,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> created = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""

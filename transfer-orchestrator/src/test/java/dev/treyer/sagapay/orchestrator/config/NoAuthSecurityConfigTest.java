@@ -24,7 +24,7 @@ class NoAuthSecurityConfigTest {
     private int port;
 
     @Test
-    void restEndpointIsReachableWithoutAuthenticationUnderLocalNoauthProfile() throws Exception {
+    void aUserEndpointAnswers401UnderLocalNoauthBecauseTheCallHasNoIdentity() throws Exception {
         HttpResponse<Void> response = HttpClient.newHttpClient()
                 .send(
                         HttpRequest.newBuilder(
@@ -34,7 +34,6 @@ class NoAuthSecurityConfigTest {
                                 .build(),
                         HttpResponse.BodyHandlers.discarding());
 
-        // 404, not 401: the request reached the use case.
-        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.statusCode()).isEqualTo(401);
     }
 }

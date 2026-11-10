@@ -112,11 +112,11 @@ class LocalStackFraudFlowE2ETest {
                 "http://" + stack.getServiceHost(service, port) + ":" + stack.getServicePort(service, port));
     }
 
-    private static UUID flaggedTransfer(UUID senderId, UUID recipientId) {
+    private static UUID flaggedTransfer(String token, UUID recipientId) {
         Map<?, ?> created = orchestrator
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .headers(headers -> headers.setBearerAuth(token))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("""
@@ -126,11 +126,11 @@ class LocalStackFraudFlowE2ETest {
         return UUID.fromString((String) created.get("id"));
     }
 
-    private static int confirm(UUID transferId, UUID senderId) {
+    private static int confirm(UUID transferId, String token) {
         return orchestrator
                 .post()
                 .uri("/v1/transfers/{id}/confirm", transferId)
-                .header("X-User-Id", senderId.toString())
+                .headers(headers -> headers.setBearerAuth(token))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"verificationToken\": \"%s\"}".formatted(VERIFICATION_CODE))
                 .retrieve()
@@ -205,31 +205,62 @@ class LocalStackFraudFlowE2ETest {
     }
 
     @Test
+    @DisplayName("The orchestrator refuses a call without a token")
+    void orchestratorRefusesACallWithoutAToken() {
+        assertThatThrownBy(
+                        () -> orchestrator.get().uri("/v1/transfers").retrieve().toBodilessEntity())
+                .isInstanceOfSatisfying(
+                        HttpClientErrorException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(401));
+    }
+
+    @Test
+    @DisplayName("A transfer to a recipient named by handle is accepted with the caller's token")
+    void transferToARecipientNamedByHandleIsAccepted() {
+        // ines pays marco: no flagged-flow test sends from ines, and the fraud history that makes
+        // a recipient known is per sender, so this transfer cannot change what those tests see.
+        UUID recipientId = E2ESupport.lookupAccountId(ledger, "marco");
+
+        Map<?, ?> created = orchestrator
+                .post()
+                .uri("/v1/transfers")
+                .headers(headers -> headers.setBearerAuth(tokenFor("ines")))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"toHandle": "@marco", "amount": {"currency": "EUR", "amount": "1.00"}}""")
+                .retrieve()
+                .body(Map.class);
+
+        assertThat(created.get("recipientId")).isEqualTo(recipientId.toString());
+    }
+
+    @Test
     @Tag("M3-S42")
     @DisplayName("A flagged transfer confirmed with the configured code is posted")
     void flaggedTransferConfirmedWithTheConfiguredCodeIsPosted() {
-        UUID senderId = E2ESupport.lookupAccountId(ledger, "marco");
+        String senderToken = tokenFor("marco");
         UUID recipientId = E2ESupport.lookupAccountId(ledger, "ines");
 
-        UUID transferId = flaggedTransfer(senderId, recipientId);
-        E2ESupport.waitForStatus(orchestrator, transferId, senderId, "BLOCKED", WAIT);
+        UUID transferId = flaggedTransfer(senderToken, recipientId);
+        E2ESupport.waitForStatus(orchestrator, transferId, "Bearer " + senderToken, "BLOCKED", WAIT);
 
-        assertThat(confirm(transferId, senderId)).isEqualTo(202);
-        E2ESupport.waitForStatus(orchestrator, transferId, senderId, "POSTED", WAIT);
+        assertThat(confirm(transferId, senderToken)).isEqualTo(202);
+        E2ESupport.waitForStatus(orchestrator, transferId, "Bearer " + senderToken, "POSTED", WAIT);
     }
 
     @Test
     @Tag("M3-S43")
     @DisplayName("A flagged transfer left alone expires")
     void flaggedTransferLeftAloneExpires() {
-        UUID senderId = E2ESupport.lookupAccountId(ledger, "marco");
+        String senderToken = tokenFor("marco");
         UUID recipientId = E2ESupport.lookupAccountId(ledger, "hugo");
 
-        UUID transferId = flaggedTransfer(senderId, recipientId);
-        Map<?, ?> failed = E2ESupport.waitForStatus(orchestrator, transferId, senderId, "FAILED", WAIT);
+        UUID transferId = flaggedTransfer(senderToken, recipientId);
+        Map<?, ?> failed = E2ESupport.waitForStatus(orchestrator, transferId, "Bearer " + senderToken, "FAILED", WAIT);
 
         assertThat(failed.get("failureReason")).isEqualTo("VERIFICATION_EXPIRED");
-        assertThatThrownBy(() -> confirm(transferId, senderId))
+        assertThatThrownBy(() -> confirm(transferId, senderToken))
                 .isInstanceOfSatisfying(HttpClientErrorException.class, e -> {
                     assertThat(e.getStatusCode().value()).isEqualTo(410);
                     assertThat(e.getResponseBodyAs(Map.class).get("code")).isEqualTo("VERIFICATION_EXPIRED");

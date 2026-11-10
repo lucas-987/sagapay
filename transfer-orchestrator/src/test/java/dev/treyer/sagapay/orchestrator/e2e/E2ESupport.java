@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.e2e;
 
+import dev.treyer.sagapay.orchestrator.security.TestTokens;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.web.client.RestClient;
@@ -90,15 +91,29 @@ final class E2ESupport {
         return new BigDecimal((String) money.get("amount"));
     }
 
+    static String bearer(UUID userId) {
+        return "Bearer " + TestTokens.forSubject(userId);
+    }
+
     static Map<?, ?> waitForStatus(
             RestClient orchestratorRest, UUID transferId, UUID userId, String expectedStatus, Duration timeout) {
+        return waitForStatus(orchestratorRest, transferId, bearer(userId), expectedStatus, timeout);
+    }
+
+    /** {@code authorization} is the whole header value. */
+    static Map<?, ?> waitForStatus(
+            RestClient orchestratorRest,
+            UUID transferId,
+            String authorization,
+            String expectedStatus,
+            Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         Map<?, ?> last = null;
         while (System.nanoTime() < deadline) {
             last = orchestratorRest
                     .get()
                     .uri("/v1/transfers/{id}", transferId)
-                    .header("X-User-Id", userId.toString())
+                    .header("Authorization", authorization)
                     .retrieve()
                     .body(Map.class);
             if (expectedStatus.equals(last.get("status"))) {

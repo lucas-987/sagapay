@@ -24,9 +24,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.ZoneOffset;
 import java.util.List;
@@ -37,15 +37,13 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
  * {@code POST /v1/requests} keeps the generated 501: money requests are out of the
- * MVP. {@code X-User-Id} stands in for the token subject until authentication is
- * wired. A user id is also its account id: the ledger has no separate user entity.
+ * MVP. The caller is the subject of the validated token. A user id is also its account id:
+ * the ledger has no separate user entity.
  */
 @RestController
 public class TransferRestAdapter implements V1Api {
 
     private static final Logger log = LoggerFactory.getLogger(TransferRestAdapter.class);
-
-    private static final String USER_ID_HEADER = "X-User-Id";
 
     private final InitiateTransferUseCase initiateTransferUseCase;
     private final AdvanceSagaUseCase advanceSagaUseCase;
@@ -168,18 +166,18 @@ public class TransferRestAdapter implements V1Api {
     }
 
     private UUID requireUserId() {
-        // V1Api.getRequest() is an extension point that returns empty by default.
-        ServletRequestAttributes attributes =
-                (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
-        // Local stand-in for the token subject, until M4 wires real authentication.
-        String value = attributes.getRequest().getHeader(USER_ID_HEADER);
-        if (value == null) {
-            throw new MalformedRequestException("missing " + USER_ID_HEADER + " header");
+        if (!(SecurityContextHolder.getContext().getAuthentication()
+                instanceof JwtAuthenticationToken authentication)) {
+            throw new UnidentifiedCallerException("no validated token");
+        }
+        String subject = authentication.getToken().getSubject();
+        if (subject == null) {
+            throw new UnidentifiedCallerException("token without subject");
         }
         try {
-            return UUID.fromString(value);
+            return UUID.fromString(subject);
         } catch (IllegalArgumentException e) {
-            throw new MalformedRequestException(USER_ID_HEADER, value, e);
+            throw new UnidentifiedCallerException("token subject is not an account id", e);
         }
     }
 

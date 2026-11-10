@@ -13,11 +13,15 @@ import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /** The parent class answers the errors Spring detects itself: without it the catch-all below would
  * turn them, a missing parameter for instance, into a 500. */
@@ -25,6 +29,15 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class TransferRestExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(TransferRestExceptionHandler.class);
+
+    /** The same answer as the security chain gives a call without a valid token: no body. */
+    @ExceptionHandler(UnidentifiedCallerException.class)
+    public ResponseEntity<Void> handleUnidentifiedCaller(UnidentifiedCallerException e) {
+        log.warn("request refused, caller not identified", kv("reason", e.getMessage()));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .build();
+    }
 
     @ExceptionHandler(TransferNotFoundException.class)
     public ProblemDetail handleTransferNotFound(TransferNotFoundException e) {

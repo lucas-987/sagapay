@@ -10,10 +10,16 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.ComposeContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * The stack exactly as {@code infra/docker-compose.yml} runs it, driven over HTTP the way the
  * README does. Only the secrets and the confirmation window are given through the environment.
  *
- * <p>The compose file publishes fixed host ports (8081 to 8083, 5432 to 5434, 6379, 29092) and
+ * <p>The compose file publishes fixed host ports (8081 to 8083, 8180, 5432 to 5434, 6379, 29092) and
  * the build takes minutes: the ports must be free, and the class must not run in parallel with
  * another stack or build.
  */
@@ -35,10 +41,13 @@ class LocalStackFraudFlowE2ETest {
     private static final int LEDGER_PORT = 8081;
     private static final int ORCHESTRATOR_PORT = 8082;
     private static final int FRAUD_PORT = 8083;
+    private static final int KEYCLOAK_PORT = 8180;
+    private static final String ISSUER = "http://keycloak:8180/realms/sagapay";
 
     private static ComposeContainer stack;
     private static RestClient ledger;
     private static RestClient orchestrator;
+    private static RestClient keycloak;
 
     @BeforeAll
     static void startStack() {
@@ -54,6 +63,8 @@ class LocalStackFraudFlowE2ETest {
                         "LEDGER_APP_PASSWORD", "compose-ledger-password",
                         "ORCHESTRATOR_APP_PASSWORD", "compose-orchestrator-password",
                         "FRAUD_APP_PASSWORD", "compose-fraud-password",
+                        "KEYCLOAK_ADMIN_PASSWORD", "compose-keycloak-password",
+                        "KEYCLOAK_ENV_FILE", sampleUserPasswords().toString(),
                         "SAGAPAY_FRAUD_VERIFICATION_CODE", VERIFICATION_CODE,
                         "SAGA_CONFIRMATION_WINDOW_MS", "10000"))
                 .withExposedService(
@@ -67,10 +78,26 @@ class LocalStackFraudFlowE2ETest {
                 .withExposedService(
                         "fraud-detection-service",
                         FRAUD_PORT,
-                        Wait.forHttp("/actuator/health").withStartupTimeout(Duration.ofMinutes(10)));
+                        Wait.forHttp("/actuator/health").withStartupTimeout(Duration.ofMinutes(10)))
+                .withExposedService(
+                        "keycloak",
+                        KEYCLOAK_PORT,
+                        Wait.forHttp("/realms/sagapay").withStartupTimeout(Duration.ofMinutes(10)));
         stack.start();
         ledger = clientOf("ledger-accounts-service", LEDGER_PORT);
         orchestrator = clientOf("transfer-orchestrator", ORCHESTRATOR_PORT);
+        keycloak = clientOf("keycloak", KEYCLOAK_PORT);
+    }
+
+    /** Each sample user's password is their handle, in the file format Compose reads. */
+    private static Path sampleUserPasswords() {
+        try {
+            Path file = Files.createTempFile("keycloak", ".env");
+            file.toFile().deleteOnExit();
+            return Files.writeString(file, "MARCO_PASSWORD=marco\nINES_PASSWORD=ines\nHUGO_PASSWORD=hugo\n");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @AfterAll
@@ -125,6 +152,56 @@ class LocalStackFraudFlowE2ETest {
         Map<?, ?> body =
                 clientOf(service, port).get().uri("/actuator/health").retrieve().body(Map.class);
         return Map.of("status", body.get("status"));
+    }
+
+    private static String tokenFor(String handle) {
+        Map<?, ?> token = keycloak.post()
+                .uri("/realms/sagapay/protocol/openid-connect/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body("grant_type=password&client_id=sagapay-cli&username=%s&password=%s".formatted(handle, handle))
+                .retrieve()
+                .body(Map.class);
+        return (String) token.get("access_token");
+    }
+
+    private static Map<?, ?> claimsOf(String jwt) {
+        byte[] payload = Base64.getUrlDecoder().decode(jwt.split("\\.")[1]);
+        return JsonMapper.builder().build().readValue(payload, Map.class);
+    }
+
+    @Test
+    @DisplayName("A token fetched for marco has the id of marco's account as subject")
+    void tokenFetchedForMarcoHasTheIdOfMarcosAccountAsSubject() {
+        UUID marcoAccountId = E2ESupport.lookupAccountId(ledger, "marco");
+
+        Map<?, ?> claims = claimsOf(tokenFor("marco"));
+
+        assertThat(claims.get("sub")).isEqualTo(marcoAccountId.toString());
+    }
+
+    @Test
+    @DisplayName("The issuer is the same from the host and from inside the network")
+    void issuerIsTheSameFromTheHostAndFromInsideTheNetwork() throws Exception {
+        String fromHost = (String) keycloak.get()
+                .uri("/realms/sagapay/.well-known/openid-configuration")
+                .retrieve()
+                .body(Map.class)
+                .get("issuer");
+        // Keycloak's image has no curl: bash opens the connection, by the Compose name.
+        String insideAnswer = stack.getContainerByServiceName("keycloak")
+                .orElseThrow()
+                .execInContainer(
+                        "bash",
+                        "-c",
+                        "exec 3<>/dev/tcp/keycloak/8180;"
+                                + " printf 'GET /realms/sagapay/.well-known/openid-configuration HTTP/1.0\\r\\nHost: keycloak:8180\\r\\n\\r\\n' >&3;"
+                                + " cat <&3")
+                .getStdout();
+        String fromInside = insideAnswer.replaceAll("(?s).*\"issuer\":\"([^\"]*)\".*", "$1");
+
+        assertThat(fromHost).isEqualTo(ISSUER);
+        assertThat(fromInside).isEqualTo(ISSUER);
+        assertThat(claimsOf(tokenFor("marco")).get("iss")).isEqualTo(ISSUER);
     }
 
     @Test

@@ -36,7 +36,12 @@ public class Account {
     protected Account() {}
 
     public Account(String handle, String displayName, String currency, BigDecimal balance) {
-        this.id = UUID.randomUUID();
+        this(UUID.randomUUID(), handle, displayName, currency, balance);
+    }
+
+    /** For an account whose id is fixed from outside, such as a seeded one matched to an identity. */
+    public Account(UUID id, String handle, String displayName, String currency, BigDecimal balance) {
+        this.id = Objects.requireNonNull(id, "id");
         this.handle = Objects.requireNonNull(handle, "handle");
         this.displayName = Objects.requireNonNull(displayName, "displayName");
         this.currency = Objects.requireNonNull(currency, "currency");

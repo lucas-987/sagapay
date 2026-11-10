@@ -66,10 +66,11 @@ authentication lands.
 
 ```bash
 cp .env.example .env     # then fill in every empty password
+cp infra/keycloak.env.example infra/keycloak.env    # and the sample users' passwords
 docker compose --env-file .env -f infra/docker-compose.yml up --build
 ```
 
-The published ports (8081 to 8083, the databases, Redis and Kafka) are bound on every
+The published ports (8081 to 8083, 8180, the databases, Redis and Kafka) are bound on every
 host interface and the `local-noauth` profile asks for no credentials: run the stack on
 a trusted network only. They must be free on the host, so stop any other stack first.
 
@@ -80,6 +81,7 @@ Settings read from `.env` or the shell:
 
 | Variable | Meaning | Default |
 |---|---|---|
+| `KEYCLOAK_ADMIN_PASSWORD` | password of the Keycloak admin console (user `admin`, port 8180) | none, required |
 | `SAGAPAY_FRAUD_VERIFICATION_CODE` | code the sender submits to confirm a blocked transfer; the curl commands below read it from the shell | none, required |
 | `SAGA_CONFIRMATION_WINDOW_MS` | how long a blocked transfer waits for its confirmation, less if its reservation expires first | `120000` |
 | `SAGA_SCREENING_TIMEOUT_MS` | how long the orchestrator waits for the fraud verdict | `10000` |
@@ -88,6 +90,24 @@ Settings read from `.env` or the shell:
 | `LEDGER_RESERVATION_TTL_MS` | how long a reservation holds its money, at least 60000 | `300000` |
 | `FRAUD_RULES_VELOCITY_WINDOW_SECONDS` | length of the window the velocity rule counts over | `3600` |
 | `MAVEN_MIRROR_URL` | optional Maven mirror used by the image builds | empty |
+
+## Getting a token
+
+Compose also starts Keycloak on port 8180 with the `sagapay` realm. Its users `marco`, `ines`
+and `hugo` have the passwords you set in `infra/keycloak.env` (`MARCO_PASSWORD`, `INES_PASSWORD`
+and `HUGO_PASSWORD`), and each one's id is the id of the sample account with the same handle. The public client `sagapay-cli` allows getting a token from the command
+line:
+
+```bash
+set -a; . infra/keycloak.env; set +a    # exports MARCO_PASSWORD
+curl -s http://localhost:8180/realms/sagapay/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=sagapay-cli -d username=marco -d password="$MARCO_PASSWORD" \
+  | jq -r .access_token
+```
+
+The token's `sub` is `marco`'s account id and its issuer is `http://keycloak:8180/realms/sagapay`
+whichever address the token was fetched from. A browser that must follow a Keycloak link needs
+`127.0.0.1 keycloak` in its hosts file.
 
 ## Trying the fraud flow
 

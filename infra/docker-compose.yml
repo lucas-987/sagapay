@@ -192,6 +192,41 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
+  # The identity provider. Local only: start-dev, an embedded database and plain HTTP.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    # The sample users' passwords, which the realm file refers to by name. The path can be
+    # overridden so that a test brings its own file.
+    env_file:
+      - ${KEYCLOAK_ENV_FILE:-./keycloak.env}
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # One fixed public address, so a token carries the same issuer whether it was fetched
+      # from the host (localhost:8180) or from inside the network (keycloak:8180). The port is
+      # the same inside and outside for that reason.
+      KC_HOSTNAME: http://keycloak:8180
+      KC_HTTP_PORT: 8180
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "8180:8180"
+    healthcheck:
+      # The image has no curl: read the readiness answer from the management port over bash's
+      # /dev/tcp.
+      test:
+        - CMD-SHELL
+        - |
+          exec 3<>/dev/tcp/localhost/9000
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
 volumes:
   pgdata:
   pgdata-orchestrator:

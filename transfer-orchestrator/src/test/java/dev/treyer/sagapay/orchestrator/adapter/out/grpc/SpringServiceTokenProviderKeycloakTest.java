@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * gets names the ledger as audience and carries the ledger scope, and a wrong secret is an
  * unavailable token. Heavy (a Keycloak container): not part of a quick loop.
  */
-class ClientCredentialsTokenProviderKeycloakTest {
+class SpringServiceTokenProviderKeycloakTest {
 
     private static final String CLIENT_SECRET = "keycloak-test-client-secret";
     private static final Path REALM_FILE =
@@ -60,8 +60,8 @@ class ClientCredentialsTokenProviderKeycloakTest {
         return "http://%s:%d/realms/sagapay".formatted(KEYCLOAK.getHost(), KEYCLOAK.getMappedPort(8080));
     }
 
-    private static ClientCredentialsTokenProvider provider(String secret) {
-        return new ClientCredentialsTokenProvider(
+    private static SpringServiceTokenProvider provider(String secret) {
+        return new SpringServiceTokenProvider(
                 new LedgerAuthProperties(
                         "transfer-orchestrator",
                         secret,
@@ -78,6 +78,16 @@ class ClientCredentialsTokenProviderKeycloakTest {
         assertThat(claims.getIssuer()).isEqualTo(realmUrl());
         assertThat(claims.getAudience()).containsExactly("ledger-accounts-service");
         assertThat(claims.getStringClaim("scope")).isEqualTo("ledger:write");
+    }
+
+    @Test
+    void theTokenExpiresFiveMinutesAfterItIsIssued() throws ParseException {
+        JWTClaimsSet claims = SignedJWT.parse(provider(CLIENT_SECRET).token()).getJWTClaimsSet();
+
+        assertThat(Duration.between(
+                        claims.getIssueTime().toInstant(),
+                        claims.getExpirationTime().toInstant()))
+                .isEqualTo(Duration.ofMinutes(5));
     }
 
     @Test

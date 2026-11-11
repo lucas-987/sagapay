@@ -4,6 +4,7 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedServiceTokenProvider;
 import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -38,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * actually moves and the sum of balances is asserted unchanged.
  */
 @Testcontainers
-@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class, FixedServiceTokenProvider.Configuration.class})
 @TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=1000"})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "ledger.grpc.deadline-ms=5000")
 class TransferOrchestratorE2ETest {

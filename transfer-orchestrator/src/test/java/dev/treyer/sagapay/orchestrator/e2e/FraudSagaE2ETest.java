@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.e2e;
 
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedServiceTokenProvider;
 import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -37,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * test; the screening deadline and the confirmation window are shortened.
  */
 @Testcontainers
-@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class, FixedServiceTokenProvider.Configuration.class})
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {

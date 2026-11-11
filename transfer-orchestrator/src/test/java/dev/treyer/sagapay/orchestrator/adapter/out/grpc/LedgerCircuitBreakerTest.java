@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, FixedServiceTokenProvider.Configuration.class})
 @SpringBootTest(properties = "ledger.grpc.deadline-ms=5000")
 class LedgerCircuitBreakerTest {
 

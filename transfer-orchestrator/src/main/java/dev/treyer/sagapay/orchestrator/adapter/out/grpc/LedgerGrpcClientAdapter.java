@@ -14,8 +14,12 @@ import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.grpc.Channel;
+import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.MetadataUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -23,12 +27,15 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
 /**
  * The deadline is set on the gRPC call rather than with Resilience4j's
  * {@code @TimeLimiter}, which only wraps methods returning {@code CompletionStage}.
  * A definitive refusal from the ledger becomes {@link LedgerRejectedException}
  * (the saga fails the transfer); anything else is {@link
- * LedgerUnavailableException} (the reprise poller retries).
+ * LedgerUnavailableException} (the reprise poller retries). That includes every credential
+ * problem: the ledger is not wrong about the request, the orchestrator has no accepted token yet.
  */
 @Component
 public class LedgerGrpcClientAdapter implements LedgerPort {
@@ -37,25 +44,48 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     private static final Set<Status.Code> REJECTION_CODES =
             Set.of(Status.Code.NOT_FOUND, Status.Code.INVALID_ARGUMENT, Status.Code.ALREADY_EXISTS);
 
+    private static final Logger log = LoggerFactory.getLogger(LedgerGrpcClientAdapter.class);
+    private static final Metadata.Key<String> AUTHORIZATION =
+            Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
+
     private final LedgerServiceGrpc.LedgerServiceBlockingStub stub;
     private final long deadlineMs;
+    private final ServiceTokenProvider tokens;
 
-    public LedgerGrpcClientAdapter(Channel ledgerChannel, LedgerProperties properties) {
+    public LedgerGrpcClientAdapter(Channel ledgerChannel, LedgerProperties properties, ServiceTokenProvider tokens) {
         this.stub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
         this.deadlineMs = properties.grpc().deadlineMs();
+        this.tokens = tokens;
+    }
+
+    /**
+     * Always the service's own token, never the caller's: the ledger's API is for services. The
+     * token is fetched before the deadline starts, which then covers the call alone.
+     */
+    private LedgerServiceGrpc.LedgerServiceBlockingStub authenticated() {
+        String token;
+        try {
+            token = tokens.token();
+        } catch (ServiceTokenUnavailableException e) {
+            throw new LedgerUnavailableException(e);
+        }
+        Metadata headers = new Metadata();
+        headers.put(AUTHORIZATION, "Bearer " + token);
+        return stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                .withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
     @CircuitBreaker(name = "ledger", fallbackMethod = "checkAndReserveFallback")
     public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+        LedgerServiceGrpc.LedgerServiceBlockingStub call = authenticated();
         CheckAndReserveResponse response;
         try {
-            response = stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
-                    .checkAndReserve(CheckAndReserveRequest.newBuilder()
-                            .setTransferId(transferId)
-                            .setFromAccountId(fromAccountId.toString())
-                            .setAmount(toProto(amount))
-                            .build());
+            response = call.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                    .setTransferId(transferId)
+                    .setFromAccountId(fromAccountId.toString())
+                    .setAmount(toProto(amount))
+                    .build());
         } catch (StatusRuntimeException e) {
             throw classify(e);
         }
@@ -88,14 +118,14 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     @Override
     @CircuitBreaker(name = "ledger", fallbackMethod = "postTransferFallback")
     public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
+        LedgerServiceGrpc.LedgerServiceBlockingStub call = authenticated();
         try {
-            stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
-                    .postTransfer(PostTransferRequest.newBuilder()
-                            .setTransferId(transferId)
-                            .setFromAccountId(fromAccountId.toString())
-                            .setToAccountId(toAccountId.toString())
-                            .setAmount(toProto(amount))
-                            .build());
+            call.postTransfer(PostTransferRequest.newBuilder()
+                    .setTransferId(transferId)
+                    .setFromAccountId(fromAccountId.toString())
+                    .setToAccountId(toAccountId.toString())
+                    .setAmount(toProto(amount))
+                    .build());
         } catch (StatusRuntimeException e) {
             throw classify(e);
         }
@@ -110,12 +140,12 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
     @Override
     @CircuitBreaker(name = "ledger", fallbackMethod = "releaseReservationFallback")
     public void releaseReservation(String transferId, UUID reservationId) {
+        LedgerServiceGrpc.LedgerServiceBlockingStub call = authenticated();
         try {
-            stub.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS)
-                    .releaseReservation(ReleaseReservationRequest.newBuilder()
-                            .setTransferId(transferId)
-                            .setReservationId(reservationId.toString())
-                            .build());
+            call.releaseReservation(ReleaseReservationRequest.newBuilder()
+                    .setTransferId(transferId)
+                    .setReservationId(reservationId.toString())
+                    .build());
         } catch (StatusRuntimeException e) {
             throw classify(e);
         }
@@ -126,17 +156,24 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         throw toFallbackException(t);
     }
 
-    private static RuntimeException classify(StatusRuntimeException e) {
+    private RuntimeException classify(StatusRuntimeException e) {
         Status.Code code = e.getStatus().getCode();
         if (REJECTION_CODES.contains(code)) {
             return new LedgerRejectedException(code.name(), e.getStatus().getDescription(), e);
         }
-        return e;
+        if (code == Status.Code.UNAUTHENTICATED) {
+            // Another attempt with the same token would be refused the same way.
+            tokens.drop();
+        }
+        if (code == Status.Code.UNAUTHENTICATED || code == Status.Code.PERMISSION_DENIED) {
+            log.warn("ledger refused the service token", kv("grpc.status", code.name()));
+        }
+        return new LedgerUnavailableException(e);
     }
 
     private static RuntimeException toFallbackException(Throwable t) {
-        if (t instanceof LedgerRejectedException rejected) {
-            return rejected;
+        if (t instanceof LedgerRejectedException || t instanceof LedgerUnavailableException) {
+            return (RuntimeException) t;
         }
         return new LedgerUnavailableException(t);
     }

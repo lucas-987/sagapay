@@ -90,7 +90,10 @@ class LedgerGrpcClientAdapterTest {
         channel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        adapter = new LedgerGrpcClientAdapter(channel, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+        adapter = new LedgerGrpcClientAdapter(
+                channel,
+                new LedgerProperties(new LedgerProperties.Grpc(5000)),
+                new FixedServiceTokenProvider("service-token"));
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");
@@ -141,8 +144,10 @@ class LedgerGrpcClientAdapterTest {
         ManagedChannel inProcess =
                 InProcessChannelBuilder.forName(serverName).directExecutor().build();
         try {
-            LedgerGrpcClientAdapter adapterOfAnOldLedger =
-                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+            LedgerGrpcClientAdapter adapterOfAnOldLedger = new LedgerGrpcClientAdapter(
+                    inProcess,
+                    new LedgerProperties(new LedgerProperties.Grpc(5000)),
+                    new FixedServiceTokenProvider("service-token"));
 
             assertThatThrownBy(() -> adapterOfAnOldLedger.checkAndReserve(
                             UUID.randomUUID().toString(), UUID.randomUUID(), Money.of("1.00", "EUR")))
@@ -196,8 +201,10 @@ class LedgerGrpcClientAdapterTest {
         ManagedChannel inProcess =
                 InProcessChannelBuilder.forName(serverName).directExecutor().build();
         try {
-            LedgerGrpcClientAdapter refusing =
-                    new LedgerGrpcClientAdapter(inProcess, new LedgerProperties(new LedgerProperties.Grpc(5000)));
+            LedgerGrpcClientAdapter refusing = new LedgerGrpcClientAdapter(
+                    inProcess,
+                    new LedgerProperties(new LedgerProperties.Grpc(5000)),
+                    new FixedServiceTokenProvider("service-token"));
 
             assertThatThrownBy(
                             () -> refusing.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))

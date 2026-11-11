@@ -15,6 +15,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * configuration, which sets the code, is left out. */
 class VerificationCodeStartupTest {
 
+    private static final String SHIPPED_ONLY = "--spring.config.location=optional:classpath:/application.properties";
+    // The other required settings are given, so the verification code is the only one missing.
+    private static final String LEDGER_CLIENT_ID = "--ORCHESTRATOR_CLIENT_ID=orchestrator";
+    private static final String LEDGER_CLIENT_SECRET = "--ORCHESTRATOR_CLIENT_SECRET=s3cret";
+
     @Test
     @Tag("M3-S28")
     @DisplayName("The service does not start without a verification code")
@@ -24,7 +29,7 @@ class VerificationCodeStartupTest {
                 .web(WebApplicationType.NONE)
                 .environment(environmentWithoutTheProcessEnvironment());
 
-        assertThatThrownBy(() -> application.run("--spring.config.location=optional:classpath:/application.properties"))
+        assertThatThrownBy(() -> application.run(SHIPPED_ONLY, LEDGER_CLIENT_ID, LEDGER_CLIENT_SECRET))
                 .rootCause()
                 .isInstanceOf(PlaceholderResolutionException.class)
                 .hasMessage("Could not resolve placeholder 'SAGAPAY_FRAUD_VERIFICATION_CODE'"
@@ -46,7 +51,9 @@ class VerificationCodeStartupTest {
                 .web(WebApplicationType.NONE);
 
         try (var context = application.run(
-                "--spring.config.location=optional:classpath:/application.properties",
+                SHIPPED_ONLY,
+                LEDGER_CLIENT_ID,
+                LEDGER_CLIENT_SECRET,
                 "--SAGAPAY_FRAUD_VERIFICATION_CODE=from-the-environment")) {
             assertThat(context.getEnvironment().getProperty("sagapay.fraud.verification-code"))
                     .isEqualTo("from-the-environment");

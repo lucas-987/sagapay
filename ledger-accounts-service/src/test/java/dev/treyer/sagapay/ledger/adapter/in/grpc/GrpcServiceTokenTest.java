@@ -44,6 +44,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 class GrpcServiceTokenTest {
 
+    private static final String RECIPIENT = UUID.randomUUID().toString();
+
     private static final KeySetServer IDENTITY_PROVIDER = new KeySetServer();
 
     @DynamicPropertySource
@@ -81,6 +83,7 @@ class GrpcServiceTokenTest {
                 .checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(transferId)
                         .setFromAccountId(accountId.toString())
+                        .setToAccountId(RECIPIENT)
                         .setAmount(Money.newBuilder()
                                 .setCurrency("EUR")
                                 .setAmount("40.00")

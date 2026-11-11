@@ -39,6 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -82,7 +83,8 @@ public class LedgerService
 
     @Override
     @Transactional
-    public CheckAndReserveResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+    public CheckAndReserveResult checkAndReserve(
+            String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         // The lock serializes replays of the same transferId, so the result can be
         // computed before the idempotent write.
         Account account = accounts.findByIdForUpdate(fromAccountId)
@@ -106,7 +108,9 @@ public class LedgerService
                 : new CheckAndReserveResult.InsufficientFunds();
 
         int inserted = idempotency.insertIfAbsent(
-                transferId, LedgerOperation.RESERVE.name(), toResultJson(result, fromAccountId, requestedAmount));
+                transferId,
+                LedgerOperation.RESERVE.name(),
+                toResultJson(result, fromAccountId, toAccountId, requestedAmount));
         if (inserted == 0) {
             // Safety net behind the lock: a concurrent replay stored its result
             // first. Return it only if it was the same call.
@@ -117,15 +121,17 @@ public class LedgerService
                             .getResultJson(),
                     ResultJson.class);
             if (!previous.fromAccountId().equals(fromAccountId)
+                    || !Objects.equals(previous.toAccountId(), toAccountId)
                     || previous.amount().compareTo(requestedAmount) != 0) {
                 log.warn("reservation replayed with other parameters", kv("transfer.id", transferId));
-                throw new IdempotencyConflictException(transferId, fromAccountId, requestedAmount);
+                throw new IdempotencyConflictException(transferId, fromAccountId, toAccountId, requestedAmount);
             }
             return toCheckAndReserveResult(previous);
         }
 
         if (result instanceof CheckAndReserveResult.Ok) {
-            reservations.save(new Reservation(reservationId, fromAccountId, transferId, requestedAmount, expiresAt));
+            reservations.save(
+                    new Reservation(reservationId, fromAccountId, toAccountId, transferId, requestedAmount, expiresAt));
             log.info(
                     "funds reserved",
                     kv("transfer.id", transferId),
@@ -173,10 +179,15 @@ public class LedgerService
         }
 
         int consumed = reservations.consumeIfMatching(
-                transferId, fromAccountId, requestedAmount, ReservationStatus.ACTIVE, ReservationStatus.CONSUMED);
+                transferId,
+                fromAccountId,
+                toAccountId,
+                requestedAmount,
+                ReservationStatus.ACTIVE,
+                ReservationStatus.CONSUMED);
         if (consumed == 0) {
             log.warn("post refused, no matching reservation", kv("transfer.id", transferId));
-            throw new NoMatchingReservationException(transferId, fromAccountId, requestedAmount);
+            throw new NoMatchingReservationException(transferId, fromAccountId, toAccountId, requestedAmount);
         }
 
         boolean posted = accounts.debitIfSufficientFunds(fromAccountId, requestedAmount) > 0;
@@ -286,7 +297,7 @@ public class LedgerService
                 || !dto.toAccountId().equals(toAccountId)
                 || dto.amount().compareTo(amount) != 0) {
             log.warn("post replayed with other parameters", kv("transfer.id", transferId));
-            throw new IdempotencyConflictException(transferId, fromAccountId, amount);
+            throw new IdempotencyConflictException(transferId, fromAccountId, toAccountId, amount);
         }
         return Optional.of(dto.posted());
     }
@@ -295,16 +306,21 @@ public class LedgerService
     // They keep the call's parameters so a replay can be checked against them.
 
     private record ResultJson(
-            String status, UUID reservationId, Instant expiresAt, UUID fromAccountId, BigDecimal amount) {}
+            String status,
+            UUID reservationId,
+            Instant expiresAt,
+            UUID fromAccountId,
+            UUID toAccountId,
+            BigDecimal amount) {}
 
     private record PostResultJson(boolean posted, UUID fromAccountId, UUID toAccountId, BigDecimal amount) {}
 
-    private String toResultJson(CheckAndReserveResult result, UUID fromAccountId, BigDecimal amount) {
+    private String toResultJson(CheckAndReserveResult result, UUID fromAccountId, UUID toAccountId, BigDecimal amount) {
         ResultJson dto = switch (result) {
             case CheckAndReserveResult.Ok ok ->
-                new ResultJson("OK", ok.reservationId(), ok.expiresAt(), fromAccountId, amount);
+                new ResultJson("OK", ok.reservationId(), ok.expiresAt(), fromAccountId, toAccountId, amount);
             case CheckAndReserveResult.InsufficientFunds ignored ->
-                new ResultJson("INSUFFICIENT_FUNDS", null, null, fromAccountId, amount);
+                new ResultJson("INSUFFICIENT_FUNDS", null, null, fromAccountId, toAccountId, amount);
         };
         return jsonMapper.writeValueAsString(dto);
     }

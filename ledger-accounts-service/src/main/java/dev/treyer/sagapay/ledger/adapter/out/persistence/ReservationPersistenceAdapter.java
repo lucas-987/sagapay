@@ -37,10 +37,11 @@ class ReservationPersistenceAdapter implements ReservationPort {
     public int consumeIfMatching(
             String transferId,
             UUID accountId,
+            UUID toAccountId,
             BigDecimal amount,
             ReservationStatus fromStatus,
             ReservationStatus toStatus) {
-        return repository.consumeIfMatching(transferId, accountId, amount, fromStatus, toStatus);
+        return repository.consumeIfMatching(transferId, accountId, toAccountId, amount, fromStatus, toStatus);
     }
 
     @Override

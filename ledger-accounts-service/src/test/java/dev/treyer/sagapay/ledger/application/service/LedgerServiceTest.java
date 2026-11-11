@@ -25,6 +25,8 @@ import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -57,6 +59,8 @@ import static org.assertj.core.api.Assertions.within;
 @TestPropertySource(properties = "spring.grpc.server.port=0")
 @ExtendWith(OutputCaptureExtension.class)
 class LedgerServiceTest {
+
+    private static final UUID RECIPIENT = UUID.randomUUID();
 
     @Autowired
     private ReservationSettings reservationSettings;
@@ -102,7 +106,7 @@ class LedgerServiceTest {
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("30.00", "EUR");
 
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
         boolean posted = postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
 
         assertThat(posted).isTrue();
@@ -127,7 +131,8 @@ class LedgerServiceTest {
             Callable<CheckAndReserveResult> attempt = () -> {
                 ready.countDown();
                 go.await();
-                return checkAndReserveUseCase.checkAndReserve(UUID.randomUUID().toString(), account.getId(), amount);
+                return checkAndReserveUseCase.checkAndReserve(
+                        UUID.randomUUID().toString(), account.getId(), RECIPIENT, amount);
             };
             Future<CheckAndReserveResult> f1 = pool.submit(attempt);
             Future<CheckAndReserveResult> f2 = pool.submit(attempt);
@@ -155,7 +160,7 @@ class LedgerServiceTest {
         Account to = newAccount("EUR", "0.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("20.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
 
         boolean first = postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
         boolean second = postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
@@ -182,7 +187,7 @@ class LedgerServiceTest {
         Money usdAmount = Money.of("10.00", "USD");
 
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                        UUID.randomUUID().toString(), account.getId(), usdAmount))
+                        UUID.randomUUID().toString(), account.getId(), RECIPIENT, usdAmount))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("currency mismatch");
     }
@@ -193,7 +198,7 @@ class LedgerServiceTest {
         Account to = newAccount("USD", "0.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("30.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
 
         assertThatThrownBy(() -> postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount))
                 .isInstanceOf(CurrencyMismatchException.class);
@@ -217,11 +222,91 @@ class LedgerServiceTest {
         Account from = newAccount("EUR", "100.0000");
         Account to = newAccount("EUR", "0.0000");
         String transferId = UUID.randomUUID().toString();
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), Money.of("20.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), Money.of("20.00", "EUR"));
 
         assertThatThrownBy(() -> postTransferUseCase.postTransfer(
                         transferId, from.getId(), to.getId(), Money.of("30.00", "EUR")))
                 .isInstanceOf(NoMatchingReservationException.class);
+    }
+
+    @Test
+    void aReservationRecordsItsRecipient() {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), Money.of("30.00", "EUR"));
+
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getToAccountId())
+                .isEqualTo(to.getId());
+    }
+
+    @Test
+    void aPostMatchingTheReservationConsumesIt() {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "5.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.of("30.00", "EUR");
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
+
+        boolean posted = postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
+
+        assertThat(posted).isTrue();
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(ReservationStatus.CONSUMED);
+        assertThat(accounts.findById(from.getId()).orElseThrow().getBalance()).isEqualByComparingTo("70.0000");
+        assertThat(accounts.findById(to.getId()).orElseThrow().getBalance()).isEqualByComparingTo("35.0000");
+    }
+
+    enum Mismatch {
+        RECIPIENT,
+        SENDER,
+        AMOUNT
+    }
+
+    @ParameterizedTest(name = "a post with another {0} is refused and spends nothing")
+    @EnumSource(Mismatch.class)
+    void aPostDifferingFromTheReservationIsRefusedAndSpendsNothing(Mismatch mismatch) {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        Account other = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), Money.of("30.00", "EUR"));
+        UUID postedFrom = mismatch == Mismatch.SENDER ? other.getId() : from.getId();
+        UUID postedTo = mismatch == Mismatch.RECIPIENT ? other.getId() : to.getId();
+        Money postedAmount = Money.of(mismatch == Mismatch.AMOUNT ? "20.00" : "30.00", "EUR");
+
+        assertThatThrownBy(() -> postTransferUseCase.postTransfer(transferId, postedFrom, postedTo, postedAmount))
+                .isInstanceOf(NoMatchingReservationException.class)
+                .hasMessage("no ACTIVE reservation for transferId " + transferId + " matching account " + postedFrom
+                        + ", recipient " + postedTo + " and amount " + postedAmount.amount());
+
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getStatus())
+                .isEqualTo(ReservationStatus.ACTIVE);
+        assertThat(postings.findAll().stream().filter(p -> p.getTransferId().equals(transferId)))
+                .isEmpty();
+        assertThat(accounts.findById(from.getId()).orElseThrow().getBalance()).isEqualByComparingTo("100.0000");
+        assertThat(accounts.findById(to.getId()).orElseThrow().getBalance()).isEqualByComparingTo("0.0000");
+        assertThat(accounts.findById(other.getId()).orElseThrow().getBalance()).isEqualByComparingTo("100.0000");
+    }
+
+    @Test
+    void aReplayWithAnotherRecipientIsNotAnsweredAsTheOriginalCall() {
+        Account from = newAccount("EUR", "100.0000");
+        Account to = newAccount("EUR", "0.0000");
+        Account other = newAccount("EUR", "0.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.of("30.00", "EUR");
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
+
+        assertThatThrownBy(
+                        () -> checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), other.getId(), amount))
+                .isInstanceOf(IdempotencyConflictException.class)
+                .hasMessage("transferId " + transferId + " already used with different parameters than account "
+                        + from.getId() + " / recipient " + other.getId() + " / amount " + amount.amount());
+
+        assertThat(reservations.findByTransferId(transferId).orElseThrow().getToAccountId())
+                .isEqualTo(to.getId());
     }
 
     @Test
@@ -230,9 +315,25 @@ class LedgerServiceTest {
         Account otherAccount = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("30.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
 
-        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(transferId, otherAccount.getId(), amount))
+        assertThatThrownBy(() ->
+                        checkAndReserveUseCase.checkAndReserve(transferId, otherAccount.getId(), RECIPIENT, amount))
+                .isInstanceOf(IdempotencyConflictException.class);
+    }
+
+    /** A row stored before the recipient was recorded has no recipient to compare. */
+    @Test
+    void checkAndReserveReplayOfARowWithoutRecipientThrowsIdempotencyConflict() {
+        Account account = newAccount("EUR", "100.0000");
+        String transferId = UUID.randomUUID().toString();
+        jdbcTemplate.update(
+                "INSERT INTO ledger_idempotency (transfer_id, operation, result_json) VALUES (?, 'RESERVE', ?)",
+                transferId,
+                "{\"status\":\"INSUFFICIENT_FUNDS\",\"fromAccountId\":\"" + account.getId() + "\",\"amount\":30.00}");
+
+        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
+                        transferId, account.getId(), RECIPIENT, Money.of("30.00", "EUR")))
                 .isInstanceOf(IdempotencyConflictException.class);
     }
 
@@ -240,10 +341,10 @@ class LedgerServiceTest {
     void checkAndReserveReplayWithDifferentAmountThrowsIdempotencyConflict() {
         Account account = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
-        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, Money.of("30.00", "EUR"));
 
-        assertThatThrownBy(() ->
-                        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("31.00", "EUR")))
+        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
+                        transferId, account.getId(), RECIPIENT, Money.of("31.00", "EUR")))
                 .isInstanceOf(IdempotencyConflictException.class);
     }
 
@@ -253,7 +354,7 @@ class LedgerServiceTest {
     void expiredReservationIsExcludedFromHeldAmount() {
         Account account = newAccount("EUR", "200.0000");
         String transferId = UUID.randomUUID().toString();
-        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("50.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, Money.of("50.00", "EUR"));
         jdbcTemplate.update(
                 "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?", transferId);
 
@@ -269,7 +370,8 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
         Money amount = Money.of("40.00", "EUR");
         String transferId = UUID.randomUUID().toString();
-        CheckAndReserveResult result = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        CheckAndReserveResult result =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
         assertThat(result).isInstanceOf(CheckAndReserveResult.Ok.class);
         UUID reservationId = ((CheckAndReserveResult.Ok) result).reservationId();
 
@@ -286,7 +388,8 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
         Money amount = Money.of("40.00", "EUR");
         String transferId = UUID.randomUUID().toString();
-        CheckAndReserveResult result = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        CheckAndReserveResult result =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
         UUID reservationId = ((CheckAndReserveResult.Ok) result).reservationId();
 
         releaseReservationUseCase.releaseReservation(transferId, reservationId);
@@ -297,7 +400,7 @@ class LedgerServiceTest {
     void releaseReservationOnAnAlreadyReleasedReservationChangesNothing() {
         Account account = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
-        UUID reservationId = reserve(transferId, account, "40.00");
+        UUID reservationId = reserve(transferId, account, RECIPIENT, "40.00");
         releaseReservationUseCase.releaseReservation(transferId, reservationId);
 
         assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.RELEASED);
@@ -307,7 +410,7 @@ class LedgerServiceTest {
     void releaseReservationOnAnExpiredReservationChangesNothing() {
         Account account = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
-        UUID reservationId = reserve(transferId, account, "40.00");
+        UUID reservationId = reserve(transferId, account, RECIPIENT, "40.00");
         jdbcTemplate.update(
                 "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?", transferId);
         expireReservationsUseCase.expireOverdueReservations();
@@ -320,15 +423,15 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
         Account to = newAccount("EUR", "0.0000");
         String transferId = UUID.randomUUID().toString();
-        UUID reservationId = reserve(transferId, account, "40.00");
+        UUID reservationId = reserve(transferId, account, to.getId(), "40.00");
         postTransferUseCase.postTransfer(transferId, account.getId(), to.getId(), Money.of("40.00", "EUR"));
 
         assertReleaseChangesNothing(transferId, reservationId, account, ReservationStatus.CONSUMED);
     }
 
-    private UUID reserve(String transferId, Account account, String amount) {
+    private UUID reserve(String transferId, Account account, UUID recipient, String amount) {
         CheckAndReserveResult result =
-                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of(amount, "EUR"));
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), recipient, Money.of(amount, "EUR"));
         return ((CheckAndReserveResult.Ok) result).reservationId();
     }
 
@@ -354,7 +457,7 @@ class LedgerServiceTest {
     void getWalletAvailableIsBalanceMinusHeld() {
         Account account = newAccount("EUR", "200.0000");
         Money holdAmount = Money.of("50.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(UUID.randomUUID().toString(), account.getId(), holdAmount);
+        checkAndReserveUseCase.checkAndReserve(UUID.randomUUID().toString(), account.getId(), RECIPIENT, holdAmount);
 
         WalletSnapshot wallet = getWalletUseCase.getWallet(account.getId());
 
@@ -369,8 +472,8 @@ class LedgerServiceTest {
         String transferId = UUID.randomUUID().toString();
         Instant before = Instant.now();
 
-        CheckAndReserveResult.Ok result = (CheckAndReserveResult.Ok)
-                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+        CheckAndReserveResult.Ok result = (CheckAndReserveResult.Ok) checkAndReserveUseCase.checkAndReserve(
+                transferId, account.getId(), RECIPIENT, Money.of("30.00", "EUR"));
 
         assertThat(result.expiresAt()).isAfterOrEqualTo(before.plusMillis(reservationSettings.ttlMs()));
         assertThat(reservations.findByTransferId(transferId).orElseThrow().getExpiresAt())
@@ -382,10 +485,12 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("30.00", "EUR");
-        CheckAndReserveResult first = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        CheckAndReserveResult first =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
 
         Thread.sleep(5);
-        CheckAndReserveResult second = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        CheckAndReserveResult second =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
 
         assertThat(((CheckAndReserveResult.Ok) second).expiresAt())
                 .isEqualTo(((CheckAndReserveResult.Ok) first).expiresAt());
@@ -395,10 +500,10 @@ class LedgerServiceTest {
     void aReplayWithOtherParametersIsAWarningNamingTheTransfer(CapturedOutput output) {
         Account account = newAccount("EUR", "100.0000");
         String transferId = UUID.randomUUID().toString();
-        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("30.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, Money.of("30.00", "EUR"));
 
-        assertThatThrownBy(() ->
-                        checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), Money.of("31.00", "EUR")))
+        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
+                        transferId, account.getId(), RECIPIENT, Money.of("31.00", "EUR")))
                 .isInstanceOf(IdempotencyConflictException.class);
 
         assertThat(output.getOut())
@@ -428,8 +533,10 @@ class LedgerServiceTest {
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("30.00", "EUR");
 
-        CheckAndReserveResult first = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
-        CheckAndReserveResult second = checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+        CheckAndReserveResult first =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
+        CheckAndReserveResult second =
+                checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
 
         assertThat(first).isInstanceOf(CheckAndReserveResult.Ok.class);
         assertThat(second).isInstanceOf(CheckAndReserveResult.Ok.class);
@@ -454,7 +561,7 @@ class LedgerServiceTest {
             Callable<CheckAndReserveResult> attempt = () -> {
                 ready.countDown();
                 go.await();
-                return checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), amount);
+                return checkAndReserveUseCase.checkAndReserve(transferId, account.getId(), RECIPIENT, amount);
             };
             Future<CheckAndReserveResult> f1 = pool.submit(attempt);
             Future<CheckAndReserveResult> f2 = pool.submit(attempt);
@@ -480,7 +587,7 @@ class LedgerServiceTest {
         Account otherTo = newAccount("EUR", "0.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("20.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
         postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
 
         assertThatThrownBy(() -> postTransferUseCase.postTransfer(transferId, from.getId(), otherTo.getId(), amount))
@@ -492,10 +599,10 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "100.0000");
 
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                        UUID.randomUUID().toString(), account.getId(), Money.of("0.00", "EUR")))
+                        UUID.randomUUID().toString(), account.getId(), RECIPIENT, Money.of("0.00", "EUR")))
                 .isInstanceOf(InvalidAmountException.class);
         assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
-                        UUID.randomUUID().toString(), account.getId(), Money.of("-10.00", "EUR")))
+                        UUID.randomUUID().toString(), account.getId(), RECIPIENT, Money.of("-10.00", "EUR")))
                 .isInstanceOf(InvalidAmountException.class);
     }
 
@@ -505,7 +612,7 @@ class LedgerServiceTest {
         Account to = newAccount("EUR", "0.0000");
         String transferId = UUID.randomUUID().toString();
         Money amount = Money.of("10.00", "EUR");
-        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), amount);
+        checkAndReserveUseCase.checkAndReserve(transferId, from.getId(), to.getId(), amount);
         postTransferUseCase.postTransfer(transferId, from.getId(), to.getId(), amount);
 
         PostingPage page = listPostingsUseCase.listPostings(from.getId(), null, null, 0);
@@ -519,8 +626,8 @@ class LedgerServiceTest {
         Account account = newAccount("EUR", "200.0000");
         String expiredTransferId = UUID.randomUUID().toString();
         String freshTransferId = UUID.randomUUID().toString();
-        checkAndReserveUseCase.checkAndReserve(expiredTransferId, account.getId(), Money.of("30.00", "EUR"));
-        checkAndReserveUseCase.checkAndReserve(freshTransferId, account.getId(), Money.of("20.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(expiredTransferId, account.getId(), RECIPIENT, Money.of("30.00", "EUR"));
+        checkAndReserveUseCase.checkAndReserve(freshTransferId, account.getId(), RECIPIENT, Money.of("20.00", "EUR"));
         jdbcTemplate.update(
                 "UPDATE reservations SET expires_at = now() - interval '1 minute' WHERE transfer_id = ?",
                 expiredTransferId);

@@ -6,5 +6,5 @@ import dev.treyer.sagapay.ledger.domain.CheckAndReserveResult;
 import java.util.UUID;
 
 public interface CheckAndReserveUseCase {
-    CheckAndReserveResult checkAndReserve(String transferId, UUID fromAccountId, Money amount);
+    CheckAndReserveResult checkAndReserve(String transferId, UUID fromAccountId, UUID toAccountId, Money amount);
 }

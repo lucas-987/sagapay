@@ -33,14 +33,16 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
             @Param("fromStatus") ReservationStatus fromStatus,
             @Param("toStatus") ReservationStatus toStatus);
 
-    /** Keyed on account and amount: {@code postTransfer} has no reservation id. */
+    /** Keyed on accounts and amount: {@code postTransfer} has no reservation id. */
     @Modifying
     @Query("update Reservation r set r.status = :toStatus "
-            + "where r.transferId = :transferId and r.accountId = :accountId and r.amount = :amount "
+            + "where r.transferId = :transferId and r.accountId = :accountId "
+            + "and r.toAccountId = :toAccountId and r.amount = :amount "
             + "and r.status = :fromStatus and r.expiresAt > CURRENT_TIMESTAMP")
     int consumeIfMatching(
             @Param("transferId") String transferId,
             @Param("accountId") UUID accountId,
+            @Param("toAccountId") UUID toAccountId,
             @Param("amount") BigDecimal amount,
             @Param("fromStatus") ReservationStatus fromStatus,
             @Param("toStatus") ReservationStatus toStatus);

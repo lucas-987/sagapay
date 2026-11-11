@@ -51,6 +51,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class GrpcServiceTokenKeycloakTest {
 
+    private static final String RECIPIENT = UUID.randomUUID().toString();
+
     private static final String CLIENT_SECRET = "keycloak-test-client-secret";
     private static final String USER_PASSWORD = "keycloak-test-user-password";
     private static final Path REALM_FILE =
@@ -129,6 +131,7 @@ class GrpcServiceTokenKeycloakTest {
                 .checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(UUID.randomUUID().toString())
                         .setFromAccountId(accountId.toString())
+                        .setToAccountId(RECIPIENT)
                         .setAmount(Money.newBuilder()
                                 .setCurrency("EUR")
                                 .setAmount("10.00")

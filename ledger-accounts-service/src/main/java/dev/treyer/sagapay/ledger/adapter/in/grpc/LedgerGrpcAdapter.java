@@ -43,6 +43,7 @@ class LedgerGrpcAdapter extends LedgerServiceGrpc.LedgerServiceImplBase {
         var result = checkAndReserveUseCase.checkAndReserve(
                 request.getTransferId(),
                 parseUuid("fromAccountId", request.getFromAccountId()),
+                parseUuid("toAccountId", request.getToAccountId()),
                 toMoney(request.getAmount()));
 
         CheckAndReserveResponse response = switch (result) {

@@ -57,16 +57,18 @@ class LocalStackFraudFlowE2ETest {
                 .toFile();
         stack = new ComposeContainer(compose)
                 .withBuild(true)
-                .withEnv(Map.of(
-                        "MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", ""),
-                        "SAGAPAY_DB_PASSWORD", "compose-db-password",
-                        "LEDGER_APP_PASSWORD", "compose-ledger-password",
-                        "ORCHESTRATOR_APP_PASSWORD", "compose-orchestrator-password",
-                        "FRAUD_APP_PASSWORD", "compose-fraud-password",
-                        "KEYCLOAK_ADMIN_PASSWORD", "compose-keycloak-password",
-                        "KEYCLOAK_ENV_FILE", sampleUserPasswords().toString(),
-                        "SAGAPAY_FRAUD_VERIFICATION_CODE", VERIFICATION_CODE,
-                        "SAGA_CONFIRMATION_WINDOW_MS", "10000"))
+                .withEnv(Map.ofEntries(
+                        Map.entry("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")),
+                        Map.entry("SAGAPAY_DB_PASSWORD", "compose-db-password"),
+                        Map.entry("LEDGER_APP_PASSWORD", "compose-ledger-password"),
+                        Map.entry("ORCHESTRATOR_APP_PASSWORD", "compose-orchestrator-password"),
+                        Map.entry("FRAUD_APP_PASSWORD", "compose-fraud-password"),
+                        Map.entry("KEYCLOAK_ADMIN_PASSWORD", "compose-keycloak-password"),
+                        Map.entry("KEYCLOAK_ENV_FILE", sampleUserPasswords().toString()),
+                        Map.entry("ORCHESTRATOR_CLIENT_ID", "transfer-orchestrator"),
+                        Map.entry("ORCHESTRATOR_CLIENT_SECRET", "compose-client-secret"),
+                        Map.entry("SAGAPAY_FRAUD_VERIFICATION_CODE", VERIFICATION_CODE),
+                        Map.entry("SAGA_CONFIRMATION_WINDOW_MS", "10000")))
                 .withExposedService(
                         "ledger-accounts-service",
                         LEDGER_PORT,

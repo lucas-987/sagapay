@@ -61,8 +61,11 @@ regenerated on every build): `protobuf/` in `contracts`, `openapi-ledger/` in
 The Docker Compose stack runs the ledger, the transfer orchestrator and the fraud
 service with their databases, Kafka and Redis. The ledger and the orchestrator start
 with the `local` profile, and the ledger also with `local-noauth`: the ledger seeds sample
-accounts (`marco` holds 150000.00 EUR) and opens its endpoints without credentials until it
-checks tokens. The orchestrator refuses a call without a valid token.
+accounts (`marco` holds 150000.00 EUR) and opens its endpoints without credentials. The
+orchestrator refuses a call without a valid token, and its own calls to the
+ledger carry a token of its own, which the ledger's gRPC API admits when `local-noauth` is off.
+The stack sends the client secret and the bearer tokens over plain HTTP and gRPC, with the realm's
+`sslRequired` at `none`: that is for a local stack only, anywhere else both need TLS.
 
 ```bash
 cp .env.example .env     # then fill in every empty password
@@ -78,11 +81,14 @@ Every service answers `GET /actuator/health` with `{"status":"UP"}`, with no tok
 8081, orchestrator on 8082, fraud service on 8083. The orchestrator refuses every other
 Actuator endpoint, with or without a token.
 
-Settings read from `.env` or the shell:
+Settings read from `.env` or the shell (a variable marked required makes every Compose command of the stack
+fail while it is unset, `down`, `ps` and `logs` included, so keep it in `.env`):
 
 | Variable | Meaning | Default |
 |---|---|---|
 | `KEYCLOAK_ADMIN_PASSWORD` | password of the Keycloak admin console (user `admin`, port 8180) | none, required |
+| `ORCHESTRATOR_CLIENT_ID` | client id the orchestrator presents to Keycloak to call the ledger (`transfer-orchestrator`) | none, required |
+| `ORCHESTRATOR_CLIENT_SECRET` | its secret: Keycloak imports it into the realm and the orchestrator presents it; neither starts without it | none, required |
 | `SAGAPAY_FRAUD_VERIFICATION_CODE` | code the sender submits to confirm a blocked transfer; the curl commands below read it from the shell | none, required |
 | `SAGA_CONFIRMATION_WINDOW_MS` | how long a blocked transfer waits for its confirmation, less if its reservation expires first | `120000` |
 | `SAGA_SCREENING_TIMEOUT_MS` | how long the orchestrator waits for the fraud verdict | `10000` |

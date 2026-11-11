@@ -12,7 +12,9 @@ import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
 import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
+import io.grpc.Metadata;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.MetadataUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +54,31 @@ class LedgerGrpcAdapterTest {
     private UUID newAccount(String balance) {
         return accounts.save(new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal(balance)))
                 .getId();
+    }
+
+    @Test
+    void aCallWithNoTokenReachesTheRpcUnderLocalNoauth() {
+        UUID accountId = newAccount("7.0000");
+
+        GetBalanceResponse response = client.getBalance(GetBalanceRequest.newBuilder()
+                .setAccountId(accountId.toString())
+                .build());
+
+        assertThat(response.getBalance().getAmount()).isEqualTo("7.0000");
+    }
+
+    @Test
+    void aCallWithATokenTheLedgerWouldRefuseStillReachesTheRpcUnderLocalNoauth() {
+        UUID accountId = newAccount("7.0000");
+        Metadata headers = new Metadata();
+        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer not-a-jwt");
+
+        GetBalanceResponse response = client.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                .getBalance(GetBalanceRequest.newBuilder()
+                        .setAccountId(accountId.toString())
+                        .build());
+
+        assertThat(response.getBalance().getAmount()).isEqualTo("7.0000");
     }
 
     @Test

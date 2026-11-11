@@ -15,7 +15,7 @@ import org.springframework.security.web.SecurityFilterChain;
  * Opens REST for local development only; outside this profile REST requires a valid
  * token of the realm. Stateless and without CSRF: a bearer-token API has no
  * session cookie to protect. gRPC is locked separately by
- * {@code GrpcDenyByDefaultInterceptor}.
+ * the interceptor of {@code GrpcAuthConfig}.
  */
 @Configuration
 @Profile("local-noauth")

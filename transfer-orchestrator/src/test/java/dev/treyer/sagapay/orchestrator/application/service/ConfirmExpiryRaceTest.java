@@ -336,7 +336,8 @@ class ConfirmExpiryRaceTest {
         }
 
         @Override
-        public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+        public ReservationResult checkAndReserve(
+                String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
             return new ReservationResult.Ok(nextReservationId, Instant.now().plusSeconds(300));
         }
 

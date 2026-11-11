@@ -165,6 +165,7 @@ public class SagaService
             result = ledger.checkAndReserve(
                     transferId.toString(),
                     transfer.getSenderAccountId(),
+                    transfer.getRecipientAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
             if (writer.tryApplyRejected(

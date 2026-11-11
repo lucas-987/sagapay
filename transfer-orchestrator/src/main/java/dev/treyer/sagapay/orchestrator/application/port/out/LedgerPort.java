@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public interface LedgerPort {
 
-    ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount);
+    ReservationResult checkAndReserve(String transferId, UUID fromAccountId, UUID toAccountId, Money amount);
 
     void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount);
 

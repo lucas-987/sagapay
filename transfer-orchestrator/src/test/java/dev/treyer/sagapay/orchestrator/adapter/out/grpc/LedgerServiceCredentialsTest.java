@@ -75,7 +75,8 @@ class LedgerServiceCredentialsTest {
 
     /** One ledger call, by the RPC it makes. */
     private enum Rpc {
-        CHECK_AND_RESERVE(adapter -> adapter.checkAndReserve("t-1", UUID.randomUUID(), Money.of("1.00", "EUR"))),
+        CHECK_AND_RESERVE(adapter ->
+                adapter.checkAndReserve("t-1", UUID.randomUUID(), UUID.randomUUID(), Money.of("1.00", "EUR"))),
         POST_TRANSFER(
                 adapter -> adapter.postTransfer("t-1", UUID.randomUUID(), UUID.randomUUID(), Money.of("1.00", "EUR"))),
         RELEASE_RESERVATION(adapter -> adapter.releaseReservation("t-1", UUID.randomUUID()));

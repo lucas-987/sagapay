@@ -171,6 +171,17 @@ class SagaServiceTest {
     }
 
     @Test
+    void theRecipientOfTheTransferIsReservedAndThenPosted() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        assertThat(fakeLedgerPort.reservedRecipient()).isEqualTo(recipientAccountId);
+
+        sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
+
+        assertThat(fakeLedgerPort.postedRecipient()).isEqualTo(recipientAccountId);
+    }
+
+    @Test
     @Tag("M3-S02")
     @DisplayName("A cleared transfer is posted once")
     void clearedTransferIsPostedOnce() {

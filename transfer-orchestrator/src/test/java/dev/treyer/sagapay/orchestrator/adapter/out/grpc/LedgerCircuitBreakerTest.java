@@ -121,8 +121,8 @@ class LedgerCircuitBreakerTest {
     @Test
     @Order(2)
     void killingTheLedgerContainerOpensTheCircuitAndFallsBackToLedgerUnavailable() {
-        ReservationResult before =
-                ledgerPort.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
+        ReservationResult before = ledgerPort.checkAndReserve(
+                UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR"));
         assertThat(before).isInstanceOf(ReservationResult.Ok.class);
 
         LEDGER.stop();
@@ -130,13 +130,13 @@ class LedgerCircuitBreakerTest {
         CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("ledger");
         for (int i = 0; i < 5 && circuitBreaker.getState() != CircuitBreaker.State.OPEN; i++) {
             assertThatThrownBy(() -> ledgerPort.checkAndReserve(
-                            UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
+                            UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
                     .isInstanceOf(LedgerUnavailableException.class);
         }
 
         assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
-        assertThatThrownBy(() ->
-                        ledgerPort.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR")))
+        assertThatThrownBy(() -> ledgerPort.checkAndReserve(
+                        UUID.randomUUID().toString(), bobAccountId, bobAccountId, Money.of("1.00", "EUR")))
                 .isInstanceOf(LedgerUnavailableException.class);
         assertThatThrownBy(() -> ledgerPort.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))
                 .isInstanceOf(LedgerUnavailableException.class);

@@ -77,13 +77,14 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
 
     @Override
     @CircuitBreaker(name = "ledger", fallbackMethod = "checkAndReserveFallback")
-    public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+    public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         LedgerServiceGrpc.LedgerServiceBlockingStub call = authenticated();
         CheckAndReserveResponse response;
         try {
             response = call.checkAndReserve(CheckAndReserveRequest.newBuilder()
                     .setTransferId(transferId)
                     .setFromAccountId(fromAccountId.toString())
+                    .setToAccountId(toAccountId.toString())
                     .setAmount(toProto(amount))
                     .build());
         } catch (StatusRuntimeException e) {
@@ -111,7 +112,7 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
      * exceptions the breaker ignores, hence the rejection passthrough. */
     @SuppressWarnings("unused")
     private ReservationResult checkAndReserveFallback(
-            String transferId, UUID fromAccountId, Money amount, Throwable t) {
+            String transferId, UUID fromAccountId, UUID toAccountId, Money amount, Throwable t) {
         throw toFallbackException(t);
     }
 

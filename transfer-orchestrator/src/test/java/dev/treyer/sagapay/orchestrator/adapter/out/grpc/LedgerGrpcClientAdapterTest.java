@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** No Spring context: a raw channel to the ledger container is all this needs. */
@@ -116,8 +117,8 @@ class LedgerGrpcClientAdapterTest {
     @Test
     void checkAndReserveRoundTripsToARealLedgerContainer() {
         // bob is seeded with 4.50 EUR.
-        ReservationResult result =
-                adapter.checkAndReserve(UUID.randomUUID().toString(), bobAccountId, Money.of("1.00", "EUR"));
+        ReservationResult result = adapter.checkAndReserve(
+                UUID.randomUUID().toString(), bobAccountId, tomaszAccountId, Money.of("1.00", "EUR"));
 
         assertThat(result).isInstanceOf(ReservationResult.Ok.class);
         assertThat(((ReservationResult.Ok) result).expiresAt()).isAfter(Instant.now());
@@ -150,7 +151,10 @@ class LedgerGrpcClientAdapterTest {
                     new FixedServiceTokenProvider("service-token"));
 
             assertThatThrownBy(() -> adapterOfAnOldLedger.checkAndReserve(
-                            UUID.randomUUID().toString(), UUID.randomUUID(), Money.of("1.00", "EUR")))
+                            UUID.randomUUID().toString(),
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            Money.of("1.00", "EUR")))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("without its expiry");
         } finally {
@@ -169,10 +173,19 @@ class LedgerGrpcClientAdapterTest {
     }
 
     @Test
+    void postTransferToTheReservedRecipientIsAccepted() {
+        String transferId = UUID.randomUUID().toString();
+        adapter.checkAndReserve(transferId, bobAccountId, tomaszAccountId, Money.of("1.00", "EUR"));
+
+        assertThatCode(() -> adapter.postTransfer(transferId, bobAccountId, tomaszAccountId, Money.of("1.00", "EUR")))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void releaseReservationRoundTripsToARealLedgerContainer() {
         UUID transferId = UUID.randomUUID();
         ReservationResult result =
-                adapter.checkAndReserve(transferId.toString(), bobAccountId, Money.of("1.00", "EUR"));
+                adapter.checkAndReserve(transferId.toString(), bobAccountId, tomaszAccountId, Money.of("1.00", "EUR"));
         UUID reservationId = ((ReservationResult.Ok) result).reservationId();
 
         adapter.releaseReservation(transferId.toString(), reservationId);

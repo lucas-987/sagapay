@@ -98,7 +98,7 @@ class ResourceServerSecurityTest {
     @Tag("M4-S03")
     @DisplayName("A transfer is sent by the owner of the token, whatever the request claims")
     void aTransferIsSentByTheOwnerOfTheTokenWhateverTheRequestClaims() throws Exception {
-        when(ledger.checkAndReserve(any(), any(), any(Money.class)))
+        when(ledger.checkAndReserve(any(), any(), any(), any(Money.class)))
                 .thenThrow(new LedgerUnavailableException(new RuntimeException("down")));
 
         HttpResponse<String> response = createTransfer(TestTokens.forSubject(OWNER), OTHER_USER.toString());
@@ -109,8 +109,8 @@ class ResourceServerSecurityTest {
         List<String> senders = jdbc.queryForList(
                 "select sender_id::text from transfers where recipient_id = ?", String.class, RECIPIENT);
         assertThat(senders).containsExactly(OWNER.toString());
-        verify(ledger, timeout(5000)).checkAndReserve(any(), eq(OWNER), any(Money.class));
-        verify(ledger, never()).checkAndReserve(any(), eq(OTHER_USER), any(Money.class));
+        verify(ledger, timeout(5000)).checkAndReserve(any(), eq(OWNER), any(), any(Money.class));
+        verify(ledger, never()).checkAndReserve(any(), eq(OTHER_USER), any(), any(Money.class));
     }
 
     private enum BadToken {
@@ -164,7 +164,7 @@ class ResourceServerSecurityTest {
                 .startsWith(bad.challengePrefix);
         assertThat(response.body()).isEmpty();
         assertThat(transferCount()).isEqualTo(before);
-        verify(ledger, never()).checkAndReserve(any(), any(), any(Money.class));
+        verify(ledger, never()).checkAndReserve(any(), any(), any(), any(Money.class));
     }
 
     @Test
@@ -175,7 +175,7 @@ class ResourceServerSecurityTest {
 
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(transferCount()).isEqualTo(before);
-        verify(ledger, never()).checkAndReserve(any(), any(), any(Money.class));
+        verify(ledger, never()).checkAndReserve(any(), any(), any(), any(Money.class));
     }
 
     @ParameterizedTest

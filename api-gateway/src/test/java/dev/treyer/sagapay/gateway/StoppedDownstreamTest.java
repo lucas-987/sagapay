@@ -36,7 +36,7 @@ class StoppedDownstreamTest {
     private int port;
 
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"/v1/transfers", "/v1/wallet"})
+    @ValueSource(strings = {"/v1/transfers", "/v1/wallet", "/v1/stream/activity"})
     void aStoppedServiceIsAnsweredWithAServerErrorAndNotAHang(String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Authorization", "Bearer " + TestTokens.valid())
@@ -46,7 +46,7 @@ class StoppedDownstreamTest {
 
         HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
 
-        assertThat(response.statusCode()).isBetween(500, 599);
+        assertThat(response.statusCode()).isEqualTo(500);
     }
 
     private static int unusedPort() {

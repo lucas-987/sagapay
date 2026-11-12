@@ -60,10 +60,9 @@ regenerated on every build): `protobuf/` in `contracts`, `openapi-ledger/` in
 
 The Docker Compose stack runs the ledger, the transfer orchestrator and the fraud
 service with their databases, Kafka and Redis. The ledger and the orchestrator start
-with the `local` profile, and the ledger also with `local-noauth`: the ledger seeds sample
-accounts (`marco` holds 150000.00 EUR) and opens its endpoints without credentials. The
-orchestrator refuses a call without a valid token, and its own calls to the
-ledger carry a token of its own, which the ledger's gRPC API admits when `local-noauth` is off.
+with the `local` profile: the ledger seeds sample accounts (`marco` holds 150000.00 EUR).
+The orchestrator and the ledger refuse a call without a valid token, and the orchestrator's own
+calls to the ledger carry a token of its own, which the ledger's gRPC API admits.
 The stack sends the client secret and the bearer tokens over plain HTTP and gRPC, with the realm's
 `sslRequired` at `none`: that is for a local stack only, anywhere else both need TLS.
 
@@ -74,8 +73,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build
 ```
 
 The published ports (8081 to 8083, 8180, the databases, Redis and Kafka) are bound on every
-host interface and the ledger's `local-noauth` profile asks for no credentials: run the stack
-on a trusted network only. They must be free on the host, so stop any other stack first.
+host interface, and the stack sends its tokens over plain HTTP: run the stack on a trusted
+network only. They must be free on the host, so stop any other stack first.
 
 Every service answers `GET /actuator/health` with `{"status":"UP"}`, with no token: ledger on
 8081, orchestrator on 8082, fraud service on 8083. The orchestrator refuses every other

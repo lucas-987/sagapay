@@ -5,6 +5,7 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedServiceTokenProvider;
+import dev.treyer.sagapay.orchestrator.security.LedgerContainer;
 import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -76,7 +77,7 @@ class TransferOrchestratorE2ETest {
         ledgerChannel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        ledgerStub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
+        ledgerStub = LedgerServiceGrpc.newBlockingStub(ledgerChannel).withInterceptors(LedgerContainer.serviceToken());
     }
 
     @AfterAll

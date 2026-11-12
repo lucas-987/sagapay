@@ -3,7 +3,6 @@ package dev.treyer.sagapay.orchestrator.config;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -15,7 +14,6 @@ import org.springframework.security.web.SecurityFilterChain;
  * endpoints are refused to everyone, since any signed-in user would otherwise read the metrics.
  */
 @Configuration
-@Profile("!local-noauth")
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class ResourceServerSecurityConfig {
 

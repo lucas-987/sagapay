@@ -75,9 +75,8 @@ class ComposeCredentialsTest {
     }
 
     @Test
-    void theLedgerKeepsLocalNoauthInCompose() throws IOException {
-        assertThat(environmentOf("ledger-accounts-service"))
-                .containsEntry("SPRING_PROFILES_ACTIVE", "local,local-noauth");
+    void theLedgerRunsWithoutLocalNoauthInCompose() throws IOException {
+        assertThat(environmentOf("ledger-accounts-service")).containsEntry("SPRING_PROFILES_ACTIVE", "local");
     }
 
     @Test

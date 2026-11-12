@@ -3,6 +3,8 @@ package dev.treyer.sagapay.ledger.adapter.in.grpc;
 import dev.treyer.sagapay.ledger.TestcontainersConfiguration;
 import dev.treyer.sagapay.ledger.adapter.out.persistence.AccountRepository;
 import dev.treyer.sagapay.ledger.domain.Account;
+import dev.treyer.sagapay.ledger.security.TestJwtConfiguration;
+import dev.treyer.sagapay.ledger.security.TestTokens;
 import dev.treyer.sagapay.ledger.v1.GetBalanceRequest;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import io.micrometer.observation.tck.TestObservationRegistry;
@@ -15,7 +17,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.GrpcChannelFactory;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -24,8 +25,7 @@ import java.util.UUID;
  * {@code @ConditionalOnMissingBean}. */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
-@ActiveProfiles("local-noauth")
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
 class GrpcTracingInterceptorConfigTest {
 
     @Autowired
@@ -42,7 +42,8 @@ class GrpcTracingInterceptorConfigTest {
         UUID accountId = accounts.save(
                         new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("10.0000")))
                 .getId();
-        var client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"));
+        var client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"))
+                .withInterceptors(TestTokens.serviceCredentials());
 
         client.getBalance(GetBalanceRequest.newBuilder()
                 .setAccountId(accountId.toString())

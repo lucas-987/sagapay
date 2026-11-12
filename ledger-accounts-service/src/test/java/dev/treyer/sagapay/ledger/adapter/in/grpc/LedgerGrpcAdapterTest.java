@@ -4,6 +4,8 @@ import dev.treyer.sagapay.common.v1.Money;
 import dev.treyer.sagapay.ledger.TestcontainersConfiguration;
 import dev.treyer.sagapay.ledger.adapter.out.persistence.AccountRepository;
 import dev.treyer.sagapay.ledger.domain.Account;
+import dev.treyer.sagapay.ledger.security.TestJwtConfiguration;
+import dev.treyer.sagapay.ledger.security.TestTokens;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.GetBalanceRequest;
@@ -12,10 +14,8 @@ import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
 import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
-import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import io.grpc.stub.MetadataUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,7 +25,6 @@ import org.springframework.boot.grpc.test.autoconfigure.AutoConfigureTestGrpcTra
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.GrpcChannelFactory;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -34,11 +33,13 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** {@code local-noauth}: these tests cover the RPCs, not the default lock. */
+/**
+ * The RPCs, called with a valid service token; the lock itself is tested by
+ * {@code GrpcServiceTokenTest}.
+ */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
-@ActiveProfiles("local-noauth")
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
 class LedgerGrpcAdapterTest {
 
     private static final String RECIPIENT = UUID.randomUUID().toString();
@@ -53,37 +54,13 @@ class LedgerGrpcAdapterTest {
 
     @BeforeEach
     void setUp() {
-        client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"));
+        client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"))
+                .withInterceptors(TestTokens.serviceCredentials());
     }
 
     private UUID newAccount(String balance) {
         return accounts.save(new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal(balance)))
                 .getId();
-    }
-
-    @Test
-    void aCallWithNoTokenReachesTheRpcUnderLocalNoauth() {
-        UUID accountId = newAccount("7.0000");
-
-        GetBalanceResponse response = client.getBalance(GetBalanceRequest.newBuilder()
-                .setAccountId(accountId.toString())
-                .build());
-
-        assertThat(response.getBalance().getAmount()).isEqualTo("7.0000");
-    }
-
-    @Test
-    void aCallWithATokenTheLedgerWouldRefuseStillReachesTheRpcUnderLocalNoauth() {
-        UUID accountId = newAccount("7.0000");
-        Metadata headers = new Metadata();
-        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer not-a-jwt");
-
-        GetBalanceResponse response = client.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
-                .getBalance(GetBalanceRequest.newBuilder()
-                        .setAccountId(accountId.toString())
-                        .build());
-
-        assertThat(response.getBalance().getAmount()).isEqualTo("7.0000");
     }
 
     @Test

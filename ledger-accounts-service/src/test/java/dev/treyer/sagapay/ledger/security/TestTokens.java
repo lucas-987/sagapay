@@ -8,6 +8,9 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import io.grpc.ClientInterceptor;
+import io.grpc.Metadata;
+import io.grpc.stub.MetadataUtils;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -45,6 +48,13 @@ public final class TestTokens {
                 .algorithm(JWSAlgorithm.RS256)
                 .build();
         return new JWKSet(key).toString();
+    }
+
+    /** The credential of a gRPC client of the ledger: a valid service token. */
+    public static ClientInterceptor serviceCredentials() {
+        Metadata headers = new Metadata();
+        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token().build());
+        return MetadataUtils.newAttachHeadersInterceptor(headers);
     }
 
     public static Builder token() {

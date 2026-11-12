@@ -9,6 +9,7 @@ import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.config.LedgerProperties;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
+import dev.treyer.sagapay.orchestrator.security.LedgerContainer;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -21,20 +22,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,43 +42,15 @@ class LedgerGrpcClientAdapterTest {
     private static final Network NETWORK = Network.newNetwork();
 
     @Container
-    private static final PostgreSQLContainer LEDGER_POSTGRES = new PostgreSQLContainer("postgres:17")
-            .withNetwork(NETWORK)
-            .withNetworkAliases("ledger-postgres")
-            .withDatabaseName("ledger_svc")
-            .withUsername("sagapay")
-            .withPassword("sagapay-test");
+    private static final PostgreSQLContainer LEDGER_POSTGRES = LedgerContainer.postgres(NETWORK);
 
     @Container
-    private static final GenericContainer<?> LEDGER = new GenericContainer<>(new ImageFromDockerfile()
-                    .withFileFromPath(".", repoRoot())
-                    .withDockerfilePath("ledger-accounts-service/Dockerfile")
-                    .withBuildArg("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")))
-            .withNetwork(NETWORK)
-            .dependsOn(LEDGER_POSTGRES)
-            .withExposedPorts(8081, 9091)
-            // local seeds the sample accounts; local-noauth opens REST and gRPC.
-            .withEnv(Map.of(
-                    "SPRING_PROFILES_ACTIVE", "local,local-noauth",
-                    "SPRING_DATASOURCE_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_DATASOURCE_USERNAME", "ledger_app",
-                    "SPRING_DATASOURCE_PASSWORD", "ledger-app-test",
-                    "SPRING_FLYWAY_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                    "SPRING_FLYWAY_USER", "sagapay",
-                    "SPRING_FLYWAY_PASSWORD", "sagapay-test",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                    "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
-            .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
+    private static final GenericContainer<?> LEDGER = LedgerContainer.create(NETWORK, LEDGER_POSTGRES);
 
     private static ManagedChannel channel;
     private static LedgerGrpcClientAdapter adapter;
     private static UUID bobAccountId;
     private static UUID tomaszAccountId;
-
-    // The ledger's Dockerfile builds from the repository root.
-    private static Path repoRoot() {
-        return Paths.get(System.getProperty("user.dir")).getParent();
-    }
 
     @BeforeAll
     static void setUp() {
@@ -94,17 +60,14 @@ class LedgerGrpcClientAdapterTest {
         adapter = new LedgerGrpcClientAdapter(
                 channel,
                 new LedgerProperties(new LedgerProperties.Grpc(5000)),
-                new FixedServiceTokenProvider("service-token"));
+                FixedServiceTokenProvider.acceptedByTheLedger());
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");
     }
 
     private static UUID lookupAccountId(String handle) {
-        String lookupUrl = "http://%s:%d/v1/users/lookup?handle=%s"
-                .formatted(LEDGER.getHost(), LEDGER.getMappedPort(8081), handle);
-        Map<?, ?> response = RestClient.create().get().uri(lookupUrl).retrieve().body(Map.class);
-        return UUID.fromString((String) response.get("accountId"));
+        return LedgerContainer.lookupAccountId(LEDGER, handle);
     }
 
     @AfterAll

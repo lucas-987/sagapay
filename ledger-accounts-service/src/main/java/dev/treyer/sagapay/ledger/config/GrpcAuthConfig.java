@@ -3,7 +3,6 @@ package dev.treyer.sagapay.ledger.config;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.grpc.server.GlobalServerInterceptor;
 import org.springframework.grpc.server.security.AuthenticationProcessInterceptor;
@@ -23,7 +22,6 @@ import static org.springframework.security.config.Customizer.withDefaults;
  * tokens of users too, which name no audience of the ledger.
  */
 @Configuration
-@Profile("!local-noauth")
 @EnableConfigurationProperties(GrpcAuthProperties.class)
 class GrpcAuthConfig {
 
@@ -38,11 +36,12 @@ class GrpcAuthConfig {
             throws Exception {
         AuthorizationManager<Object> scope =
                 AuthorityAuthorizationManager.hasAuthority(SCOPE_AUTHORITY_PREFIX + properties.scope());
-        AuthorizationManager<Object> audience = (authentication, call) -> new AuthorizationDecision(
-                authentication.get() instanceof JwtAuthenticationToken token
+        AuthorizationManager<Object> audience = (authentication, call) ->
+                new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
                         && token.getToken().getAudience() != null
                         && token.getToken().getAudience().contains(properties.audience()));
-        return grpc.authorizeRequests(requests -> requests.allRequests().access(AuthorizationManagers.allOf(scope, audience)))
+        return grpc.authorizeRequests(
+                        requests -> requests.allRequests().access(AuthorizationManagers.allOf(scope, audience)))
                 .oauth2ResourceServer(resourceServer -> resourceServer.jwt(withDefaults()))
                 .build();
     }

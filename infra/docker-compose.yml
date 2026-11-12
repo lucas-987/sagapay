@@ -28,10 +28,10 @@ services:
     ports:
       - "8081:8081"
     environment:
-      # `local` seeds the sample accounts; `local-noauth` opens REST and gRPC without credentials.
-      # Without it, gRPC admits only the orchestrator's token, checked against the keys and issuer
-      # below. The gRPC port is not published: only the services of this network reach it.
-      SPRING_PROFILES_ACTIVE: local,local-noauth
+      # `local` seeds the sample accounts. REST takes a token of the realm; gRPC admits only the
+      # orchestrator's token. Both are checked against the keys and issuer below. The gRPC port is
+      # not published: only the services of this network reach it.
+      SPRING_PROFILES_ACTIVE: local
       OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
       OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       # Same DB as the postgres service above, addressed by its network hostname.
@@ -126,8 +126,6 @@ services:
     ports:
       - "8082:8082"
     environment:
-      # The ledger runs with `local-noauth`, which opens its API; the gRPC calls carry the service
-      # token below all the same.
       SPRING_PROFILES_ACTIVE: local
       # The address Keycloak's tokens name as issuer, which the stack resolves from every container.
       OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay

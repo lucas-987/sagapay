@@ -1,18 +1,15 @@
 package dev.treyer.sagapay.orchestrator.e2e;
 
+import dev.treyer.sagapay.orchestrator.security.LedgerContainer;
 import dev.treyer.sagapay.orchestrator.security.TestTokens;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
@@ -24,37 +21,11 @@ final class E2ESupport {
     private E2ESupport() {}
 
     static PostgreSQLContainer ledgerPostgres(Network network) {
-        return new PostgreSQLContainer("postgres:17")
-                .withNetwork(network)
-                .withNetworkAliases("ledger-postgres")
-                .withDatabaseName("ledger_svc")
-                .withUsername("sagapay")
-                .withPassword("sagapay-test");
+        return LedgerContainer.postgres(network);
     }
 
     static GenericContainer<?> ledger(Network network, PostgreSQLContainer ledgerPostgres) {
-        return new GenericContainer<>(new ImageFromDockerfile()
-                        .withFileFromPath(".", repoRoot())
-                        .withDockerfilePath("ledger-accounts-service/Dockerfile")
-                        .withBuildArg("MAVEN_MIRROR_URL", System.getenv().getOrDefault("MAVEN_MIRROR_URL", "")))
-                .withNetwork(network)
-                .dependsOn(ledgerPostgres)
-                .withExposedPorts(8081, 9091)
-                .withEnv(Map.of(
-                        "SPRING_PROFILES_ACTIVE", "local,local-noauth",
-                        "SPRING_DATASOURCE_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                        "SPRING_DATASOURCE_USERNAME", "ledger_app",
-                        "SPRING_DATASOURCE_PASSWORD", "ledger-app-test",
-                        "SPRING_FLYWAY_URL", "jdbc:postgresql://ledger-postgres:5432/ledger_svc",
-                        "SPRING_FLYWAY_USER", "sagapay",
-                        "SPRING_FLYWAY_PASSWORD", "sagapay-test",
-                        "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPUSERNAME", "ledger_app",
-                        "SPRING_FLYWAY_PLACEHOLDERS_LEDGERAPPPASSWORD", "ledger-app-test"))
-                .waitingFor(Wait.forHttp("/actuator/health").forPort(8081).withStartupTimeout(Duration.ofMinutes(5)));
-    }
-
-    private static Path repoRoot() {
-        return Paths.get(System.getProperty("user.dir")).getParent();
+        return LedgerContainer.create(network, ledgerPostgres);
     }
 
     static void pointOrchestratorAt(DynamicPropertyRegistry registry, GenericContainer<?> ledger) {
@@ -64,15 +35,22 @@ final class E2ESupport {
         registry.add("ledger.rest.base-url", () -> "http://" + ledger.getHost() + ":" + ledger.getMappedPort(8081));
     }
 
+    /** The account of a seeded user, as any signed-in user reads it. */
     static UUID lookupAccountId(RestClient ledgerRest, String handle) {
+        return lookupAccountId(ledgerRest, handle, TestTokens.forSubject(UUID.randomUUID()));
+    }
+
+    static UUID lookupAccountId(RestClient ledgerRest, String handle, String token) {
         Map<?, ?> response = ledgerRest
                 .get()
                 .uri("/v1/users/lookup?handle={handle}", handle)
+                .headers(headers -> headers.setBearerAuth(token))
                 .retrieve()
                 .body(Map.class);
         return UUID.fromString((String) response.get("accountId"));
     }
 
+    /** The wallet endpoint serves the token's own account, so each read signs in as that account. */
     static BigDecimal balanceOf(RestClient ledgerRest, UUID accountId) {
         return walletAmount(ledgerRest, accountId, "balance");
     }
@@ -85,6 +63,7 @@ final class E2ESupport {
         Map<?, ?> response = ledgerRest
                 .get()
                 .uri("/v1/wallet?accountId={id}", accountId)
+                .header("Authorization", bearer(accountId))
                 .retrieve()
                 .body(Map.class);
         Map<?, ?> money = (Map<?, ?>) response.get(field);

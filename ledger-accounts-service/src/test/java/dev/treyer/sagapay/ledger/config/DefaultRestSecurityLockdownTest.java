@@ -15,7 +15,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Without {@code local-noauth}, Spring Security's default lockdown must stay. */
+/** Spring Security's default lockdown must stay. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 @TestPropertySource(properties = "spring.grpc.server.port=0")

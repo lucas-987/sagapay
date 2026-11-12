@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Outside {@code local-noauth} the gRPC API admits a service token only. The keys are served by a
+ * The gRPC API admits a service token only. The keys are served by a
  * local HTTP server standing in for the identity provider.
  */
 @SpringBootTest
@@ -179,7 +179,9 @@ class GrpcServiceTokenTest {
 
     static Stream<Arguments> acceptedCalls() {
         return Stream.of(
-                Arguments.of("a token with the audience and the scope", "Bearer " + TestTokens.token().build()),
+                Arguments.of(
+                        "a token with the audience and the scope",
+                        "Bearer " + TestTokens.token().build()),
                 Arguments.of(
                         "the audience among several and the scope among several",
                         "Bearer "
@@ -187,7 +189,9 @@ class GrpcServiceTokenTest {
                                         .audience("account", "ledger-accounts-service")
                                         .scope("profile ledger:write email")
                                         .build()),
-                Arguments.of("the bearer scheme in lower case", "bearer " + TestTokens.token().build()));
+                Arguments.of(
+                        "the bearer scheme in lower case",
+                        "bearer " + TestTokens.token().build()));
     }
 
     @ParameterizedTest(name = "{0} reaches the RPC")

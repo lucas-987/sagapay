@@ -206,6 +206,36 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
+  # The public entry. It keeps no state: no store of its own, only the identity provider's keys to
+  # validate tokens and the two services it routes to.
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: api-gateway/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      transfer-orchestrator:
+        condition: service_started
+      ledger-accounts-service:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
+      ORCHESTRATOR_URI: http://transfer-orchestrator:8082
+      LEDGER_URI: http://ledger-accounts-service:8081
+    healthcheck:
+      # The runtime image has no curl; BusyBox's wget reads the health answer.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
   # The identity provider. Local only: start-dev, an embedded database and plain HTTP.
   keycloak:
     image: quay.io/keycloak/keycloak:26.4

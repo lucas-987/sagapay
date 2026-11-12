@@ -30,6 +30,10 @@ class RoutingTest extends GatewayTestBase {
                 Arguments.of("/v1/users/lookup?email=maya@example.com", LEDGER));
     }
 
+    static Stream<Arguments> everyRoute() {
+        return Stream.concat(routes(), Stream.of(Arguments.of("/v1/stream/activity", TRANSFERS)));
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("routes")
     @Tag("M4-S01")
@@ -47,7 +51,7 @@ class RoutingTest extends GatewayTestBase {
     }
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("routes")
+    @MethodSource("everyRoute")
     void aRoutedCallArrivesWithTheSameAuthorizationHeader(String path, StubService service) throws Exception {
         String token = TestTokens.valid();
 

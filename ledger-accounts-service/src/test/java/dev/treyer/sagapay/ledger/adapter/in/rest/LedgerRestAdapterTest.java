@@ -6,6 +6,7 @@ import dev.treyer.sagapay.ledger.application.port.in.ListPostingsUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.LookupAccountUseCase;
 import dev.treyer.sagapay.ledger.domain.AccountLookup;
 import dev.treyer.sagapay.ledger.domain.Posting;
+import dev.treyer.sagapay.ledger.domain.PostingCursor;
 import dev.treyer.sagapay.ledger.domain.PostingLeg;
 import dev.treyer.sagapay.ledger.domain.PostingPage;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
@@ -23,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -122,6 +124,33 @@ class LedgerRestAdapterTest {
                 .andExpect(jsonPath("$.items[0].refTransferId").value("transfer-1"))
                 .andExpect(jsonPath("$.items[0].reason").value("TRANSFER_SETTLE"))
                 .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+    }
+
+    @Test
+    void listPostingsPassesTheStartDateAndTheDecodedCursorToTheUseCase() throws Exception {
+        UUID accountId = signedInAsNewAccount();
+        PostingCursor after = new PostingCursor(Instant.parse("2026-11-02T10:15:30Z"), UUID.randomUUID());
+        when(listPostingsUseCase.listPostings(accountId, Instant.parse("2026-11-01T00:00:00Z"), after, 10))
+                .thenReturn(new PostingPage(List.of(), "EUR", null));
+
+        mockMvc.perform(get("/v1/wallet/postings")
+                        .param("from", "2026-11-01T00:00:00Z")
+                        .param("cursor", after.encode())
+                        .param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty());
+    }
+
+    @Test
+    void listPostingsAnswersTheCursorOfTheNextPage() throws Exception {
+        UUID accountId = signedInAsNewAccount();
+        PostingCursor next = new PostingCursor(Instant.parse("2026-11-03T08:00:00Z"), UUID.randomUUID());
+        when(listPostingsUseCase.listPostings(eq(accountId), isNull(), isNull(), anyInt()))
+                .thenReturn(new PostingPage(List.of(), "EUR", next));
+
+        mockMvc.perform(get("/v1/wallet/postings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextCursor").value(next.encode()));
     }
 
     @Test

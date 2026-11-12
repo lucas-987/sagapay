@@ -10,10 +10,15 @@ import dev.treyer.sagapay.ledger.domain.PostingLeg;
 import dev.treyer.sagapay.ledger.domain.PostingPage;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Use cases are mocked, so no SQL runs here; security is tested separately. */
 @WebMvcTest(LedgerRestAdapter.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import(CallerAccount.class)
 class LedgerRestAdapterTest {
 
     @Autowired
@@ -47,46 +53,71 @@ class LedgerRestAdapterTest {
     @MockitoBean
     private LookupAccountUseCase lookupAccountUseCase;
 
+    // The filters are off, so the token's authentication is set the way the resource-server filter would.
+    private static UUID signedInAsNewAccount() {
+        UUID accountId = UUID.randomUUID();
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "none")
+                .subject(accountId.toString())
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+        return accountId;
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void getWalletReturnsWalletSnapshot() throws Exception {
-        UUID accountId = UUID.randomUUID();
+        UUID accountId = signedInAsNewAccount();
         WalletSnapshot snapshot =
                 new WalletSnapshot(Money.of("100.00", "EUR"), Money.of("80.00", "EUR"), Money.of("20.00", "EUR"));
         when(getWalletUseCase.getWallet(accountId)).thenReturn(snapshot);
 
-        mockMvc.perform(get("/v1/wallet").param("accountId", accountId.toString()))
+        mockMvc.perform(get("/v1/wallet"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()))
                 .andExpect(jsonPath("$.balance.amount").value("100.0000"))
                 .andExpect(jsonPath("$.available.amount").value("80.0000"))
                 .andExpect(jsonPath("$.held.amount").value("20.0000"));
     }
 
     @Test
-    void getWalletWithoutAccountIdReturns400() throws Exception {
-        mockMvc.perform(get("/v1/wallet")).andExpect(status().isBadRequest());
+    void getWalletIgnoresAnAccountIdInTheQuery() throws Exception {
+        UUID accountId = signedInAsNewAccount();
+        WalletSnapshot snapshot =
+                new WalletSnapshot(Money.of("5.00", "EUR"), Money.of("5.00", "EUR"), Money.of("0.00", "EUR"));
+        when(getWalletUseCase.getWallet(accountId)).thenReturn(snapshot);
+
+        mockMvc.perform(get("/v1/wallet").param("accountId", UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").value(accountId.toString()));
     }
 
     @Test
     void getWalletUnknownAccountReturns404WithAccountNotFoundCode() throws Exception {
-        UUID accountId = UUID.randomUUID();
+        UUID accountId = signedInAsNewAccount();
         when(getWalletUseCase.getWallet(accountId))
                 .thenThrow(new IllegalArgumentException("unknown account " + accountId));
 
-        mockMvc.perform(get("/v1/wallet").param("accountId", accountId.toString()))
+        mockMvc.perform(get("/v1/wallet"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
     }
 
     @Test
-    void listPostingsReturnsItemsAndNextCursor() throws Exception {
-        UUID accountId = UUID.randomUUID();
+    void listPostingsReturnsTheSubjectsPostingsEvenWhenAnotherAccountIsNamed() throws Exception {
+        UUID accountId = signedInAsNewAccount();
         Posting posting =
                 new Posting(UUID.randomUUID(), accountId, "transfer-1", PostingLeg.DEBIT, new BigDecimal("5.0000"));
         PostingPage page = new PostingPage(List.of(posting), "EUR", null);
         when(listPostingsUseCase.listPostings(eq(accountId), isNull(), isNull(), anyInt()))
                 .thenReturn(page);
 
-        mockMvc.perform(get("/v1/wallet/postings").param("accountId", accountId.toString()))
+        mockMvc.perform(get("/v1/wallet/postings")
+                        .param("accountId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].refTransferId").value("transfer-1"))
                 .andExpect(jsonPath("$.items[0].reason").value("TRANSFER_SETTLE"))
@@ -95,11 +126,9 @@ class LedgerRestAdapterTest {
 
     @Test
     void listPostingsWithMalformedCursorReturns400WithInvalidCursorCode() throws Exception {
-        UUID accountId = UUID.randomUUID();
+        signedInAsNewAccount();
 
-        mockMvc.perform(get("/v1/wallet/postings")
-                        .param("accountId", accountId.toString())
-                        .param("cursor", "not-a-valid-cursor"))
+        mockMvc.perform(get("/v1/wallet/postings").param("cursor", "not-a-valid-cursor"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
     }

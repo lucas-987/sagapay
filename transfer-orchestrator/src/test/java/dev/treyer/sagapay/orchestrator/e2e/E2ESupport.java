@@ -62,7 +62,7 @@ final class E2ESupport {
     private static BigDecimal walletAmount(RestClient ledgerRest, UUID accountId, String field) {
         Map<?, ?> response = ledgerRest
                 .get()
-                .uri("/v1/wallet?accountId={id}", accountId)
+                .uri("/v1/wallet")
                 .header("Authorization", bearer(accountId))
                 .retrieve()
                 .body(Map.class);

@@ -16,15 +16,8 @@ paths:
       operationId: getWallet
       summary: My balance
       description: >-
-        accountId is TEMPORARY: OIDC isn't wired on REST yet (deferred to M4),
-        so the caller identifies the account explicitly instead of it coming
-        from the JWT. Drop this parameter once M4 lands and read the account
-        from the authenticated principal instead.
-      parameters:
-        - name: accountId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
+        The wallet of the caller: the account is the subject of the bearer token,
+        and a request cannot name another one.
       responses:
         '200':
           description: balance
@@ -44,13 +37,9 @@ paths:
       operationId: listPostings
       summary: My ledger postings (append-only, cursor pagination)
       description: >-
-        accountId is TEMPORARY, same reason and same removal plan as on GET
-        /v1/wallet (see its description).
+        The postings of the caller's own account, taken from the subject of the
+        bearer token, as on GET /v1/wallet.
       parameters:
-        - name: accountId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: cursor, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 500 } }

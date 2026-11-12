@@ -30,18 +30,22 @@ public class LedgerRestAdapter implements V1Api {
     private final GetWalletUseCase getWalletUseCase;
     private final ListPostingsUseCase listPostingsUseCase;
     private final LookupAccountUseCase lookupAccountUseCase;
+    private final CallerAccount callerAccount;
 
     public LedgerRestAdapter(
             GetWalletUseCase getWalletUseCase,
             ListPostingsUseCase listPostingsUseCase,
-            LookupAccountUseCase lookupAccountUseCase) {
+            LookupAccountUseCase lookupAccountUseCase,
+            CallerAccount callerAccount) {
         this.getWalletUseCase = getWalletUseCase;
         this.listPostingsUseCase = listPostingsUseCase;
         this.lookupAccountUseCase = lookupAccountUseCase;
+        this.callerAccount = callerAccount;
     }
 
     @Override
-    public ResponseEntity<GetWallet200Response> getWallet(UUID accountId) {
+    public ResponseEntity<GetWallet200Response> getWallet() {
+        UUID accountId = callerAccount.id();
         WalletSnapshot wallet = getWalletUseCase.getWallet(accountId);
         return ResponseEntity.ok(new GetWallet200Response()
                 .accountId(accountId.toString())
@@ -52,8 +56,8 @@ public class LedgerRestAdapter implements V1Api {
     }
 
     @Override
-    public ResponseEntity<ListPostings200Response> listPostings(
-            UUID accountId, OffsetDateTime from, String cursor, Integer limit) {
+    public ResponseEntity<ListPostings200Response> listPostings(OffsetDateTime from, String cursor, Integer limit) {
+        UUID accountId = callerAccount.id();
         PostingCursor after = cursor == null ? null : PostingCursor.decode(cursor);
         PostingPage page =
                 listPostingsUseCase.listPostings(accountId, from == null ? null : from.toInstant(), after, limit);

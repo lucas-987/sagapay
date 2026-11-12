@@ -68,6 +68,7 @@ public final class TestTokens {
         private List<String> audience = List.of(AUDIENCE);
         private String scope = "openid " + SCOPE;
         private String keyId = KEY_ID;
+        private String subject = "service-account-test";
         private Instant expiresAt = Instant.now().plusSeconds(300);
 
         public Builder signedByAnotherKey() {
@@ -78,6 +79,12 @@ public final class TestTokens {
         /** A key id the published key set does not hold. */
         public Builder keyId(String keyId) {
             this.keyId = keyId;
+            return this;
+        }
+
+        /** Null leaves the claim out. */
+        public Builder subject(String subject) {
+            this.subject = subject;
             return this;
         }
 
@@ -105,7 +112,7 @@ public final class TestTokens {
         public String build() {
             try {
                 JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder()
-                        .subject("service-account-test")
+                        .subject(subject)
                         .issuer(issuer)
                         .audience(audience)
                         .issueTime(Date.from(expiresAt.minusSeconds(7200)))

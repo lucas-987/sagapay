@@ -62,7 +62,8 @@ The Docker Compose stack runs the ledger, the transfer orchestrator and the frau
 service with their databases, Kafka and Redis. The ledger and the orchestrator start
 with the `local` profile: the ledger seeds sample accounts (`marco` holds 150000.00 EUR).
 The orchestrator and the ledger refuse a call without a valid token, and the orchestrator's own
-calls to the ledger carry a token of its own, which the ledger's gRPC API admits.
+calls to the ledger carry a token of its own, which the ledger's gRPC API admits. The ledger's
+REST API serves each token's owner their own wallet.
 The stack sends the client secret and the bearer tokens over plain HTTP and gRPC, with the realm's
 `sslRequired` at `none`: that is for a local stack only, anywhere else both need TLS.
 
@@ -77,8 +78,8 @@ host interface, and the stack sends its tokens over plain HTTP: run the stack on
 network only. They must be free on the host, so stop any other stack first.
 
 Every service answers `GET /actuator/health` with `{"status":"UP"}`, with no token: ledger on
-8081, orchestrator on 8082, fraud service on 8083. The orchestrator refuses every other
-Actuator endpoint, with or without a token.
+8081, orchestrator on 8082, fraud service on 8083. The ledger and the orchestrator refuse every
+other Actuator endpoint, with or without a token.
 
 Settings read from `.env` or the shell (a variable marked required makes every Compose command of the stack
 fail while it is unset, `down`, `ps` and `logs` included, so keep it in `.env`):
@@ -134,8 +135,8 @@ TOKEN=$(curl -s http://localhost:8180/realms/sagapay/protocol/openid-connect/tok
   -d grant_type=password -d client_id=sagapay-cli -d username=marco -d password="$MARCO_PASSWORD" \
   | jq -r .access_token)
 
-SENDER=$(curl -s 'http://localhost:8081/v1/users/lookup?handle=marco' | jq -r .accountId)
-RECIPIENT=$(curl -s 'http://localhost:8081/v1/users/lookup?handle=ines' | jq -r .accountId)
+SENDER=$(curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8081/v1/users/lookup?handle=marco' | jq -r .accountId)
+RECIPIENT=$(curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8081/v1/users/lookup?handle=ines' | jq -r .accountId)
 
 # 1. Send the transfer: 202, the body holds the transfer id. The token expires after a few
 #    minutes: get a new one when a call answers 401.
@@ -155,6 +156,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8082/v1/transf
 
 # 4. The transfer is posted: "status": "POSTED".
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8082/v1/transfers/$ID | jq .status
+
+# 5. marco's wallet: the ledger serves the wallet of the token's owner.
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/v1/wallet | jq .
 ```
 
 To watch a flagged transfer expire, repeat step 1 to another seeded recipient (`hugo`)

@@ -28,9 +28,9 @@ services:
     ports:
       - "8081:8081"
     environment:
-      # `local` seeds the sample accounts. REST takes a token of the realm; gRPC admits only the
-      # orchestrator's token. Both are checked against the keys and issuer below. The gRPC port is
-      # not published: only the services of this network reach it.
+      # `local` seeds the sample accounts. REST takes a token of the realm and serves its owner's
+      # wallet; gRPC admits only the orchestrator's token. Both are checked against the keys and
+      # issuer below. The gRPC port is not published: only the services of this network reach it.
       SPRING_PROFILES_ACTIVE: local
       OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
       OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs

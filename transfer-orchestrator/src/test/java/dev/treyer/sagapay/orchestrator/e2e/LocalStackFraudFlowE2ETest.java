@@ -174,7 +174,7 @@ class LocalStackFraudFlowE2ETest {
     @Test
     @DisplayName("A token fetched for marco has the id of marco's account as subject")
     void tokenFetchedForMarcoHasTheIdOfMarcosAccountAsSubject() {
-        UUID marcoAccountId = E2ESupport.lookupAccountId(ledger, "marco");
+        UUID marcoAccountId = E2ESupport.lookupAccountId(ledger, "marco", tokenFor("marco"));
 
         Map<?, ?> claims = claimsOf(tokenFor("marco"));
 
@@ -207,6 +207,31 @@ class LocalStackFraudFlowE2ETest {
     }
 
     @Test
+    @DisplayName("The ledger answers a wallet read with the token owner's wallet, whatever account is named")
+    void ledgerAnswersAWalletReadWithTheTokenOwnersWallet() {
+        String marcoToken = tokenFor("marco");
+        UUID marcoAccountId = E2ESupport.lookupAccountId(ledger, "marco", marcoToken);
+        UUID inesAccountId = E2ESupport.lookupAccountId(ledger, "ines", marcoToken);
+
+        Map<?, ?> wallet = ledger.get()
+                .uri("/v1/wallet?accountId={id}", inesAccountId)
+                .headers(headers -> headers.setBearerAuth(marcoToken))
+                .retrieve()
+                .body(Map.class);
+
+        assertThat(wallet.get("accountId")).isEqualTo(marcoAccountId.toString());
+    }
+
+    @Test
+    @DisplayName("The ledger refuses a wallet read without a token")
+    void ledgerRefusesAWalletReadWithoutAToken() {
+        assertThatThrownBy(() -> ledger.get().uri("/v1/wallet").retrieve().toBodilessEntity())
+                .isInstanceOfSatisfying(
+                        HttpClientErrorException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(401));
+    }
+
+    @Test
     @DisplayName("The orchestrator refuses a call without a token")
     void orchestratorRefusesACallWithoutAToken() {
         assertThatThrownBy(
@@ -221,7 +246,7 @@ class LocalStackFraudFlowE2ETest {
     void transferToARecipientNamedByHandleIsAccepted() {
         // ines pays marco: no flagged-flow test sends from ines, and the fraud history that makes
         // a recipient known is per sender, so this transfer cannot change what those tests see.
-        UUID recipientId = E2ESupport.lookupAccountId(ledger, "marco");
+        UUID recipientId = E2ESupport.lookupAccountId(ledger, "marco", tokenFor("ines"));
 
         Map<?, ?> created = orchestrator
                 .post()
@@ -242,7 +267,7 @@ class LocalStackFraudFlowE2ETest {
     @DisplayName("A flagged transfer confirmed with the configured code is posted")
     void flaggedTransferConfirmedWithTheConfiguredCodeIsPosted() {
         String senderToken = tokenFor("marco");
-        UUID recipientId = E2ESupport.lookupAccountId(ledger, "ines");
+        UUID recipientId = E2ESupport.lookupAccountId(ledger, "ines", senderToken);
 
         UUID transferId = flaggedTransfer(senderToken, recipientId);
         E2ESupport.waitForStatus(orchestrator, transferId, "Bearer " + senderToken, "BLOCKED", WAIT);
@@ -256,7 +281,7 @@ class LocalStackFraudFlowE2ETest {
     @DisplayName("A flagged transfer left alone expires")
     void flaggedTransferLeftAloneExpires() {
         String senderToken = tokenFor("marco");
-        UUID recipientId = E2ESupport.lookupAccountId(ledger, "hugo");
+        UUID recipientId = E2ESupport.lookupAccountId(ledger, "hugo", senderToken);
 
         UUID transferId = flaggedTransfer(senderToken, recipientId);
         Map<?, ?> failed = E2ESupport.waitForStatus(orchestrator, transferId, "Bearer " + senderToken, "FAILED", WAIT);

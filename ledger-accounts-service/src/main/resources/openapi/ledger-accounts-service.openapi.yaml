@@ -8,7 +8,7 @@ info:
 servers:
   - url: https://api.sagapay.example.com
 security:
-  - oidc: [wallet:read]
+  - oidc: []
 
 paths:
   /v1/wallet:

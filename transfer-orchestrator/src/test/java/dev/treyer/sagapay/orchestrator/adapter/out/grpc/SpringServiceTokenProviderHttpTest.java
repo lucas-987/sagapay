@@ -47,7 +47,8 @@ class SpringServiceTokenProviderHttpTest {
             method.set(exchange.getRequestMethod());
             contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] answer = "{\"access_token\":\"t1\",\"token_type\":\"Bearer\",\"expires_in\":300}".getBytes(StandardCharsets.UTF_8);
+            byte[] answer = "{\"access_token\":\"t1\",\"token_type\":\"Bearer\",\"expires_in\":300}"
+                    .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, answer.length);
             exchange.getResponseBody().write(answer);
@@ -60,8 +61,10 @@ class SpringServiceTokenProviderHttpTest {
 
         assertThat(method).hasValue("POST");
         assertThat(contentType).hasValue("application/x-www-form-urlencoded");
-        assertThat(authorization).hasValue("Basic "
-                + Base64.getEncoder().encodeToString("transfer-orchestrator:s3cret".getBytes(StandardCharsets.UTF_8)));
+        assertThat(authorization)
+                .hasValue("Basic "
+                        + Base64.getEncoder()
+                                .encodeToString("transfer-orchestrator:s3cret".getBytes(StandardCharsets.UTF_8)));
         assertThat(body).hasValue("grant_type=client_credentials");
     }
 

@@ -176,7 +176,9 @@ class LedgerServiceCredentialsTest {
     /** The real provider against a fake identity provider, which gives the next token of the list. */
     private SpringServiceTokenProvider providerFetching(String... tokens) {
         RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer idp = MockRestServiceServer.bindTo(SpringServiceTokenProvider.withTokenConverters(builder)).build();
+        MockRestServiceServer idp = MockRestServiceServer.bindTo(
+                        SpringServiceTokenProvider.withTokenConverters(builder))
+                .build();
         for (String token : tokens) {
             idp.expect(once(), requestTo(TOKEN_URL))
                     .andRespond(withSuccess(

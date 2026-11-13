@@ -19,6 +19,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.IdempotencyKeyReusedException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -143,6 +144,15 @@ public class SagaService
                 .findBySenderIdAndIdempotencyKey(senderId, idempotencyKey)
                 .orElseThrow(() -> new IllegalStateException(
                         "transfer row vanished for sender " + senderId + " / idempotency key " + idempotencyKey));
+
+        if (inserted == 0 && !transfer.isSameRequest(recipientId, amount, note)) {
+            log.info(
+                    "idempotency key reused for a different transfer",
+                    kv("transfer.id", transfer.getId()),
+                    kv("sender.id", senderId),
+                    kv("idempotency.key", idempotencyKey));
+            throw new IdempotencyKeyReusedException(idempotencyKey);
+        }
 
         if (inserted == 1) {
             outbox.save(OutboxEvents.forTransfer(

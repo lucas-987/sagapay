@@ -2,6 +2,7 @@ package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
 import dev.treyer.sagapay.common.error.AppErrorCode;
 import dev.treyer.sagapay.common.error.Problems;
+import dev.treyer.sagapay.orchestrator.domain.IdempotencyKeyReusedException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidCursorException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -62,6 +63,11 @@ public class TransferRestExceptionHandler extends ResponseEntityExceptionHandler
     @ExceptionHandler(RecipientNotFoundException.class)
     public ProblemDetail handleRecipientNotFound(RecipientNotFoundException e) {
         return Problems.of(HttpStatus.UNPROCESSABLE_ENTITY, AppErrorCode.RECIPIENT_NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    public ProblemDetail handleIdempotencyKeyReused(IdempotencyKeyReusedException e) {
+        return Problems.of(HttpStatus.UNPROCESSABLE_ENTITY, AppErrorCode.IDEMPOTENCY_KEY_REUSED, e.getMessage());
     }
 
     @ExceptionHandler(MalformedRequestException.class)

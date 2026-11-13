@@ -128,27 +128,28 @@ final class E2ESupport {
     }
 
     /** The fraud service's published result, built by hand: only the fields the orchestrator reads matter. */
-    static void publishFraudResult(KafkaTemplate<String, String> kafka, UUID transferId, String decision) {
+    static UUID publishFraudResult(KafkaTemplate<String, String> kafka, UUID transferId, String decision) {
+        UUID eventId = UUID.randomUUID();
         String type = "CLEARED".equals(decision) ? "TransferCleared.v1" : "TransferFlagged.v1";
         String score = "CLEARED".equals(decision) ? "0.1500" : "0.9200";
-        String event =
-                """
+        String event = """
                 {"id":"%s","source":"fraud-detection-service","type":"%s",\
                 "time":"2026-11-01T10:00:00Z","subject":"%s","traceparent":null,\
                 "data":{"transferId":"%s","senderId":"%s","decision":"%s","score":%s,\
-                "reasons":["AMOUNT_ROUND"],"modelVersion":"v1","ts":"2026-11-01T10:00:00Z"}}""".formatted(UUID.randomUUID(), type, transferId, transferId, UUID.randomUUID(), decision, score);
+                "reasons":["AMOUNT_ROUND"],"modelVersion":"v1","ts":"2026-11-01T10:00:00Z"}}""".formatted(eventId, type, transferId, transferId, UUID.randomUUID(), decision, score);
         kafka.send("payments.fraud.results", transferId.toString(), event).join();
+        return eventId;
     }
 
     /** A result that arrives before the screening step is recorded and ignored, so the transfer must be
      * screened first. */
-    static void publishFraudResultOnceScreening(
+    static UUID publishFraudResultOnceScreening(
             RestClient orchestratorRest,
             KafkaTemplate<String, String> kafka,
             UUID transferId,
             UUID senderId,
             String decision) {
         waitForStatus(orchestratorRest, transferId, senderId, "SCREENING", Duration.ofSeconds(15));
-        publishFraudResult(kafka, transferId, decision);
+        return publishFraudResult(kafka, transferId, decision);
     }
 }

@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 /** What the activity stream tests share: a published event in the form the outbox gives it, and a
  * client that reads the server-sent events a user is pushed. */
-final class ActivityStreamSupport {
+public final class ActivityStreamSupport {
 
     static final String GROUP_PREFIX = "orchestrator-activity-";
     static final Duration PATIENCE = Duration.ofSeconds(30);
@@ -34,7 +34,7 @@ final class ActivityStreamSupport {
     private ActivityStreamSupport() {}
 
     /** The listener reads from the latest offset: nothing is published before its partition is assigned. */
-    static void awaitStreamListenerAssigned(KafkaListenerEndpointRegistry registry) {
+    public static void awaitStreamListenerAssigned(KafkaListenerEndpointRegistry registry) {
         MessageListenerContainer container = streamContainer(registry);
         ContainerTestUtils.waitForAssignment(container, 1);
     }
@@ -47,7 +47,7 @@ final class ActivityStreamSupport {
     }
 
     /** An event of {@code payments.transfers} as the outbox poller publishes it, keyed by the sender. */
-    static void publish(
+    public static void publish(
             KafkaTemplate<String, String> kafka,
             UUID eventId,
             String type,
@@ -67,7 +67,7 @@ final class ActivityStreamSupport {
     }
 
     /** What the stream pushes: the data of the event with the fields of the contract only. */
-    static Map<String, Object> data(UUID transferId, UUID senderId, UUID recipientId) {
+    public static Map<String, Object> data(UUID transferId, UUID senderId, UUID recipientId) {
         return Map.of(
                 "transferId", transferId.toString(),
                 "senderId", senderId.toString(),
@@ -76,23 +76,23 @@ final class ActivityStreamSupport {
                 "currency", "EUR");
     }
 
-    static Map<String, Object> dataWithCause(UUID transferId, UUID senderId, UUID recipientId, String cause) {
+    public static Map<String, Object> dataWithCause(UUID transferId, UUID senderId, UUID recipientId, String cause) {
         Map<String, Object> data = new java.util.HashMap<>(data(transferId, senderId, recipientId));
         data.put("cause", cause);
         return data;
     }
 
-    record Event(String id, String name, Map<?, ?> data) {}
+    public record Event(String id, String name, Map<?, ?> data) {}
 
     /** An open stream of one user, read in the background. */
-    static final class Stream implements AutoCloseable {
+    public static final class Stream implements AutoCloseable {
 
         private final BlockingQueue<Event> events = new LinkedBlockingQueue<>();
         private final HttpResponse<java.util.stream.Stream<String>> response;
         private final Thread reader;
         private volatile boolean ended;
 
-        Stream(HttpClient http, int port, UUID userId) throws IOException, InterruptedException {
+        public Stream(HttpClient http, int port, UUID userId) throws IOException, InterruptedException {
             HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/stream/activity"))
                     .header("Accept", "text/event-stream")
                     .header("Authorization", "Bearer " + TestTokens.forSubject(userId))
@@ -142,7 +142,7 @@ final class ActivityStreamSupport {
         }
 
         /** Waits for {@code count} events and returns them. */
-        List<Event> take(int count) throws InterruptedException {
+        public List<Event> take(int count) throws InterruptedException {
             List<Event> taken = new ArrayList<>();
             long deadline = System.nanoTime() + PATIENCE.toNanos();
             while (taken.size() < count) {

@@ -24,13 +24,11 @@ paths:
             schema: { $ref: '#/components/schemas/CreateTransferRequest' }
       responses:
         '202':
-          description: transfer accepted (reservation in progress or done)
-          content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
-        '409':
-          description: Idempotency-Key already seen — returns the existing transfer
+          description: transfer accepted, new or the existing one of a repeated send (reservation in progress or done)
           content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
         '422':
-          $ref: '#/components/responses/Problem'   # INSUFFICIENT_FUNDS, RECIPIENT_NOT_FOUND
+          description: 'Refused: INSUFFICIENT_FUNDS, RECIPIENT_NOT_FOUND, IDEMPOTENCY_KEY_REUSED'
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
         '503':
           $ref: '#/components/responses/Problem'   # circuit breaker ledger
     get:

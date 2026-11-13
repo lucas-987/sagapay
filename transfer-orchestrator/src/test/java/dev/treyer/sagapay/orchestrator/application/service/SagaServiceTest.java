@@ -8,6 +8,7 @@ import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepositor
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.IdempotencyKeyReusedException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -432,6 +433,27 @@ class SagaServiceTest {
         assertThat(second.created()).isFalse();
         assertThat(second.transfer().getId()).isEqualTo(first.transfer().getId());
         assertThat(eventTypesFor(first.transfer().getId())).containsExactly("TransferInitiated");
+    }
+
+    @Test
+    void sameIdempotencyKeyWithADifferentAmountIsRefusedAndWritesNothing() {
+        UUID idempotencyKey = UUID.randomUUID();
+        Transfer first = initiate(idempotencyKey);
+
+        assertThatThrownBy(() -> sagaService.initiateTransfer(
+                        senderId,
+                        senderAccountId,
+                        recipientId,
+                        recipientAccountId,
+                        Money.of("80.01", "EUR"),
+                        idempotencyKey,
+                        null))
+                .isInstanceOf(IdempotencyKeyReusedException.class)
+                .hasMessage("idempotency key " + idempotencyKey + " was already used for a different transfer");
+
+        assertThat(eventTypesFor(first.getId())).containsExactly("TransferInitiated");
+        assertThat(transferRepository.findById(first.getId()).orElseThrow().getAmount())
+                .isEqualByComparingTo("80.00");
     }
 
     @Test

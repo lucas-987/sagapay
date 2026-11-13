@@ -141,7 +141,7 @@ class TransferRestAdapterTest {
     }
 
     @Test
-    void createTransferReturns409AndDoesNotDispatchAdvanceOnReplay() throws Exception {
+    void createTransferReturns202AndDoesNotDispatchAdvanceOnRepeat() throws Exception {
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
@@ -160,7 +160,7 @@ class TransferRestAdapterTest {
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(recipientId)))
-                .andExpect(status().isConflict())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
 
         verify(advanceSagaUseCase, never()).advance(any());

@@ -22,7 +22,6 @@ import dev.treyer.sagapay.transfer.model.TransferDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -100,8 +99,7 @@ public class TransferRestAdapter implements V1Api {
             });
         }
 
-        HttpStatus status = result.created() ? HttpStatus.ACCEPTED : HttpStatus.CONFLICT;
-        return ResponseEntity.status(status).body(toRestTransfer(result.transfer()));
+        return ResponseEntity.accepted().body(toRestTransfer(result.transfer()));
     }
 
     @Override

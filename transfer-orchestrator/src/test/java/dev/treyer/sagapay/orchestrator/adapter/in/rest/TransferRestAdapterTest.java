@@ -331,6 +331,19 @@ class TransferRestAdapterTest {
     }
 
     @Test
+    void confirmAnswersTheSenderWithTheCauseOfTheTransfer() throws Exception {
+        Transfer transfer = newTransfer(CALLER_ID, UUID.randomUUID());
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                transfer, "failureReason", dev.treyer.sagapay.orchestrator.domain.FailureReason.VERIFICATION_EXPIRED);
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), CALLER_ID, "tok"))
+                .thenReturn(transfer);
+
+        confirm(transfer.getId())
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.failureReason").value("VERIFICATION_EXPIRED"));
+    }
+
+    @Test
     void aLedgerUnavailableWhilePostingDoesNotChangeTheAcceptedAnswer() throws Exception {
         Transfer transfer = newTransfer(UUID.randomUUID(), UUID.randomUUID());
         when(confirmTransferUseCase.confirmTransfer(transfer.getId(), CALLER_ID, "tok"))
@@ -520,7 +533,10 @@ class TransferRestAdapterTest {
 
         mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps[0].step").value("SCREEN"))
+                .andExpect(
+                        party == Party.SENDER
+                                ? jsonPath("$.steps[0].step").value("SCREEN")
+                                : jsonPath("$.steps").isEmpty())
                 .andExpect(jsonPath("$.fraud").doesNotExist())
                 .andExpect(jsonPath("$.steps[0].detail").doesNotExist())
                 .andExpect(content().string(not(containsString("NEW_RECIPIENT"))))

@@ -161,7 +161,10 @@ components:
         amount: { $ref: '#/components/schemas/Money' }
         note: { type: string }
         status: { $ref: '#/components/schemas/TransferStatus' }
-        failureReason: { type: string, nullable: true }
+        failureReason:
+          type: string
+          nullable: true
+          description: 'Code of the failure, given to the sender only: null for the recipient.'
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     SagaStep:
@@ -175,7 +178,10 @@ components:
         - $ref: '#/components/schemas/Transfer'
         - type: object
           properties:
-            steps: { type: array, items: { $ref: '#/components/schemas/SagaStep' } }
+            steps:
+              type: array
+              description: 'Steps of the saga, given to the sender only: empty for the recipient.'
+              items: { $ref: '#/components/schemas/SagaStep' }
     Problem:
       type: object
       properties:

@@ -148,7 +148,7 @@ class TransferOrchestratorE2ETest {
     }
 
     @Test
-    void replayingTheSameIdempotencyKeyReturns409AndMovesMoneyOnlyOnce() {
+    void replayingTheSameIdempotencyKeyReturnsTheFirstTransferAndMovesMoneyOnlyOnce() {
         UUID senderId = lookupAccountId("wojciech"); // seeded 42000.00 EUR
         UUID recipientId = lookupAccountId("lina"); // seeded 99999.99 EUR
         UUID idempotencyKey = UUID.randomUUID();
@@ -170,22 +170,17 @@ class TransferOrchestratorE2ETest {
         clearOnceScreening(transferId, senderId);
         waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
-        try {
-            orchestrator()
-                    .post()
-                    .uri("/v1/transfers")
-                    .header("Authorization", E2ESupport.bearer(senderId))
-                    .header("Idempotency-Key", idempotencyKey.toString())
-                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(Map.class);
-            org.junit.jupiter.api.Assertions.fail("expected a 409 on replay");
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            assertThat(e.getStatusCode().value()).isEqualTo(409);
-            Map<?, ?> body = e.getResponseBodyAs(Map.class);
-            assertThat(body.get("id")).isEqualTo(transferId.toString());
-        }
+        var repeat = orchestrator()
+                .post()
+                .uri("/v1/transfers")
+                .header("Authorization", E2ESupport.bearer(senderId))
+                .header("Idempotency-Key", idempotencyKey.toString())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(requestBody)
+                .retrieve()
+                .toEntity(Map.class);
+        assertThat(repeat.getStatusCode().value()).isEqualTo(202);
+        assertThat(repeat.getBody().get("id")).isEqualTo(transferId.toString());
 
         // Only one 25.00 debit, not two.
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("25.00");

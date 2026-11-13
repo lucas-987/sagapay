@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.domain;
 
+import dev.treyer.sagapay.common.domain.Money;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -183,6 +184,13 @@ public class Transfer {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public boolean isSameRequest(UUID recipientId, Money requested, String requestedNote) {
+        return this.recipientId.equals(recipientId)
+                && amount.compareTo(requested.amount()) == 0
+                && currency.equals(requested.currency().getCurrencyCode())
+                && Objects.equals(note, requestedNote);
     }
 
     // No status setter: transitions go through conditional updates, which a

@@ -93,9 +93,14 @@ public final class ActivityStreamSupport {
         private volatile boolean ended;
 
         public Stream(HttpClient http, int port, UUID userId) throws IOException, InterruptedException {
-            HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/stream/activity"))
+            this(http, "http://localhost:" + port, TestTokens.forSubject(userId));
+        }
+
+        /** {@code baseUrl} is the address of whatever serves the stream, a gateway or the service itself. */
+        public Stream(HttpClient http, String baseUrl, String token) throws IOException, InterruptedException {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/stream/activity"))
                     .header("Accept", "text/event-stream")
-                    .header("Authorization", "Bearer " + TestTokens.forSubject(userId))
+                    .header("Authorization", "Bearer " + token)
                     .build();
             response = http.send(request, HttpResponse.BodyHandlers.ofLines());
             reader = Thread.ofPlatform().daemon().start(this::read);

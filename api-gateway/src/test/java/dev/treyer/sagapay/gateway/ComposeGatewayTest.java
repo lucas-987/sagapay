@@ -42,8 +42,8 @@ class ComposeGatewayTest {
     }
 
     @Test
-    void theGatewayIsPublishedOnPort8080() throws IOException {
-        assertThat(gateway().get("ports")).isEqualTo(List.of("8080:8080"));
+    void theGatewayIsPublishedOnPort8080ByDefaultWithAnOverridableHostSide() throws IOException {
+        assertThat(gateway().get("ports")).isEqualTo(List.of("${GATEWAY_HOST_PORT:-8080}:8080"));
     }
 
     @Test

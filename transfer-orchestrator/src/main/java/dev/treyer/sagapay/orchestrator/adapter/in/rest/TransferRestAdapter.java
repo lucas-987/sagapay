@@ -23,8 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.ZoneOffset;
@@ -75,7 +73,7 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> createTransfer(
             UUID idempotencyKey, CreateTransferRequest request) {
-        UUID senderId = requireUserId();
+        UUID senderId = CallerIdentity.requireUserId();
         UUID recipientId = resolveRecipient(request);
         Money amount = toMoney(request.getAmount());
 
@@ -105,7 +103,7 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<ListTransfers200Response> listTransfers(
             String direction, dev.treyer.sagapay.transfer.model.TransferStatus status, String cursor, Integer limit) {
-        UUID userId = requireUserId();
+        UUID userId = CallerIdentity.requireUserId();
         ListTransfersUseCase.Direction dir = toDirection(direction);
         TransferCursor after = cursor == null ? null : TransferCursor.decode(cursor);
 
@@ -130,7 +128,7 @@ public class TransferRestAdapter implements V1Api {
 
     @Override
     public ResponseEntity<TransferDetail> getTransfer(UUID id) {
-        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, requireUserId());
+        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, CallerIdentity.requireUserId());
         Transfer transfer = result.transfer();
 
         TransferDetail detail = new TransferDetail(
@@ -150,7 +148,7 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> confirmBlockedTransfer(
             UUID id, ConfirmBlockedTransferRequest request) {
-        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, requireUserId(), request.getVerificationToken());
+        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, CallerIdentity.requireUserId(), request.getVerificationToken());
         // The 202 means the transfer will be posted: it is CLEARED already, and the
         // reprise poller posts it if this task is lost.
         executor.execute(() -> {
@@ -161,22 +159,6 @@ public class TransferRestAdapter implements V1Api {
             }
         });
         return ResponseEntity.accepted().body(toRestTransfer(transfer));
-    }
-
-    private UUID requireUserId() {
-        if (!(SecurityContextHolder.getContext().getAuthentication()
-                instanceof JwtAuthenticationToken authentication)) {
-            throw new UnidentifiedCallerException("no validated token");
-        }
-        String subject = authentication.getToken().getSubject();
-        if (subject == null) {
-            throw new UnidentifiedCallerException("token without subject");
-        }
-        try {
-            return UUID.fromString(subject);
-        } catch (IllegalArgumentException e) {
-            throw new UnidentifiedCallerException("token subject is not an account id", e);
-        }
     }
 
     private static ListTransfersUseCase.Direction toDirection(String direction) {

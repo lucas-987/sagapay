@@ -8,4 +8,5 @@ import org.springframework.validation.annotation.Validated;
  * for and what it allows, which a user's token for the REST API does not carry. */
 @Validated
 @ConfigurationProperties(prefix = "ledger.grpc.auth")
-public record GrpcAuthProperties(@NotBlank String audience, @NotBlank String scope) {}
+public record GrpcAuthProperties(
+        @NotBlank String audience, @NotBlank String scope) {}

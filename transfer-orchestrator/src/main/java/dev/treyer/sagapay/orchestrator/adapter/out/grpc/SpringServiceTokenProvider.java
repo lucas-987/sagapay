@@ -17,10 +17,10 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.RestClientClientCredentialsTokenResponseClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
-import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
+import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -69,10 +69,13 @@ class SpringServiceTokenProvider implements ServiceTokenProvider {
                 .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
                 .tokenUri(properties.tokenUri().toString())
                 .build();
-        this.clients = new InMemoryOAuth2AuthorizedClientService(new InMemoryClientRegistrationRepository(registration));
-        RestClientClientCredentialsTokenResponseClient tokenClient = new RestClientClientCredentialsTokenResponseClient();
+        this.clients =
+                new InMemoryOAuth2AuthorizedClientService(new InMemoryClientRegistrationRepository(registration));
+        RestClientClientCredentialsTokenResponseClient tokenClient =
+                new RestClientClientCredentialsTokenResponseClient();
         tokenClient.setRestClient(restClient);
-        ClientCredentialsOAuth2AuthorizedClientProvider provider = new ClientCredentialsOAuth2AuthorizedClientProvider();
+        ClientCredentialsOAuth2AuthorizedClientProvider provider =
+                new ClientCredentialsOAuth2AuthorizedClientProvider();
         provider.setAccessTokenResponseClient(tokenClient);
         provider.setClockSkew(Duration.ofMillis(properties.refreshSkewMs()));
         provider.setClock(clock);
@@ -87,7 +90,8 @@ class SpringServiceTokenProvider implements ServiceTokenProvider {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(timeout).build());
         requestFactory.setReadTimeout(timeout);
-        return withTokenConverters(RestClient.builder().requestFactory(requestFactory)).build();
+        return withTokenConverters(RestClient.builder().requestFactory(requestFactory))
+                .build();
     }
 
     /**
@@ -134,7 +138,8 @@ class SpringServiceTokenProvider implements ServiceTokenProvider {
                 return "token endpoint unreachable";
             }
             if (cause instanceof RestClientResponseException response) {
-                return "token endpoint answered HTTP " + response.getStatusCode().value();
+                return "token endpoint answered HTTP "
+                        + response.getStatusCode().value();
             }
         }
         return "token endpoint answered without a usable token";

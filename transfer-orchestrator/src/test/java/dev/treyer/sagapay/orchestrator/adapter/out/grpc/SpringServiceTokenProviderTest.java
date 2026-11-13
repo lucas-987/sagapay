@@ -15,12 +15,12 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -41,8 +41,9 @@ class SpringServiceTokenProviderTest {
     private static final long SKEW_MS = 30_000;
 
     private final RestClient.Builder builder = RestClient.builder();
-    private final MockRestServiceServer idp =
-            MockRestServiceServer.bindTo(SpringServiceTokenProvider.withTokenConverters(builder)).build();
+    private final MockRestServiceServer idp = MockRestServiceServer.bindTo(
+                    SpringServiceTokenProvider.withTokenConverters(builder))
+            .build();
     private final AdjustableClock clock = new AdjustableClock();
 
     private SpringServiceTokenProvider provider(String secret) {
@@ -57,7 +58,8 @@ class SpringServiceTokenProviderTest {
     }
 
     private static String basic(String id, String encodedSecret) {
-        return "Basic " + Base64.getEncoder().encodeToString((id + ":" + encodedSecret).getBytes(StandardCharsets.UTF_8));
+        return "Basic "
+                + Base64.getEncoder().encodeToString((id + ":" + encodedSecret).getBytes(StandardCharsets.UTF_8));
     }
 
     private static String grant(String token, int expiresIn) {
@@ -193,9 +195,13 @@ class SpringServiceTokenProviderTest {
     static Stream<Arguments> unusableAnswers() {
         return Stream.of(
                 Arguments.of("no access_token", "{\"token_type\":\"Bearer\",\"expires_in\":300}"),
-                Arguments.of("a blank access_token", "{\"access_token\":\" \",\"token_type\":\"Bearer\",\"expires_in\":300}"),
+                Arguments.of(
+                        "a blank access_token",
+                        "{\"access_token\":\" \",\"token_type\":\"Bearer\",\"expires_in\":300}"),
                 Arguments.of("no token_type", "{\"access_token\":\"t1\",\"expires_in\":300}"),
-                Arguments.of("a token_type that is not Bearer", "{\"access_token\":\"t1\",\"token_type\":\"mac\",\"expires_in\":300}"),
+                Arguments.of(
+                        "a token_type that is not Bearer",
+                        "{\"access_token\":\"t1\",\"token_type\":\"mac\",\"expires_in\":300}"),
                 Arguments.of("a body that is not JSON", "<html>login</html>"),
                 Arguments.of("an empty body", ""));
     }

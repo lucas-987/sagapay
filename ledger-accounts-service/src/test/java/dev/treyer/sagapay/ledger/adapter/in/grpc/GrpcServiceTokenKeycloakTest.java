@@ -84,7 +84,9 @@ class GrpcServiceTokenKeycloakTest {
     @DynamicPropertySource
     static void realm(DynamicPropertyRegistry registry) {
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", GrpcServiceTokenKeycloakTest::realmUrl);
-        registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri", () -> realmUrl() + "/protocol/openid-connect/certs");
+        registry.add(
+                "spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
+                () -> realmUrl() + "/protocol/openid-connect/certs");
     }
 
     @Autowired

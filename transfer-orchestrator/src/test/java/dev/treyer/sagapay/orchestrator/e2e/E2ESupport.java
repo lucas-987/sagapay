@@ -2,6 +2,9 @@ package dev.treyer.sagapay.orchestrator.e2e;
 
 import dev.treyer.sagapay.orchestrator.security.LedgerContainer;
 import dev.treyer.sagapay.orchestrator.security.TestTokens;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.web.client.RestClient;
@@ -72,6 +75,21 @@ final class E2ESupport {
 
     static String bearer(UUID userId) {
         return "Bearer " + TestTokens.forSubject(userId);
+    }
+
+    /** A send of EUR {@code amount} from {@code senderId} to {@code recipientId} under {@code key}. */
+    static ResponseEntity<Map<String, Object>> send(
+            RestClient orchestratorRest, UUID senderId, UUID recipientId, String amount, UUID key) {
+        return orchestratorRest
+                .post()
+                .uri("/v1/transfers")
+                .header("Authorization", bearer(senderId))
+                .header("Idempotency-Key", key.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("""
+                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "%s"}, "note": "e2e"}""".formatted(recipientId, amount))
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<>() {});
     }
 
     static Map<?, ?> waitForStatus(

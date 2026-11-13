@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -26,8 +27,14 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,6 +77,9 @@ class FraudSagaE2ETest {
     @Autowired
     private KafkaTemplate<String, String> kafka;
 
+    @Autowired
+    private JdbcTemplate orchestratorDb;
+
     private RestClient orchestrator;
     private RestClient ledger;
     private JdbcTemplate ledgerDb;
@@ -105,17 +115,10 @@ class FraudSagaE2ETest {
     }
 
     private UUID transfer(UUID senderId, UUID recipientId, String amount) {
-        Map<?, ?> created = orchestrator()
-                .post()
-                .uri("/v1/transfers")
-                .header("Authorization", E2ESupport.bearer(senderId))
-                .header("Idempotency-Key", UUID.randomUUID().toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body("""
-                        {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "%s"}, "note": "fraud saga e2e"}""".formatted(recipientId, amount))
-                .retrieve()
-                .body(Map.class);
-        return UUID.fromString((String) created.get("id"));
+        return UUID.fromString(
+                (String) E2ESupport.send(orchestrator(), senderId, recipientId, amount, UUID.randomUUID())
+                        .getBody()
+                        .get("id"));
     }
 
     private void confirm(UUID transferId, UUID senderId) {
@@ -263,5 +266,48 @@ class FraudSagaE2ETest {
         assertThat(postingCount(transferId)).isEqualTo(2);
         assertThat(reservationStatus(transferId)).isEqualTo("CONSUMED");
         assertThat(sumOfAllBalances()).isEqualByComparingTo(sumBefore);
+    }
+
+    private List<ResponseEntity<Map<String, Object>>> sendTwiceAtOnce(
+            UUID senderId, UUID recipientId, String amount, UUID key) throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            Callable<ResponseEntity<Map<String, Object>>> send = () -> {
+                start.await();
+                return E2ESupport.send(orchestrator(), senderId, recipientId, amount, key);
+            };
+            Future<ResponseEntity<Map<String, Object>>> first = pool.submit(send);
+            Future<ResponseEntity<Map<String, Object>>> second = pool.submit(send);
+            start.countDown();
+            return List.of(first.get(), second.get());
+        }
+    }
+
+    @Test
+    @Tag("M4-S07")
+    @DisplayName("Two sends with the same key at the same moment make one transfer")
+    void twoSendsWithTheSameKeyAtTheSameMomentMakeOneTransfer() throws Exception {
+        UUID senderId = account("emma");
+        UUID recipientId = account("piotr");
+        BigDecimal amount = new BigDecimal("80.00");
+        Wallets before = walletsOf(senderId, recipientId);
+
+        List<ResponseEntity<Map<String, Object>>> answers =
+                sendTwiceAtOnce(senderId, recipientId, "80.00", UUID.randomUUID());
+
+        assertThat(answers.get(0).getStatusCode().value()).isEqualTo(202);
+        assertThat(answers.get(1).getStatusCode().value()).isEqualTo(202);
+        Object transferId = answers.get(0).getBody().get("id");
+        assertThat(answers.get(1).getBody().get("id")).isEqualTo(transferId);
+        waitForStatus(UUID.fromString((String) transferId), senderId, "SCREENING");
+        assertThat(orchestratorDb.queryForObject(
+                        "select count(*) from transfers where sender_id = ?", Integer.class, senderId))
+                .isEqualTo(1);
+        assertThat(E2ESupport.availableOf(ledger(), senderId))
+                .isEqualByComparingTo(before.senderAvailable().subtract(amount));
+        assertThat(ledgerDb()
+                        .queryForObject(
+                                "select count(*) from reservations where transfer_id = ?", Integer.class, transferId))
+                .isEqualTo(1);
     }
 }

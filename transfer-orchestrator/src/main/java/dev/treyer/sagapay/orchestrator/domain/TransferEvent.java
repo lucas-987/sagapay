@@ -1,17 +1,18 @@
 package dev.treyer.sagapay.orchestrator.domain;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * A fact of {@code payments.transfers}, as the activity stream reads it. {@code type} is the
- * event's type as published, version included; {@code reason} is only present on a failure.
+ * A fact of {@code payments.transfers}, as the activity stream reads it: the status the transfer
+ * reached. {@code reason} is only present on a failure.
  */
 public record TransferEvent(
         UUID eventId,
-        String type,
+        TransferStatus outcome,
         UUID transferId,
         UUID senderId,
         UUID recipientId,
-        String amount,
+        BigDecimal amount,
         String currency,
-        String reason) {}
+        FailureReason reason) {}

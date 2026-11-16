@@ -4,7 +4,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
+import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,9 +15,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -118,30 +122,80 @@ class ActivityStreamListenerTest {
                 Arguments.argumentSet(
                         "no amount", event(id, "TransferPosted.v1", data(t, s, r, null, "\"EUR\"")), lacking),
                 Arguments.argumentSet(
-                        "no currency", event(id, "TransferPosted.v1", data(t, s, r, "\"80.0000\"", null)), lacking));
+                        "no currency", event(id, "TransferPosted.v1", data(t, s, r, "\"80.0000\"", null)), lacking),
+                Arguments.argumentSet(
+                        "an amount that is not a number",
+                        event(id, "TransferPosted.v1", data(t, s, r, "\"eighty\"", "\"EUR\"")),
+                        "record has a value the stream cannot read"),
+                Arguments.argumentSet(
+                        "an unknown failure reason",
+                        event(id, "TransferFailed.v1", failedData("TELEPORTED")),
+                        "record has a value the stream cannot read"));
+    }
+
+    private static String failedData(String reason) {
+        return "{\"transferId\":\"%s\",\"senderId\":\"%s\",\"recipientId\":\"%s\",\"amount\":\"80.0000\",\"currency\":\"EUR\",\"eventType\":\"TransferFailed\",\"reason\":\"%s\"}"
+                .formatted(TRANSFER_ID, SENDER, RECIPIENT, reason);
     }
 
     @Test
-    @DisplayName("A failed transfer event is handed on with its type, its parties, its amount and its reason")
+    @DisplayName("A failed transfer event is handed on with its outcome, its parties, its amount and its reason")
     void aReadableEventIsHandedOn() {
-        String value = event(
-                EVENT_ID.toString(),
-                "TransferFailed.v1",
-                "{\"transferId\":\"%s\",\"senderId\":\"%s\",\"recipientId\":\"%s\",\"amount\":\"80.0000\",\"currency\":\"EUR\",\"eventType\":\"TransferFailed\",\"reason\":\"INSUFFICIENT_FUNDS\"}"
-                        .formatted(TRANSFER_ID, SENDER, RECIPIENT));
-
-        listener.onTransferEvent(record(value));
+        listener.onTransferEvent(
+                record(event(EVENT_ID.toString(), "TransferFailed.v1", failedData("INSUFFICIENT_FUNDS"))));
 
         assertThat(relayed)
                 .containsExactly(new TransferEvent(
                         EVENT_ID,
-                        "TransferFailed.v1",
+                        TransferStatus.FAILED,
                         TRANSFER_ID,
                         SENDER,
                         RECIPIENT,
-                        "80.0000",
+                        new BigDecimal("80.0000"),
                         "EUR",
-                        "INSUFFICIENT_FUNDS"));
+                        FailureReason.INSUFFICIENT_FUNDS));
+        assertThat(relayed.get(0).amount().toPlainString()).isEqualTo("80.0000");
+        assertThat(logs.list).isEmpty();
+    }
+
+    @ParameterizedTest(name = "{0} is handed on as {1}")
+    @MethodSource("streamedTypes")
+    @DisplayName("Each type the stream reads is handed on as the status the transfer reached")
+    void eachStreamedTypeIsHandedOnAsItsOutcome(String type, TransferStatus outcome) {
+        listener.onTransferEvent(record(event(
+                EVENT_ID.toString(), type, data(TRANSFER_ID.toString(), SENDER.toString(), RECIPIENT.toString()))));
+
+        assertThat(relayed).singleElement().satisfies(event -> {
+            assertThat(event.outcome()).isEqualTo(outcome);
+            assertThat(event.reason()).isNull();
+        });
+        assertThat(logs.list).isEmpty();
+    }
+
+    static Stream<Arguments> streamedTypes() {
+        return Stream.of(
+                Arguments.of("TransferPosted.v1", TransferStatus.POSTED),
+                Arguments.of("TransferBlocked.v1", TransferStatus.BLOCKED),
+                Arguments.of("TransferFailed.v1", TransferStatus.FAILED));
+    }
+
+    @ParameterizedTest(name = "{0} is ignored")
+    @ValueSource(
+            strings = {
+                "TransferInitiated.v1",
+                "FundsReserved.v1",
+                "TransferTeleported.v1",
+                "TransferPosted.v2",
+                "TransferPosted",
+                ""
+            })
+    @DisplayName(
+            "An event the stream does not read, of an unknown type or of another version, is ignored without a warning")
+    void anEventTheStreamDoesNotReadIsIgnoredSilently(String type) {
+        listener.onTransferEvent(record(event(
+                EVENT_ID.toString(), type, data(TRANSFER_ID.toString(), SENDER.toString(), RECIPIENT.toString()))));
+
+        assertThat(relayed).isEmpty();
         assertThat(logs.list).isEmpty();
     }
 

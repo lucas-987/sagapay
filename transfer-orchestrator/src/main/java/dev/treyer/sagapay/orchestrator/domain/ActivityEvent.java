@@ -1,14 +1,15 @@
 package dev.treyer.sagapay.orchestrator.domain;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
-/** What the stream pushes to one user; {@code cause} is only given to the sender of a failure. */
+/** A transfer fact as one of its parties is given it: {@code cause} is only the sender's. */
 public record ActivityEvent(
-        String id,
-        String name,
+        UUID eventId,
+        TransferStatus outcome,
         UUID transferId,
         UUID senderId,
         UUID recipientId,
-        String amount,
+        BigDecimal amount,
         String currency,
-        String cause) {}
+        FailureReason cause) {}

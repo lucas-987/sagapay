@@ -1,7 +1,9 @@
 package dev.treyer.sagapay.orchestrator.adapter.in.kafka;
 
 import dev.treyer.sagapay.orchestrator.application.port.in.RelayTransferEventUseCase;
+import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
+import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,16 +12,26 @@ import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.util.Map;
+
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
  * Reads the orchestrator's own topic. Each instance reads it in a group of its own, from the latest
  * offset: every instance sees every event, and none replays what was published before it started.
+ * The CloudEvent types, versions included, are known here only.
  */
 @Component
 public class ActivityStreamListener {
 
     private static final Logger log = LoggerFactory.getLogger(ActivityStreamListener.class);
+
+    /** The other events of the topic are not the stream's: they are ignored without a warning. */
+    private static final Map<String, TransferStatus> OUTCOMES = Map.of(
+            "TransferPosted.v1", TransferStatus.POSTED,
+            "TransferBlocked.v1", TransferStatus.BLOCKED,
+            "TransferFailed.v1", TransferStatus.FAILED);
 
     private final RelayTransferEventUseCase relay;
     private final JsonMapper jsonMapper;
@@ -58,19 +70,33 @@ public class ActivityStreamListener {
             skip(record, "record lacks a field the stream needs", null);
             return;
         }
+        TransferStatus outcome = OUTCOMES.get(message.type());
+        if (outcome == null) {
+            return;
+        }
+        BigDecimal amount;
+        FailureReason reason;
+        try {
+            amount = new BigDecimal(data.amount());
+            reason = data.reason() == null ? null : FailureReason.valueOf(data.reason());
+        } catch (IllegalArgumentException e) {
+            // A NumberFormatException is an IllegalArgumentException: one catch covers both values.
+            skip(record, "record has a value the stream cannot read", e);
+            return;
+        }
         relay.relay(new TransferEvent(
                 message.id(),
-                message.type(),
+                outcome,
                 data.transferId(),
                 data.senderId(),
                 data.recipientId(),
-                data.amount(),
+                amount,
                 data.currency(),
-                data.reason()));
+                reason));
     }
 
     /** A null cause is ignored by the logger. */
-    private static void skip(ConsumerRecord<String, String> record, String reason, JacksonException cause) {
+    private static void skip(ConsumerRecord<String, String> record, String reason, Exception cause) {
         log.warn(
                 "activity stream skipped a record",
                 kv("messaging.destination.name", record.topic()),

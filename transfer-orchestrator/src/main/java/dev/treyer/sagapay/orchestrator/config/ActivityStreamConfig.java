@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.config;
 
+import dev.treyer.sagapay.orchestrator.adapter.in.rest.SseSinkFactory;
 import dev.treyer.sagapay.orchestrator.application.service.ActivityStreamService;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -19,11 +20,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 class ActivityStreamConfig implements DisposableBean {
 
     // Not a bean: an Executor bean would stop Boot from building its own application task executor.
-    private final ExecutorService writers = newWriters();
+    private final ExecutorService ioExecutor = newIoExecutor();
 
     @Bean
-    ActivityStreamService activityStreamService(ActivityStreamProperties properties) {
-        return new ActivityStreamService(writers, properties.bufferSize());
+    ActivityStreamService activityStreamService() {
+        return new ActivityStreamService();
+    }
+
+    @Bean
+    SseSinkFactory sseSinkFactory(ActivityStreamProperties properties) {
+        return new SseSinkFactory(ioExecutor, properties.bufferSize());
     }
 
     /**
@@ -42,13 +48,13 @@ class ActivityStreamConfig implements DisposableBean {
 
     @Override
     public void destroy() {
-        writers.shutdownNow();
+        ioExecutor.shutdownNow();
     }
 
-    private static ExecutorService newWriters() {
+    private static ExecutorService newIoExecutor() {
         AtomicInteger count = new AtomicInteger();
         return Executors.newCachedThreadPool(task -> {
-            Thread thread = new Thread(task, "activity-stream-writer-" + count.incrementAndGet());
+            Thread thread = new Thread(task, "activity-stream-io-" + count.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });

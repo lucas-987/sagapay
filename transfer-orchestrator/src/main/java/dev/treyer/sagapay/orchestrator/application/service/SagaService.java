@@ -27,6 +27,7 @@ import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
+import dev.treyer.sagapay.orchestrator.domain.SenderOnlyDetails;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
@@ -403,7 +404,9 @@ public class SagaService
                 .findById(transferId)
                 .filter(found -> userId.equals(found.getSenderId()) || userId.equals(found.getRecipientId()))
                 .orElseThrow(() -> new TransferNotFoundException(transferId));
-        return new TransferWithSteps(transfer, sagaSteps.findByTransferId(transferId));
+        return new TransferWithSteps(
+                transfer,
+                SenderOnlyDetails.steps(sagaSteps.findByTransferId(transferId), transfer.getSenderId(), userId));
     }
 
     @Override

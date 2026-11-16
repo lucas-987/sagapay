@@ -166,6 +166,11 @@ public class Transfer {
         return failureReason;
     }
 
+    /** The failure reason as {@code viewer} is shown it. */
+    public FailureReason failureReasonFor(UUID viewer) {
+        return SenderOnlyDetails.failureReason(failureReason, senderId, viewer);
+    }
+
     public FraudDecision getFraudDecision() {
         return fraudDecision;
     }

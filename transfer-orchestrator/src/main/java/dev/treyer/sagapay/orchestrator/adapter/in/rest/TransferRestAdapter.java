@@ -131,7 +131,6 @@ public class TransferRestAdapter implements V1Api {
         UUID userId = CallerIdentity.requireUserId();
         GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, userId);
         Transfer transfer = result.transfer();
-        boolean sentByCaller = isSender(transfer, userId);
 
         TransferDetail detail = new TransferDetail(
                         transfer.getId(),
@@ -143,10 +142,7 @@ public class TransferRestAdapter implements V1Api {
                 .note(transfer.getNote())
                 .failureReason(toRestFailureReason(transfer, userId))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
-                .steps(
-                        sentByCaller
-                                ? result.steps().stream().map(this::toRestStep).toList()
-                                : List.of());
+                .steps(result.steps().stream().map(this::toRestStep).toList());
         return ResponseEntity.ok(detail);
     }
 
@@ -202,14 +198,9 @@ public class TransferRestAdapter implements V1Api {
                 transfer.getCurrency(), transfer.getAmount().toPlainString());
     }
 
-    private static boolean isSender(Transfer transfer, UUID userId) {
-        return transfer.getSenderId().equals(userId);
-    }
-
-    /** The cause could reveal the sender's balance: only the sender is given it. */
     private static String toRestFailureReason(Transfer transfer, UUID userId) {
-        FailureReason reason = transfer.getFailureReason();
-        return reason == null || !isSender(transfer, userId) ? null : reason.name();
+        FailureReason reason = transfer.failureReasonFor(userId);
+        return reason == null ? null : reason.name();
     }
 
     private static dev.treyer.sagapay.transfer.model.TransferStatus toRestStatus(Transfer transfer) {

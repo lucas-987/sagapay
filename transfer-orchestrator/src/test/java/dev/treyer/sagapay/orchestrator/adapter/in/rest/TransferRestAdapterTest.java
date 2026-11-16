@@ -528,8 +528,10 @@ class TransferRestAdapterTest {
                 SagaStepOutcome.RETRY,
                 "{\"decision\":\"FLAGGED\",\"score\":0.9,\"reasons\":[\"NEW_RECIPIENT\"]}",
                 Instant.now());
+        // The use case gives the steps to the sender only.
         when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(flagged, List.of(screen)));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        flagged, party == Party.SENDER ? List.of(screen) : List.of()));
 
         mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())

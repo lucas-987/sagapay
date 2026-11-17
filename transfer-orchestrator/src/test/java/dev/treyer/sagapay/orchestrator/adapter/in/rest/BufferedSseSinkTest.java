@@ -18,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -188,6 +189,56 @@ class BufferedSseSinkTest {
                 Arguments.of(TransferEvent.Outcome.POSTED, "transfer.posted"),
                 Arguments.of(TransferEvent.Outcome.BLOCKED, "transfer.blocked"),
                 Arguments.of(TransferEvent.Outcome.FAILED, "transfer.failed"));
+    }
+
+    @Test
+    @DisplayName("A heartbeat is written as a comment line, in order with the events")
+    void aHeartbeatIsACommentLineInOrderWithTheEvents() {
+        BufferedSseSink sink = sink(8);
+        TransferEvent before = event();
+        TransferEvent after = event();
+
+        sink.push(before);
+        sink.heartbeat();
+        sink.push(after);
+
+        await().atMost(PATIENCE).until(() -> emitter.sent.size() == 3);
+        assertThat(emitter.sent.get(0)).startsWith("id:" + before.eventId());
+        assertThat(emitter.sent.get(1)).isEqualTo(":ping\n\n");
+        assertThat(emitter.sent.get(2)).startsWith("id:" + after.eventId());
+    }
+
+    @Test
+    @DisplayName("A heartbeat to a client that has gone ends the sink and closes its connection")
+    void aHeartbeatFindsAClientThatHasGone() {
+        emitter.failWith = new IOException("broken pipe");
+        BufferedSseSink sink = sink(8);
+
+        sink.heartbeat();
+
+        await().atMost(PATIENCE).until(() -> emitter.completed.get() == 1);
+    }
+
+    @Test
+    @DisplayName("Heartbeats are sent at the interval until the stream ends")
+    void heartbeatsAreSentAtTheIntervalUntilTheStreamEnds() {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        try {
+            BufferedSseSink sink = sink(8);
+
+            sink.startHeartbeat(scheduler, 50);
+            await().atMost(PATIENCE).until(() -> emitter.sent.size() >= 2);
+            sink.stop();
+            // A write already under way when the sink stopped may still land.
+            await().pollDelay(Duration.ofMillis(100)).atMost(PATIENCE).until(() -> true);
+            int sentWhenStopped = emitter.sent.size();
+
+            // A negative outcome: several intervals pass with nothing more written.
+            await().during(Duration.ofMillis(300)).atMost(PATIENCE).until(() -> emitter.sent.size() == sentWhenStopped);
+            assertThat(emitter.sent).allMatch(":ping\n\n"::equals);
+        } finally {
+            scheduler.shutdownNow();
+        }
     }
 
     private static final class RecordingEmitter extends SseEmitter {

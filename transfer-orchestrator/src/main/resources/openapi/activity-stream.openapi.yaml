@@ -22,7 +22,9 @@ paths:
       description: >-
         Long-lived `text/event-stream` response. Each event is pushed to the sender and to the
         recipient of the transfer, and the SSE `id` is the id of the Kafka event (CloudEvent)
-        it comes from. The `cause` of `transfer.failed` is sent to the sender only.
+        it comes from. The `cause` of `transfer.failed` is sent to the sender only. Comment
+        lines (`: open` when the stream opens, then `: ping` at a fixed interval) keep an idle
+        connection open through proxies; clients ignore them.
       responses:
         '200':
           description: stream open

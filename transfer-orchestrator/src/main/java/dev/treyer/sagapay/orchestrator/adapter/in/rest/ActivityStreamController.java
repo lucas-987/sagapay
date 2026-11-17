@@ -14,6 +14,9 @@ import java.util.UUID;
 @RestController
 public class ActivityStreamController {
 
+    /** A comment line, which clients ignore. */
+    static final String OPEN_COMMENT = "open";
+
     private final OpenActivityStreamUseCase openActivityStream;
     private final SseSinkFactory sinks;
     private final long timeoutMs;
@@ -38,7 +41,7 @@ public class ActivityStreamController {
         emitter.onError(error -> end(sink, connection));
         // Sends the headers at once: the client knows the stream is open, and a proxy does not wait for
         // the first event.
-        emitter.send(SseEmitter.event().comment("open"));
+        emitter.send(SseEmitter.event().comment(OPEN_COMMENT));
         return emitter;
     }
 

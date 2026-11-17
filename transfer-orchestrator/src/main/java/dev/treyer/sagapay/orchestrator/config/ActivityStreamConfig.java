@@ -13,6 +13,7 @@ import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Configuration
@@ -21,6 +22,8 @@ class ActivityStreamConfig implements DisposableBean {
 
     // Not a bean: an Executor bean would stop Boot from building its own application task executor.
     private final ExecutorService ioExecutor = newIoExecutor();
+    // A heartbeat only enqueues a comment, never writes: one thread times them all.
+    private final ScheduledExecutorService heartbeats = newHeartbeatScheduler();
 
     @Bean
     ActivityStreamService activityStreamService() {
@@ -29,7 +32,7 @@ class ActivityStreamConfig implements DisposableBean {
 
     @Bean
     SseSinkFactory sseSinkFactory(ActivityStreamProperties properties) {
-        return new SseSinkFactory(ioExecutor, properties.bufferSize());
+        return new SseSinkFactory(ioExecutor, heartbeats, properties.bufferSize(), properties.heartbeatMs());
     }
 
     /**
@@ -48,7 +51,16 @@ class ActivityStreamConfig implements DisposableBean {
 
     @Override
     public void destroy() {
+        heartbeats.shutdownNow();
         ioExecutor.shutdownNow();
+    }
+
+    private static ScheduledExecutorService newHeartbeatScheduler() {
+        return Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "activity-stream-heartbeat");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     private static ExecutorService newIoExecutor() {

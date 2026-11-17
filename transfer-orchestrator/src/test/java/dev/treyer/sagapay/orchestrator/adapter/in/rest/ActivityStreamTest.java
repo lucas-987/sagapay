@@ -96,9 +96,10 @@ class ActivityStreamTest {
     }
 
     @Test
-    @DisplayName("A stream lasts 30 minutes and a connection holds 64 unwritten events unless configured otherwise")
+    @DisplayName("A stream lasts 30 minutes, a connection holds 64 unwritten events and a heartbeat goes every"
+            + " 15 seconds unless configured otherwise")
     void theStreamSettingsHaveDefaults() {
-        assertThat(properties).isEqualTo(new ActivityStreamProperties(1_800_000L, 64));
+        assertThat(properties).isEqualTo(new ActivityStreamProperties(1_800_000L, 64, 15_000L));
     }
 
     @Test

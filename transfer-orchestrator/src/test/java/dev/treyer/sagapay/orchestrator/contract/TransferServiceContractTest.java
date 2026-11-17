@@ -15,8 +15,8 @@ class TransferServiceContractTest {
     private static final String DOCUMENT = "openapi/transfer-service.openapi.yaml";
 
     @Test
-    void sendingATransferDeclaresNo409() {
-        assertThat(sendResponses().keySet()).containsExactly("202", "422", "503");
+    void sendingATransferDeclaresNeither409Nor503() {
+        assertThat(sendResponses().keySet()).containsExactly("202", "422");
     }
 
     @Test
@@ -24,7 +24,8 @@ class TransferServiceContractTest {
         assertThat(sendResponses().get("422"))
                 .isEqualTo(Map.of(
                         "description",
-                        "Refused: INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED",
+                        "Refused: IDEMPOTENCY_KEY_REUSED. The ledger is not called before the 202: a refusal of the"
+                                + " ledger (insufficient funds, unknown recipient) ends the transfer FAILED with its reason.",
                         "content",
                         Map.of(
                                 "application/problem+json",

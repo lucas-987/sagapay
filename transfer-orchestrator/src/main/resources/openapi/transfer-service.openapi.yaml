@@ -27,10 +27,8 @@ paths:
           description: transfer accepted, new or the existing one of a repeated send (reservation in progress or done)
           content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
         '422':
-          description: 'Refused: INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED'
+          description: 'Refused: IDEMPOTENCY_KEY_REUSED. The ledger is not called before the 202: a refusal of the ledger (insufficient funds, unknown recipient) ends the transfer FAILED with its reason.'
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
-        '503':
-          $ref: '#/components/responses/Problem'   # circuit breaker ledger
     get:
       operationId: listTransfers
       summary: My transfers
@@ -189,4 +187,4 @@ components:
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
-        code: { type: string, examples: [INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED] }
+        code: { type: string, examples: [IDEMPOTENCY_KEY_REUSED, TRANSFER_NOT_FOUND] }

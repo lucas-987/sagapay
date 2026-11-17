@@ -56,6 +56,15 @@ class GrpcServiceTokenIdentityProviderDownTest {
     @Autowired
     private AccountRepository accounts;
 
+    /** A reservation needs a recipient that exists. */
+    private String existingRecipient() {
+        UUID recipient = UUID.fromString(RECIPIENT);
+        if (accounts.findById(recipient).isEmpty()) {
+            accounts.save(new Account(recipient, "test-" + recipient, "Test Recipient", "EUR", BigDecimal.ZERO));
+        }
+        return RECIPIENT;
+    }
+
     private CheckAndReserveResponse reserve(UUID accountId) {
         Metadata headers = new Metadata();
         headers.put(
@@ -66,7 +75,7 @@ class GrpcServiceTokenIdentityProviderDownTest {
                 .checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(UUID.randomUUID().toString())
                         .setFromAccountId(accountId.toString())
-                        .setToAccountId(RECIPIENT)
+                        .setToAccountId(existingRecipient())
                         .setAmount(Money.newBuilder()
                                 .setCurrency("EUR")
                                 .setAmount("40.00")

@@ -122,6 +122,15 @@ class GrpcServiceTokenKeycloakTest {
         return tokenWith(form);
     }
 
+    /** A reservation needs a recipient that exists. */
+    private String existingRecipient() {
+        UUID recipient = UUID.fromString(RECIPIENT);
+        if (accounts.findById(recipient).isEmpty()) {
+            accounts.save(new Account(recipient, "test-" + recipient, "Test Recipient", "EUR", BigDecimal.ZERO));
+        }
+        return RECIPIENT;
+    }
+
     private CheckAndReserveResponse reserve(String token) {
         UUID accountId = accounts.save(
                         new Account("test-" + UUID.randomUUID(), "Test User", "EUR", new BigDecimal("100.0000")))
@@ -133,7 +142,7 @@ class GrpcServiceTokenKeycloakTest {
                 .checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(UUID.randomUUID().toString())
                         .setFromAccountId(accountId.toString())
-                        .setToAccountId(RECIPIENT)
+                        .setToAccountId(existingRecipient())
                         .setAmount(Money.newBuilder()
                                 .setCurrency("EUR")
                                 .setAmount("10.00")

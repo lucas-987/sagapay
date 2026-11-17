@@ -89,6 +89,11 @@ public class LedgerService
         // computed before the idempotent write.
         Account account = accounts.findByIdForUpdate(fromAccountId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown account " + fromAccountId));
+        // Refused here rather than at the post: no hold is placed for a transfer that cannot
+        // be posted, and the sender learns of it before the fraud check.
+        if (accounts.findById(toAccountId).isEmpty()) {
+            throw new IllegalArgumentException("unknown account " + toAccountId);
+        }
 
         requireSameCurrency(account, amount);
         BigDecimal requestedAmount = amount.amount();

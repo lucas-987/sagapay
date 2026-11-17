@@ -23,6 +23,7 @@ import dev.treyer.sagapay.ledger.domain.PostingPage;
 import dev.treyer.sagapay.ledger.domain.Reservation;
 import dev.treyer.sagapay.ledger.domain.ReservationStatus;
 import dev.treyer.sagapay.ledger.domain.WalletSnapshot;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -97,6 +98,29 @@ class LedgerServiceTest {
 
     private Account newAccount(String currency, String balance) {
         return accounts.save(new Account("test-" + UUID.randomUUID(), "Test User", currency, new BigDecimal(balance)));
+    }
+
+    /** A reservation needs a recipient that exists. */
+    @BeforeEach
+    void theRecipientExists() {
+        if (accounts.findById(RECIPIENT).isEmpty()) {
+            accounts.save(new Account(RECIPIENT, "test-" + RECIPIENT, "Test Recipient", "EUR", BigDecimal.ZERO));
+        }
+    }
+
+    @Test
+    void checkAndReserveRefusesAnUnknownRecipientAndHoldsNothing() {
+        Account from = newAccount("EUR", "100.0000");
+        UUID unknown = UUID.randomUUID();
+        String transferId = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> checkAndReserveUseCase.checkAndReserve(
+                        transferId, from.getId(), unknown, Money.of("30.00", "EUR")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("unknown account " + unknown);
+        assertThat(reservations.findByTransferId(transferId)).isEmpty();
+        assertThat(getWalletUseCase.getWallet(from.getId()).available().amount())
+                .isEqualByComparingTo("100");
     }
 
     @Test

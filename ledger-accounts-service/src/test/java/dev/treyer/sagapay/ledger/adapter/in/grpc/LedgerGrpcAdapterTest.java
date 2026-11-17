@@ -56,6 +56,29 @@ class LedgerGrpcAdapterTest {
     void setUp() {
         client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"))
                 .withInterceptors(TestTokens.serviceCredentials());
+        // A reservation needs a recipient that exists.
+        UUID recipient = UUID.fromString(RECIPIENT);
+        if (accounts.findById(recipient).isEmpty()) {
+            accounts.save(new Account(recipient, "test-" + recipient, "Test Recipient", "EUR", BigDecimal.ZERO));
+        }
+    }
+
+    @Test
+    void checkAndReserveUnknownRecipientReturnsNotFound() {
+        UUID accountId = newAccount("100.0000");
+        String unknown = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                        .setTransferId(UUID.randomUUID().toString())
+                        .setFromAccountId(accountId.toString())
+                        .setToAccountId(unknown)
+                        .setAmount(Money.newBuilder()
+                                .setCurrency("EUR")
+                                .setAmount("30.00")
+                                .build())
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .hasMessage("NOT_FOUND: unknown account " + unknown);
     }
 
     private UUID newAccount(String balance) {

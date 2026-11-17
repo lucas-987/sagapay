@@ -398,27 +398,6 @@ class LocalStackFraudFlowE2ETest {
     }
 
     @Test
-    @DisplayName("A transfer to a recipient named by handle is accepted with the caller's token")
-    void transferToARecipientNamedByHandleIsAccepted() {
-        // ines pays marco: no flagged-flow test sends from ines, and the fraud history that makes
-        // a recipient known is per sender, so this transfer cannot change what those tests see.
-        UUID recipientId = E2ESupport.lookupAccountId(ledger, "marco", tokenFor("ines"));
-
-        Map<?, ?> created = orchestrator
-                .post()
-                .uri("/v1/transfers")
-                .headers(headers -> headers.setBearerAuth(tokenFor("ines")))
-                .header("Idempotency-Key", UUID.randomUUID().toString())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body("""
-                        {"toHandle": "@marco", "amount": {"currency": "EUR", "amount": "1.00"}}""")
-                .retrieve()
-                .body(Map.class);
-
-        assertThat(created.get("recipientId")).isEqualTo(recipientId.toString());
-    }
-
-    @Test
     @Tag("M3-S42")
     @DisplayName("A flagged transfer confirmed with the configured code is posted")
     void flaggedTransferConfirmedWithTheConfiguredCodeIsPosted() {

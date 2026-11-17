@@ -144,7 +144,6 @@ services:
       SPRING_FLYWAY_PLACEHOLDERS_ORCHESTRATORAPPPASSWORD: ${ORCHESTRATOR_APP_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
-      LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
       # The deadline also covers connecting: the first call on a cold channel needs more than the 500 ms default.
       LEDGER_GRPC_DEADLINE_MS: ${LEDGER_GRPC_DEADLINE_MS:-5000}
       SAGAPAY_FRAUD_VERIFICATION_CODE: ${SAGAPAY_FRAUD_VERIFICATION_CODE}

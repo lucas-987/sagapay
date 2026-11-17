@@ -27,7 +27,7 @@ paths:
           description: transfer accepted, new or the existing one of a repeated send (reservation in progress or done)
           content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
         '422':
-          description: 'Refused: INSUFFICIENT_FUNDS, RECIPIENT_NOT_FOUND, IDEMPOTENCY_KEY_REUSED'
+          description: 'Refused: INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED'
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
         '503':
           $ref: '#/components/responses/Problem'   # circuit breaker ledger
@@ -143,13 +143,13 @@ components:
       enum: [INITIATED, RESERVED, SCREENING, CLEARED, POSTED, SETTLED, FAILED, BLOCKED, REVERSED]
     CreateTransferRequest:
       type: object
-      required: [amount]
+      required: [toUserId, amount]
       properties:
-        toUserId: { type: string, nullable: true }
-        toHandle: { type: string, nullable: true, description: "alternative to toUserId, e.g. @alice" }
+        toUserId:
+          type: string
+          description: the recipient's user id; a client that knows only a handle resolves it first with the ledger's GET /v1/users/lookup
         amount: { $ref: '#/components/schemas/Money' }
         note: { type: string, maxLength: 200 }
-      description: provide toUserId OR toHandle
     Transfer:
       type: object
       required: [id, senderId, amount, status, createdAt]
@@ -189,4 +189,4 @@ components:
         title: { type: string }
         status: { type: integer }
         detail: { type: string }
-        code: { type: string, examples: [INSUFFICIENT_FUNDS, RECIPIENT_NOT_FOUND] }
+        code: { type: string, examples: [INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED] }

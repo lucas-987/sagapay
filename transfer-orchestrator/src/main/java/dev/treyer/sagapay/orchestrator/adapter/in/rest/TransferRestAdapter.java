@@ -7,7 +7,6 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
@@ -48,7 +47,6 @@ public class TransferRestAdapter implements V1Api {
     private final GetTransferUseCase getTransferUseCase;
     private final ConfirmTransferUseCase confirmTransferUseCase;
     private final PostClearedTransferUseCase postClearedTransferUseCase;
-    private final ResolveRecipientUseCase resolveRecipientUseCase;
     private final Executor executor;
 
     public TransferRestAdapter(
@@ -58,7 +56,6 @@ public class TransferRestAdapter implements V1Api {
             GetTransferUseCase getTransferUseCase,
             ConfirmTransferUseCase confirmTransferUseCase,
             PostClearedTransferUseCase postClearedTransferUseCase,
-            ResolveRecipientUseCase resolveRecipientUseCase,
             @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
         this.initiateTransferUseCase = initiateTransferUseCase;
         this.advanceSagaUseCase = advanceSagaUseCase;
@@ -66,7 +63,6 @@ public class TransferRestAdapter implements V1Api {
         this.getTransferUseCase = getTransferUseCase;
         this.confirmTransferUseCase = confirmTransferUseCase;
         this.postClearedTransferUseCase = postClearedTransferUseCase;
-        this.resolveRecipientUseCase = resolveRecipientUseCase;
         this.executor = applicationTaskExecutor;
     }
 
@@ -74,7 +70,7 @@ public class TransferRestAdapter implements V1Api {
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> createTransfer(
             UUID idempotencyKey, CreateTransferRequest request) {
         UUID senderId = CallerIdentity.requireUserId();
-        UUID recipientId = resolveRecipient(request);
+        UUID recipientId = toRecipientId(request.getToUserId());
         Money amount = toMoney(request.getAmount());
 
         InitiateTransferUseCase.Result result = initiateTransferUseCase.initiateTransfer(
@@ -171,18 +167,12 @@ public class TransferRestAdapter implements V1Api {
         }
     }
 
-    private UUID resolveRecipient(CreateTransferRequest request) {
-        if (request.getToUserId() != null) {
-            try {
-                return UUID.fromString(request.getToUserId());
-            } catch (IllegalArgumentException e) {
-                throw new MalformedRequestException("toUserId", request.getToUserId(), e);
-            }
+    private static UUID toRecipientId(String toUserId) {
+        try {
+            return UUID.fromString(toUserId);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedRequestException("toUserId", toUserId, e);
         }
-        if (request.getToHandle() != null) {
-            return resolveRecipientUseCase.resolveByHandle(request.getToHandle());
-        }
-        throw new MalformedRequestException("must provide either toUserId or toHandle");
     }
 
     private static Money toMoney(dev.treyer.sagapay.transfer.model.Money money) {

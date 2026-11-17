@@ -7,7 +7,6 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
 import dev.treyer.sagapay.orchestrator.config.ResourceServerSecurityConfig;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -96,9 +95,6 @@ class TransferRestAdapterTest {
     @MockitoBean
     private PostClearedTransferUseCase postClearedTransferUseCase;
 
-    @MockitoBean
-    private ResolveRecipientUseCase resolveRecipientUseCase;
-
     private static Transfer newTransfer(UUID senderId, UUID recipientId) {
         return new Transfer(
                 UUID.randomUUID(),
@@ -175,6 +171,19 @@ class TransferRestAdapterTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void createTransferNamingTheRecipientByHandleOnlyReturns400AndCreatesNothing() throws Exception {
+        mockMvc.perform(post("/v1/transfers")
+                        .with(token(UUID.randomUUID()))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"toHandle": "@ines", "amount": {"currency": "EUR", "amount": "80.00"}}"""))
+                .andExpect(status().isBadRequest());
+
+        verify(initiateTransferUseCase, never()).initiateTransfer(any(), any(), any(), any(), any(), any(), any());
+    }
+
     private static RequestPostProcessor token(UUID subject) {
         return jwt().jwt(jwt -> jwt.subject(subject.toString()));
     }
@@ -201,32 +210,6 @@ class TransferRestAdapterTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(recipientId)))
                 .andExpect(status().isAccepted());
-    }
-
-    @Test
-    void createTransferToARecipientNamedByHandleResolvesItAndSendsFromTheTokenOwner() throws Exception {
-        UUID senderId = UUID.randomUUID();
-        UUID recipientId = UUID.randomUUID();
-        Transfer transfer = newTransfer(senderId, recipientId);
-        when(resolveRecipientUseCase.resolveByHandle("@ines")).thenReturn(recipientId);
-        when(initiateTransferUseCase.initiateTransfer(
-                        eq(senderId),
-                        eq(senderId),
-                        eq(recipientId),
-                        eq(recipientId),
-                        any(Money.class),
-                        any(UUID.class),
-                        eq(null)))
-                .thenReturn(new InitiateTransferUseCase.Result(transfer, true));
-
-        mockMvc.perform(post("/v1/transfers")
-                        .with(token(senderId))
-                        .header("Idempotency-Key", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"toHandle": "@ines", "amount": {"currency": "EUR", "amount": "80.00"}}"""))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.recipientId").value(recipientId.toString()));
     }
 
     @Test

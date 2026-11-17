@@ -3,11 +3,10 @@ package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.application.port.in.ApplyFraudResultUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
+import dev.treyer.sagapay.orchestrator.application.port.out.OutboxPort;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
-import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import dev.treyer.sagapay.orchestrator.security.TestTokens;
@@ -21,8 +20,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
@@ -34,7 +35,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -45,6 +45,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -69,23 +71,18 @@ class SendIdempotencyTest {
     @MockitoBean
     private LedgerPort ledger;
 
-    @MockitoBean
-    private AccountLookupPort accounts;
+    @MockitoSpyBean
+    private OutboxPort outbox;
 
     @BeforeEach
-    void ledgerReservesAndKnowsLina() {
+    void ledgerReserves() {
         when(ledger.checkAndReserve(anyString(), any(), any(), any(Money.class)))
                 .thenReturn(new ReservationResult.Ok(
                         UUID.randomUUID(), Instant.now().plusSeconds(600)));
-        when(accounts.lookupByHandle("lina")).thenReturn(Optional.of(RECIPIENT));
     }
 
     private static String toUser(UUID recipient, String amount, String currency, String note) {
         return body("\"toUserId\": \"" + recipient + "\"", amount, currency, note);
-    }
-
-    private static String toHandle(String handle, String amount, String currency, String note) {
-        return body("\"toHandle\": \"" + handle + "\"", amount, currency, note);
     }
 
     private static String body(String recipient, String amount, String currency, String note) {
@@ -244,32 +241,16 @@ class SendIdempotencyTest {
     void aRefusedSendGetsTheSameRefusalWhenRepeated() throws Exception {
         UUID sender = UUID.randomUUID();
         UUID key = UUID.randomUUID();
-        String unknownRecipient = toHandle("ghost", "80.00", "EUR", "pizza");
+        String unreadableAmount = toUser(RECIPIENT, "eighty", "EUR", "pizza");
 
-        HttpResponse<String> first = send(sender, key, unknownRecipient);
-        HttpResponse<String> second = send(sender, key, unknownRecipient);
+        HttpResponse<String> first = send(sender, key, unreadableAmount);
+        HttpResponse<String> second = send(sender, key, unreadableAmount);
 
-        assertThat(first.statusCode()).isEqualTo(422);
-        assertThat(json(first).get("code")).isEqualTo("RECIPIENT_NOT_FOUND");
-        assertThat(second.statusCode()).isEqualTo(422);
+        assertThat(first.statusCode()).isEqualTo(400);
+        assertThat(json(first).get("code")).isEqualTo("MALFORMED_REQUEST");
+        assertThat(second.statusCode()).isEqualTo(400);
         assertThat(second.body()).isEqualTo(first.body());
         assertThat(transfersOf(sender)).isZero();
-    }
-
-    @Test
-    @DisplayName("A send refused for an unknown handle leaves its key free for the same send to a known one")
-    void aSendRefusedForAnUnknownHandleLeavesItsKeyFree() throws Exception {
-        UUID sender = UUID.randomUUID();
-        UUID key = UUID.randomUUID();
-        HttpResponse<String> refused = send(sender, key, toHandle("ghost", "80.00", "EUR", "pizza"));
-        assertThat(refused.statusCode()).isEqualTo(422);
-        assertThat(json(refused).get("code")).isEqualTo("RECIPIENT_NOT_FOUND");
-        assertThat(transfersOf(sender)).isZero();
-
-        HttpResponse<String> retry = send(sender, key, toHandle("lina", "80.00", "EUR", "pizza"));
-
-        assertThat(retry.statusCode()).isEqualTo(202);
-        assertThat(transferIdsOf(sender)).containsExactly((String) json(retry).get("id"));
     }
 
     @Test
@@ -278,16 +259,20 @@ class SendIdempotencyTest {
     void aSendTheTransferServiceCouldNotTakeGoesThroughWhenRepeated() throws Exception {
         UUID sender = UUID.randomUUID();
         UUID key = UUID.randomUUID();
-        String body = toHandle("lina", "80.00", "EUR", "pizza");
-        when(accounts.lookupByHandle("lina"))
-                .thenThrow(new LedgerUnavailableException(new RuntimeException("down")))
-                .thenReturn(Optional.of(RECIPIENT));
+        String body = eur80(RECIPIENT);
+        // The database fails once, inside the transaction that creates the transfer.
+        doThrow(new TransientDataAccessResourceException("database unavailable"))
+                .doCallRealMethod()
+                .when(outbox)
+                .save(argThat(row -> row.getEventType().startsWith("TransferInitiated")));
 
         HttpResponse<String> first = send(sender, key, body);
+        assertThat(first.statusCode()).isEqualTo(500);
+        assertThat(json(first).get("code")).isEqualTo("INTERNAL_ERROR");
+        assertThat(transfersOf(sender)).isZero();
+
         HttpResponse<String> second = send(sender, key, body);
 
-        assertThat(first.statusCode()).isEqualTo(503);
-        assertThat(json(first).get("code")).isEqualTo("LEDGER_UNAVAILABLE");
         assertThat(second.statusCode()).isEqualTo(202);
         assertThat(transferIdsOf(sender)).containsExactly((String) json(second).get("id"));
     }
@@ -331,21 +316,6 @@ class SendIdempotencyTest {
         assertThat(storedRow(transferId)).isEqualTo(rowBefore);
         assertThat(outboxRowsOf(transferId)).isEqualTo(outboxRows);
         assertThat(sagaStepsOf(transferId)).isEqualTo(sagaSteps);
-    }
-
-    @Test
-    @DisplayName("A recipient named by handle first and by id in the repeat is the same request")
-    void aRecipientNamedByHandleThenByIdIsTheSameRequest() throws Exception {
-        UUID sender = UUID.randomUUID();
-        UUID key = UUID.randomUUID();
-        String transferId = (String) json(send(sender, key, toHandle("lina", "80.00", "EUR", "pizza")))
-                .get("id");
-
-        HttpResponse<String> repeat = send(sender, key, eur80(RECIPIENT));
-
-        assertThat(repeat.statusCode()).isEqualTo(202);
-        assertThat(json(repeat).get("id")).isEqualTo(transferId);
-        assertThat(transferIdsOf(sender)).containsExactly(transferId);
     }
 
     @Test

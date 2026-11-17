@@ -3,7 +3,6 @@ package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.application.port.in.ApplyFraudResultUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.out.AccountLookupPort;
 import dev.treyer.sagapay.orchestrator.application.port.out.LedgerPort;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
@@ -68,9 +67,6 @@ class FailureCauseVisibilityTest {
 
     @MockitoBean
     private LedgerPort ledger;
-
-    @MockitoBean
-    private AccountLookupPort accounts;
 
     private enum Party {
         SENDER,

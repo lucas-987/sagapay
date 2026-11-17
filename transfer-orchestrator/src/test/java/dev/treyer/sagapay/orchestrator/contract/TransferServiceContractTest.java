@@ -24,7 +24,7 @@ class TransferServiceContractTest {
         assertThat(sendResponses().get("422"))
                 .isEqualTo(Map.of(
                         "description",
-                        "Refused: INSUFFICIENT_FUNDS, RECIPIENT_NOT_FOUND, IDEMPOTENCY_KEY_REUSED",
+                        "Refused: INSUFFICIENT_FUNDS, IDEMPOTENCY_KEY_REUSED",
                         "content",
                         Map.of(
                                 "application/problem+json",

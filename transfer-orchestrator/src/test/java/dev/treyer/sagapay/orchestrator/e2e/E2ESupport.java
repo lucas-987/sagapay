@@ -35,7 +35,6 @@ final class E2ESupport {
         registry.add(
                 "spring.grpc.client.channel.ledger.target",
                 () -> "static://" + ledger.getHost() + ":" + ledger.getMappedPort(9091));
-        registry.add("ledger.rest.base-url", () -> "http://" + ledger.getHost() + ":" + ledger.getMappedPort(8081));
     }
 
     /** The account of a seeded user, as any signed-in user reads it. */

@@ -35,25 +35,25 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-class SpringServiceTokenProviderTest {
+class SpringLedgerTokenProviderTest {
 
     private static final String TOKEN_URL = "http://idp.test/realms/sagapay/protocol/openid-connect/token";
     private static final long SKEW_MS = 30_000;
 
     private final RestClient.Builder builder = RestClient.builder();
     private final MockRestServiceServer idp = MockRestServiceServer.bindTo(
-                    SpringServiceTokenProvider.withTokenConverters(builder))
+                    SpringLedgerTokenProvider.withTokenConverters(builder))
             .build();
     private final AdjustableClock clock = new AdjustableClock();
 
-    private SpringServiceTokenProvider provider(String secret) {
-        return new SpringServiceTokenProvider(
+    private SpringLedgerTokenProvider provider(String secret) {
+        return new SpringLedgerTokenProvider(
                 builder.build(),
                 new LedgerAuthProperties("transfer-orchestrator", secret, URI.create(TOKEN_URL), SKEW_MS, 2000),
                 clock);
     }
 
-    private SpringServiceTokenProvider provider() {
+    private SpringLedgerTokenProvider provider() {
         return provider("s3cret");
     }
 
@@ -99,7 +99,7 @@ class SpringServiceTokenProviderTest {
     @Test
     void consecutiveCallsReuseOneToken() {
         idpAnswers("t1", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
 
         List<String> tokens = List.of(provider.token(), provider.token(), provider.token());
 
@@ -110,7 +110,7 @@ class SpringServiceTokenProviderTest {
     @Test
     void theTokenIsStillUsedJustBeforeTheRefreshMargin() {
         idpAnswers("t1", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
         provider.token();
 
         clock.advance(Duration.ofSeconds(300).minus(Duration.ofMillis(SKEW_MS)).minusSeconds(1));
@@ -123,7 +123,7 @@ class SpringServiceTokenProviderTest {
     void aTokenCloseToExpiryIsRenewedBeforeUse() {
         idpAnswers("t1", 300);
         idpAnswers("t2", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
         provider.token();
 
         clock.advance(Duration.ofSeconds(300).minus(Duration.ofMillis(SKEW_MS)).plusSeconds(1));
@@ -137,7 +137,7 @@ class SpringServiceTokenProviderTest {
     void aTokenThatLivesLessThanTheMarginIsNeverReused(int expiresIn) {
         idpAnswers("t1", expiresIn);
         idpAnswers("t2", expiresIn);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
 
         assertThat(provider.token()).isEqualTo("t1");
         assertThat(provider.token()).isEqualTo("t2");
@@ -149,7 +149,7 @@ class SpringServiceTokenProviderTest {
     void aDroppedTokenIsReplacedByANewOne() {
         idpAnswers("t1", 300);
         idpAnswers("t2", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
         provider.token();
 
         provider.drop();
@@ -161,7 +161,7 @@ class SpringServiceTokenProviderTest {
     @Test
     void droppingBeforeAnyTokenWasFetchedChangesNothing() {
         idpAnswers("t1", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
 
         provider.drop();
 
@@ -174,7 +174,7 @@ class SpringServiceTokenProviderTest {
         idp.expect(once(), requestTo(TOKEN_URL)).andRespond(withException(new IOException("Connection refused")));
 
         assertThatThrownBy(() -> provider().token())
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint unreachable");
     }
 
@@ -187,7 +187,7 @@ class SpringServiceTokenProviderTest {
                         .body("{\"error\":\"unauthorized_client\"}"));
 
         assertThatThrownBy(() -> provider().token())
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint answered HTTP " + status)
                 .hasNoCause();
     }
@@ -212,7 +212,7 @@ class SpringServiceTokenProviderTest {
         idp.expect(once(), requestTo(TOKEN_URL)).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> provider().token())
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint answered without a usable token")
                 .hasNoCause();
     }
@@ -221,9 +221,9 @@ class SpringServiceTokenProviderTest {
     void aFailedFetchIsNotCachedAsATokenSoALaterCallTriesAgain() {
         idp.expect(once(), requestTo(TOKEN_URL)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
         idpAnswers("t1", 300);
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
 
-        assertThatThrownBy(provider::token).isInstanceOf(ServiceTokenUnavailableException.class);
+        assertThatThrownBy(provider::token).isInstanceOf(LedgerTokenUnavailableException.class);
 
         assertThat(provider.token()).isEqualTo("t1");
         idp.verify();
@@ -233,12 +233,12 @@ class SpringServiceTokenProviderTest {
     void aRefreshThatFailsAfterTheCachedTokenExpiredThrowsInsteadOfReturningTheOldToken() {
         idpAnswers("t1", 300);
         idp.expect(once(), requestTo(TOKEN_URL)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
-        SpringServiceTokenProvider provider = provider();
+        SpringLedgerTokenProvider provider = provider();
         assertThat(provider.token()).isEqualTo("t1");
         clock.advance(Duration.ofSeconds(301));
 
         assertThatThrownBy(provider::token)
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint answered HTTP 503");
 
         idp.verify();

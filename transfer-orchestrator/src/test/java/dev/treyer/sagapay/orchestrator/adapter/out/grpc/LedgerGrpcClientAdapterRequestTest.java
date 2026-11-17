@@ -53,7 +53,7 @@ class LedgerGrpcClientAdapterRequestTest {
             new LedgerGrpcClientAdapter(
                             channel,
                             new LedgerProperties(new LedgerProperties.Grpc(5000)),
-                            new FixedServiceTokenProvider("service-token"))
+                            new FixedLedgerTokenProvider("service-token"))
                     .checkAndReserve("t-1", from, to, Money.of("12.50", "EUR"));
         } finally {
             channel.shutdownNow();

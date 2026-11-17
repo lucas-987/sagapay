@@ -1,13 +1,13 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.grpc;
 
 /** The identity provider gave no token. The message names the failure, never a credential. */
-public class ServiceTokenUnavailableException extends RuntimeException {
+public class LedgerTokenUnavailableException extends RuntimeException {
 
-    public ServiceTokenUnavailableException(String message) {
+    public LedgerTokenUnavailableException(String message) {
         super(message);
     }
 
-    public ServiceTokenUnavailableException(String message, Throwable cause) {
+    public LedgerTokenUnavailableException(String message, Throwable cause) {
         super(message, cause);
     }
 }

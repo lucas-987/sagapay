@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The production constructor, over a real socket: the wire format and the request timeout. */
-class SpringServiceTokenProviderHttpTest {
+class SpringLedgerTokenProviderHttpTest {
 
     private final CountDownLatch releaseHandlers = new CountDownLatch(1);
     private HttpServer server;
@@ -54,7 +54,7 @@ class SpringServiceTokenProviderHttpTest {
             exchange.getResponseBody().write(answer);
             exchange.close();
         });
-        SpringServiceTokenProvider provider = new SpringServiceTokenProvider(
+        SpringLedgerTokenProvider provider = new SpringLedgerTokenProvider(
                 new LedgerAuthProperties("transfer-orchestrator", "s3cret", tokenUri, 30_000, 2000), Clock.systemUTC());
 
         assertThat(provider.token()).isEqualTo("t1");
@@ -78,11 +78,11 @@ class SpringServiceTokenProviderHttpTest {
             }
             exchange.close();
         });
-        SpringServiceTokenProvider provider = new SpringServiceTokenProvider(
+        SpringLedgerTokenProvider provider = new SpringLedgerTokenProvider(
                 new LedgerAuthProperties("transfer-orchestrator", "s3cret", tokenUri, 30_000, 200), Clock.systemUTC());
 
         assertThatThrownBy(provider::token)
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint unreachable");
     }
 }

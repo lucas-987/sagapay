@@ -160,24 +160,23 @@ class LedgerServiceCredentialsTest {
         server.shutdownNow();
     }
 
-    private LedgerGrpcClientAdapter adapterWith(ServiceTokenProvider tokens) {
+    private LedgerGrpcClientAdapter adapterWith(LedgerTokenProvider tokens) {
         return adapterWith(tokens, 5000);
     }
 
-    private LedgerGrpcClientAdapter adapterWith(ServiceTokenProvider tokens, long deadlineMs) {
+    private LedgerGrpcClientAdapter adapterWith(LedgerTokenProvider tokens, long deadlineMs) {
         return new LedgerGrpcClientAdapter(
                 channel, new LedgerProperties(new LedgerProperties.Grpc(deadlineMs)), tokens);
     }
 
-    private static ServiceTokenProvider fixed(String token) {
-        return new FixedServiceTokenProvider(token);
+    private static LedgerTokenProvider fixed(String token) {
+        return new FixedLedgerTokenProvider(token);
     }
 
     /** The real provider against a fake identity provider, which gives the next token of the list. */
-    private SpringServiceTokenProvider providerFetching(String... tokens) {
+    private SpringLedgerTokenProvider providerFetching(String... tokens) {
         RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer idp = MockRestServiceServer.bindTo(
-                        SpringServiceTokenProvider.withTokenConverters(builder))
+        MockRestServiceServer idp = MockRestServiceServer.bindTo(SpringLedgerTokenProvider.withTokenConverters(builder))
                 .build();
         for (String token : tokens) {
             idp.expect(once(), requestTo(TOKEN_URL))
@@ -185,25 +184,25 @@ class LedgerServiceCredentialsTest {
                             "{\"access_token\":\"%s\",\"token_type\":\"Bearer\",\"expires_in\":300}".formatted(token),
                             MediaType.APPLICATION_JSON));
         }
-        return new SpringServiceTokenProvider(
+        return new SpringLedgerTokenProvider(
                 builder.build(),
                 new LedgerAuthProperties("transfer-orchestrator", CLIENT_SECRET, URI.create(TOKEN_URL), 30_000, 2000),
                 Clock.systemUTC());
     }
 
     /** The provider whose identity provider refuses the client. */
-    private SpringServiceTokenProvider providerRefused() {
+    private SpringLedgerTokenProvider providerRefused() {
         return providerRefusedWith("");
     }
 
     /** The same, the identity provider's error body being {@code body}. */
-    private SpringServiceTokenProvider providerRefusedWith(String body) {
+    private SpringLedgerTokenProvider providerRefusedWith(String body) {
         RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer.bindTo(SpringServiceTokenProvider.withTokenConverters(builder))
+        MockRestServiceServer.bindTo(SpringLedgerTokenProvider.withTokenConverters(builder))
                 .build()
                 .expect(once(), requestTo(TOKEN_URL))
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body(body));
-        return new SpringServiceTokenProvider(
+        return new SpringLedgerTokenProvider(
                 builder.build(),
                 new LedgerAuthProperties("transfer-orchestrator", CLIENT_SECRET, URI.create(TOKEN_URL), 30_000, 2000),
                 Clock.systemUTC());
@@ -230,7 +229,7 @@ class LedgerServiceCredentialsTest {
     @ParameterizedTest(name = "{0} reaches the ledger although the token took longer than the call deadline")
     @EnumSource(Rpc.class)
     void theTokenIsFetchedBeforeTheCallDeadlineStarts(Rpc rpc) {
-        ServiceTokenProvider slow = new ServiceTokenProvider() {
+        LedgerTokenProvider slow = new LedgerTokenProvider() {
             @Override
             public String token() {
                 try {
@@ -289,7 +288,7 @@ class LedgerServiceCredentialsTest {
                 .isInstanceOfSatisfying(LedgerUnavailableException.class, e -> {
                     assertThat(e.getMessage()).isEqualTo("ledger unavailable");
                     assertThat(e.getCause())
-                            .isInstanceOf(ServiceTokenUnavailableException.class)
+                            .isInstanceOf(LedgerTokenUnavailableException.class)
                             .hasMessage("token endpoint answered HTTP 401");
                 });
         assertThat(authorizations).isEmpty();
@@ -311,7 +310,7 @@ class LedgerServiceCredentialsTest {
     @Test
     void anUnauthenticatedAnswerDropsTheToken() {
         AtomicInteger dropped = new AtomicInteger();
-        ServiceTokenProvider recording = new ServiceTokenProvider() {
+        LedgerTokenProvider recording = new LedgerTokenProvider() {
             @Override
             public String token() {
                 return "carried-token";
@@ -433,7 +432,7 @@ class LedgerServiceCredentialsTest {
         assertThatThrownBy(() -> Rpc.POST_TRANSFER.call.accept(adapterWith(providerRefused())));
 
         assertThat(appender.list)
-                .filteredOn(event -> event.getLoggerName().equals(SpringServiceTokenProvider.class.getName()))
+                .filteredOn(event -> event.getLoggerName().equals(SpringLedgerTokenProvider.class.getName()))
                 .singleElement()
                 .satisfies(event -> {
                     assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.WARN);

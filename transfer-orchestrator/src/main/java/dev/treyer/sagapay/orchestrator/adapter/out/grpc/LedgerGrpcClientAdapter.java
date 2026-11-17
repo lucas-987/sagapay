@@ -50,9 +50,9 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
 
     private final LedgerServiceGrpc.LedgerServiceBlockingStub stub;
     private final long deadlineMs;
-    private final ServiceTokenProvider tokens;
+    private final LedgerTokenProvider tokens;
 
-    public LedgerGrpcClientAdapter(Channel ledgerChannel, LedgerProperties properties, ServiceTokenProvider tokens) {
+    public LedgerGrpcClientAdapter(Channel ledgerChannel, LedgerProperties properties, LedgerTokenProvider tokens) {
         this.stub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
         this.deadlineMs = properties.grpc().deadlineMs();
         this.tokens = tokens;
@@ -66,7 +66,7 @@ public class LedgerGrpcClientAdapter implements LedgerPort {
         String token;
         try {
             token = tokens.token();
-        } catch (ServiceTokenUnavailableException e) {
+        } catch (LedgerTokenUnavailableException e) {
             throw new LedgerUnavailableException(e);
         }
         Metadata headers = new Metadata();

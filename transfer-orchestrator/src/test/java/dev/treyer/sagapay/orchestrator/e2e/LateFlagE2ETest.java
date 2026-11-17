@@ -3,7 +3,7 @@ package dev.treyer.sagapay.orchestrator.e2e;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.in.rest.ActivityStreamSupport;
 import dev.treyer.sagapay.orchestrator.adapter.in.rest.ActivityStreamSupport.Event;
-import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedServiceTokenProvider;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedLedgerTokenProvider;
 import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -40,7 +40,7 @@ import static org.awaitility.Awaitility.await;
  * transfer finds no time left to confirm.
  */
 @Testcontainers
-@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class, FixedServiceTokenProvider.Configuration.class})
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class, FixedLedgerTokenProvider.Configuration.class})
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {

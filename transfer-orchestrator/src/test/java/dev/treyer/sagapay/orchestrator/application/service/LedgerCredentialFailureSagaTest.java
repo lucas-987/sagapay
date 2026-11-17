@@ -11,8 +11,8 @@ import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
 import dev.treyer.sagapay.orchestrator.adapter.in.scheduler.SagaReprisePoller;
-import dev.treyer.sagapay.orchestrator.adapter.out.grpc.ServiceTokenProvider;
-import dev.treyer.sagapay.orchestrator.adapter.out.grpc.ServiceTokenUnavailableException;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.LedgerTokenProvider;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.LedgerTokenUnavailableException;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.OutboxRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.SagaStepRepository;
 import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepository;
@@ -226,7 +226,7 @@ class LedgerCredentialFailureSagaTest {
     static class CredentialConfig {
 
         /** What the identity provider and the ledger do about the credential, set by the test. */
-        static final class Credential implements ServiceTokenProvider {
+        static final class Credential implements LedgerTokenProvider {
 
             private volatile Breakage breakage;
 
@@ -245,7 +245,7 @@ class LedgerCredentialFailureSagaTest {
             @Override
             public String token() {
                 if (breakage == Breakage.TOKEN_NOT_OBTAINED) {
-                    throw new ServiceTokenUnavailableException("token endpoint unreachable");
+                    throw new LedgerTokenUnavailableException("token endpoint unreachable");
                 }
                 return "service-token";
             }

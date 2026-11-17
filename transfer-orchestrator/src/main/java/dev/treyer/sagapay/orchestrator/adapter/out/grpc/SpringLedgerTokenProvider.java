@@ -33,17 +33,17 @@ import java.time.Duration;
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
- * The service's token from Spring Security's OAuth 2.0 client: the client credentials grant, a
- * token kept until shortly before it expires, the secret sent as HTTP Basic. Calls arrive from
- * executors, schedulers and listeners with no request behind them, which the service-tier
- * manager is made for. Concurrent callers near expiry may each fetch a token of their own: every
- * one is valid, and the ledger client's circuit breaker bounds what an identity provider outage
- * costs. Messages never carry the answer of the identity provider or the secret.
+ * The orchestrator's token for the ledger, from Spring Security's OAuth 2.0 client: the client
+ * credentials grant, a token kept until shortly before it expires, the secret sent as HTTP Basic.
+ * Calls arrive from executors, schedulers and listeners with no request behind them, which the
+ * service-tier manager is made for. Concurrent callers near expiry may each fetch a token of their
+ * own: every one is valid, and the ledger client's circuit breaker bounds what an identity provider
+ * outage costs. Messages never carry the answer of the identity provider or the secret.
  */
 @Component
-class SpringServiceTokenProvider implements ServiceTokenProvider {
+class SpringLedgerTokenProvider implements LedgerTokenProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(SpringServiceTokenProvider.class);
+    private static final Logger log = LoggerFactory.getLogger(SpringLedgerTokenProvider.class);
 
     private static final String REGISTRATION_ID = "ledger";
     // The client credentials grant has no user: the name only keys the cached token.
@@ -57,11 +57,11 @@ class SpringServiceTokenProvider implements ServiceTokenProvider {
     private final OAuth2AuthorizedClientService clients;
 
     @Autowired
-    SpringServiceTokenProvider(LedgerAuthProperties properties, Clock clock) {
+    SpringLedgerTokenProvider(LedgerAuthProperties properties, Clock clock) {
         this(restClient(properties), properties, clock);
     }
 
-    SpringServiceTokenProvider(RestClient restClient, LedgerAuthProperties properties, Clock clock) {
+    SpringLedgerTokenProvider(RestClient restClient, LedgerAuthProperties properties, Clock clock) {
         ClientRegistration registration = ClientRegistration.withRegistrationId(REGISTRATION_ID)
                 .clientId(properties.clientId())
                 .clientSecret(properties.clientSecret())
@@ -116,12 +116,12 @@ class SpringServiceTokenProvider implements ServiceTokenProvider {
                     .build());
         } catch (OAuth2AuthorizationException | IllegalArgumentException e) {
             // An answer the library cannot build a token from (a missing field) surfaces as the latter.
-            ServiceTokenUnavailableException failure = new ServiceTokenUnavailableException(describe(e));
+            LedgerTokenUnavailableException failure = new LedgerTokenUnavailableException(describe(e));
             log.warn("service token not obtained", kv("failure", failure.getMessage()));
             throw failure;
         }
         if (client == null) {
-            throw new ServiceTokenUnavailableException("token endpoint answered without a usable token");
+            throw new LedgerTokenUnavailableException("token endpoint answered without a usable token");
         }
         return client.getAccessToken().getTokenValue();
     }

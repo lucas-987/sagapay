@@ -60,7 +60,7 @@ class LedgerGrpcClientAdapterTest {
         adapter = new LedgerGrpcClientAdapter(
                 channel,
                 new LedgerProperties(new LedgerProperties.Grpc(5000)),
-                FixedServiceTokenProvider.acceptedByTheLedger());
+                FixedLedgerTokenProvider.acceptedByTheLedger());
 
         bobAccountId = lookupAccountId("bob");
         tomaszAccountId = lookupAccountId("tomasz");
@@ -111,7 +111,7 @@ class LedgerGrpcClientAdapterTest {
             LedgerGrpcClientAdapter adapterOfAnOldLedger = new LedgerGrpcClientAdapter(
                     inProcess,
                     new LedgerProperties(new LedgerProperties.Grpc(5000)),
-                    new FixedServiceTokenProvider("service-token"));
+                    new FixedLedgerTokenProvider("service-token"));
 
             assertThatThrownBy(() -> adapterOfAnOldLedger.checkAndReserve(
                             UUID.randomUUID().toString(),
@@ -180,7 +180,7 @@ class LedgerGrpcClientAdapterTest {
             LedgerGrpcClientAdapter refusing = new LedgerGrpcClientAdapter(
                     inProcess,
                     new LedgerProperties(new LedgerProperties.Grpc(5000)),
-                    new FixedServiceTokenProvider("service-token"));
+                    new FixedLedgerTokenProvider("service-token"));
 
             assertThatThrownBy(
                             () -> refusing.releaseReservation(UUID.randomUUID().toString(), UUID.randomUUID()))

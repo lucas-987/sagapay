@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * gets names the ledger as audience and carries the ledger scope, and a wrong secret is an
  * unavailable token. Heavy (a Keycloak container): not part of a quick loop.
  */
-class SpringServiceTokenProviderKeycloakTest {
+class SpringLedgerTokenProviderKeycloakTest {
 
     private static final String CLIENT_SECRET = "keycloak-test-client-secret";
     private static final Path REALM_FILE =
@@ -60,8 +60,8 @@ class SpringServiceTokenProviderKeycloakTest {
         return "http://%s:%d/realms/sagapay".formatted(KEYCLOAK.getHost(), KEYCLOAK.getMappedPort(8080));
     }
 
-    private static SpringServiceTokenProvider provider(String secret) {
-        return new SpringServiceTokenProvider(
+    private static SpringLedgerTokenProvider provider(String secret) {
+        return new SpringLedgerTokenProvider(
                 new LedgerAuthProperties(
                         "transfer-orchestrator",
                         secret,
@@ -93,7 +93,7 @@ class SpringServiceTokenProviderKeycloakTest {
     @Test
     void aWrongSecretIsAnUnavailableToken() {
         assertThatThrownBy(() -> provider("not-the-secret").token())
-                .isInstanceOf(ServiceTokenUnavailableException.class)
+                .isInstanceOf(LedgerTokenUnavailableException.class)
                 .hasMessage("token endpoint answered HTTP 401");
     }
 }

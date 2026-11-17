@@ -58,7 +58,7 @@ public class LedgerRestAdapter implements V1Api {
     @Override
     public ResponseEntity<ListPostings200Response> listPostings(OffsetDateTime from, String cursor, Integer limit) {
         UUID accountId = callerAccount.id();
-        PostingCursor after = cursor == null ? null : PostingCursor.decode(cursor);
+        PostingCursor after = cursor == null ? null : PostingCursorCodec.decode(cursor);
         PostingPage page =
                 listPostingsUseCase.listPostings(accountId, from == null ? null : from.toInstant(), after, limit);
 
@@ -67,7 +67,7 @@ public class LedgerRestAdapter implements V1Api {
                 .toList();
         return ResponseEntity.ok(new ListPostings200Response()
                 .items(items)
-                .nextCursor(page.next() == null ? null : page.next().encode()));
+                .nextCursor(page.next() == null ? null : PostingCursorCodec.encode(page.next())));
     }
 
     @Override

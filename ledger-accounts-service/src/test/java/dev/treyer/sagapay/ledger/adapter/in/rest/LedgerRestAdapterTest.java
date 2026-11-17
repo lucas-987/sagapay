@@ -135,7 +135,7 @@ class LedgerRestAdapterTest {
 
         mockMvc.perform(get("/v1/wallet/postings")
                         .param("from", "2026-11-01T00:00:00Z")
-                        .param("cursor", after.encode())
+                        .param("cursor", PostingCursorCodec.encode(after))
                         .param("limit", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isEmpty());
@@ -150,7 +150,7 @@ class LedgerRestAdapterTest {
 
         mockMvc.perform(get("/v1/wallet/postings"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.nextCursor").value(next.encode()));
+                .andExpect(jsonPath("$.nextCursor").value(PostingCursorCodec.encode(next)));
     }
 
     @Test

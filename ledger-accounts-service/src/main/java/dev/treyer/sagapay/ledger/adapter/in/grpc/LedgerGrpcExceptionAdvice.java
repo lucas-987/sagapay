@@ -3,7 +3,6 @@ package dev.treyer.sagapay.ledger.adapter.in.grpc;
 import dev.treyer.sagapay.ledger.domain.CurrencyMismatchException;
 import dev.treyer.sagapay.ledger.domain.IdempotencyConflictException;
 import dev.treyer.sagapay.ledger.domain.InvalidAmountException;
-import dev.treyer.sagapay.ledger.domain.MalformedRequestException;
 import dev.treyer.sagapay.ledger.domain.NoMatchingReservationException;
 import io.grpc.Status;
 import org.springframework.grpc.server.advice.GrpcAdvice;

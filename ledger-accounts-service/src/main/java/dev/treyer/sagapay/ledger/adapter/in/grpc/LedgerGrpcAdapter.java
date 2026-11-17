@@ -8,7 +8,6 @@ import dev.treyer.sagapay.ledger.application.port.in.GetBalanceUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.PostTransferUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.ReleaseReservationUseCase;
 import dev.treyer.sagapay.ledger.domain.CheckAndReserveResult;
-import dev.treyer.sagapay.ledger.domain.MalformedRequestException;
 import dev.treyer.sagapay.ledger.v1.*;
 import io.grpc.stub.StreamObserver;
 import org.springframework.grpc.server.service.GrpcService;

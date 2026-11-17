@@ -10,6 +10,7 @@ import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -35,7 +36,6 @@ class OutboxPoller {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPoller.class);
 
-    static final String TOPIC = "payments.fraud.results";
     private static final String TRACEPARENT_VERSION = "00";
 
     private final OutboxRelayPort outbox;
@@ -43,18 +43,21 @@ class OutboxPoller {
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
     private final int batchSize;
+    private final String topic;
 
     OutboxPoller(
             OutboxRelayPort outbox,
             KafkaTemplate<String, String> kafkaTemplate,
             JsonMapper jsonMapper,
             Tracer tracer,
-            OutboxProperties properties) {
+            OutboxProperties properties,
+            @Value("${kafka.topics.fraud-results}") String topic) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
         this.tracer = tracer;
         this.batchSize = properties.batchSize();
+        this.topic = topic;
     }
 
     // The first run waits one interval too, so that a test setting a long interval is the only caller.
@@ -109,7 +112,7 @@ class OutboxPoller {
             String traceparent = TRACEPARENT_VERSION + "-" + context.traceId() + "-" + context.spanId() + "-" + flags;
 
             ProducerRecord<String, String> record =
-                    new ProducerRecord<>(TOPIC, message.aggregateId().toString(), jsonMapper.writeValueAsString(event));
+                    new ProducerRecord<>(topic, message.aggregateId().toString(), jsonMapper.writeValueAsString(event));
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
         } catch (RuntimeException e) {

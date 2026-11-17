@@ -40,8 +40,13 @@ class OutboxPollerFailureTest {
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
 
-    private final OutboxPoller poller =
-            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), Tracer.NOOP, new OutboxProperties(500, 100));
+    private final OutboxPoller poller = new OutboxPoller(
+            outbox,
+            kafka,
+            JsonMapper.builder().build(),
+            Tracer.NOOP,
+            new OutboxProperties(500, 100),
+            "payments.fraud.results");
 
     private static final UUID KEY_1 = UUID.randomUUID();
     private static final UUID KEY_2 = UUID.randomUUID();

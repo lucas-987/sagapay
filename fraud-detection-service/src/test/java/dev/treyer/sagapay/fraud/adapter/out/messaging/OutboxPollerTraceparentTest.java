@@ -40,8 +40,13 @@ class OutboxPollerTraceparentTest {
     private final Span span = mock(Span.class);
     private final TraceContext context = mock(TraceContext.class);
 
-    private final OutboxPoller poller =
-            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), tracer, new OutboxProperties(500, 100));
+    private final OutboxPoller poller = new OutboxPoller(
+            outbox,
+            kafka,
+            JsonMapper.builder().build(),
+            tracer,
+            new OutboxProperties(500, 100),
+            "payments.fraud.results");
 
     private void oneRowToPublish() {
         when(tracer.nextSpan()).thenReturn(span);

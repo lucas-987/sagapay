@@ -42,7 +42,7 @@ public class ActivityStreamListener {
     }
 
     @KafkaListener(
-            topics = "payments.transfers",
+            topics = "${kafka.topics.transfers}",
             groupId = "orchestrator-activity-#{T(java.util.UUID).randomUUID()}",
             containerFactory = "activityStreamListenerContainerFactory",
             properties = "auto.offset.reset=latest")

@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxRelayPort;
 import dev.treyer.sagapay.orchestrator.config.OutboxProperties;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
@@ -98,7 +99,7 @@ public class OutboxPoller {
         CloudEvent<JsonNode> event = CloudEvent.of(
                 row.getId(),
                 SOURCE,
-                row.getEventType() + ".v1",
+                TransferEventType.cloudEventType(row.getEventType()),
                 row.getAggregateId().toString(),
                 jsonMapper.readTree(row.getPayload()));
 

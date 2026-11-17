@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.fraud.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
+import dev.treyer.sagapay.fraud.domain.FraudResultEventType;
 import dev.treyer.sagapay.fraud.domain.OutboxMessage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -15,7 +16,7 @@ final class FraudResultEvents {
         return CloudEvent.of(
                 message.id(),
                 SOURCE,
-                message.eventType() + ".v1",
+                FraudResultEventType.cloudEventType(message.eventType()),
                 message.aggregateId().toString(),
                 jsonMapper.readTree(message.payload()));
     }

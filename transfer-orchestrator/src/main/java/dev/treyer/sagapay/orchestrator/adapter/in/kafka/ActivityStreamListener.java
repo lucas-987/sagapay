@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.adapter.in.kafka;
 
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.in.RelayTransferEventUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
@@ -20,7 +21,6 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 /**
  * Reads the orchestrator's own topic. Each instance reads it in a group of its own, from the latest
  * offset: every instance sees every event, and none replays what was published before it started.
- * The CloudEvent types, versions included, are known here only.
  */
 @Component
 public class ActivityStreamListener {
@@ -29,9 +29,9 @@ public class ActivityStreamListener {
 
     /** The other events of the topic are not the stream's: they are ignored without a warning. */
     private static final Map<String, TransferStatus> OUTCOMES = Map.of(
-            "TransferPosted.v1", TransferStatus.POSTED,
-            "TransferBlocked.v1", TransferStatus.BLOCKED,
-            "TransferFailed.v1", TransferStatus.FAILED);
+            TransferEventType.TRANSFER_POSTED.cloudEventType(), TransferStatus.POSTED,
+            TransferEventType.TRANSFER_BLOCKED.cloudEventType(), TransferStatus.BLOCKED,
+            TransferEventType.TRANSFER_FAILED.cloudEventType(), TransferStatus.FAILED);
 
     private final RelayTransferEventUseCase relay;
     private final JsonMapper jsonMapper;

@@ -12,7 +12,7 @@ info:
 servers:
   - url: https://api.sagapay.treyer.dev
 security:
-  - bearer: []
+  - oidc: []
 
 paths:
   /v1/stream/activity:
@@ -38,10 +38,9 @@ paths:
 
 components:
   securitySchemes:
-    bearer:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
   schemas:
     TransferPostedEvent:
       type: object

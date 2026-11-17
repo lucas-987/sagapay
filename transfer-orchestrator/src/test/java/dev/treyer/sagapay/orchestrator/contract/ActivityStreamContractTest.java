@@ -34,12 +34,16 @@ class ActivityStreamContractTest {
     }
 
     @Test
-    void requiresABearerToken() {
+    void requiresATokenOfTheSagapayRealm() {
         Map<String, Object> securitySchemes = map(map(DOC, "components"), "securitySchemes");
 
-        assertThat(DOC.get("security")).isEqualTo(List.of(Map.of("bearer", List.of())));
-        assertThat(map(securitySchemes, "bearer"))
-                .isEqualTo(Map.of("type", "http", "scheme", "bearer", "bearerFormat", "JWT"));
+        assertThat(DOC.get("security")).isEqualTo(List.of(Map.of("oidc", List.of())));
+        assertThat(map(securitySchemes, "oidc"))
+                .isEqualTo(Map.of(
+                        "type",
+                        "openIdConnect",
+                        "openIdConnectUrl",
+                        "https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration"));
     }
 
     @Test

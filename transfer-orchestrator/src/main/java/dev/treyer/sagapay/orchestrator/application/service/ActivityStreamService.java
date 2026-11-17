@@ -2,7 +2,7 @@ package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.orchestrator.application.port.in.OpenActivityStreamUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.RelayTransferEventUseCase;
-import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 
 import java.util.Map;
 import java.util.Set;

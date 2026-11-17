@@ -2,9 +2,8 @@ package dev.treyer.sagapay.orchestrator.adapter.in.kafka;
 
 import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.in.RelayTransferEventUseCase;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
-import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,10 +27,10 @@ public class ActivityStreamListener {
     private static final Logger log = LoggerFactory.getLogger(ActivityStreamListener.class);
 
     /** The other events of the topic are not the stream's: they are ignored without a warning. */
-    private static final Map<String, TransferStatus> OUTCOMES = Map.of(
-            TransferEventType.TRANSFER_POSTED.cloudEventType(), TransferStatus.POSTED,
-            TransferEventType.TRANSFER_BLOCKED.cloudEventType(), TransferStatus.BLOCKED,
-            TransferEventType.TRANSFER_FAILED.cloudEventType(), TransferStatus.FAILED);
+    private static final Map<String, TransferEvent.Outcome> OUTCOMES = Map.of(
+            TransferEventType.TRANSFER_POSTED.cloudEventType(), TransferEvent.Outcome.POSTED,
+            TransferEventType.TRANSFER_BLOCKED.cloudEventType(), TransferEvent.Outcome.BLOCKED,
+            TransferEventType.TRANSFER_FAILED.cloudEventType(), TransferEvent.Outcome.FAILED);
 
     private final RelayTransferEventUseCase relay;
     private final JsonMapper jsonMapper;
@@ -70,7 +69,7 @@ public class ActivityStreamListener {
             skip(record, "record lacks a field the stream needs", null);
             return;
         }
-        TransferStatus outcome = OUTCOMES.get(message.type());
+        TransferEvent.Outcome outcome = OUTCOMES.get(message.type());
         if (outcome == null) {
             return;
         }

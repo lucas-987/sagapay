@@ -4,9 +4,8 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
-import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -147,7 +146,7 @@ class ActivityStreamListenerTest {
         assertThat(relayed)
                 .containsExactly(new TransferEvent(
                         EVENT_ID,
-                        TransferStatus.FAILED,
+                        TransferEvent.Outcome.FAILED,
                         TRANSFER_ID,
                         SENDER,
                         RECIPIENT,
@@ -161,7 +160,7 @@ class ActivityStreamListenerTest {
     @ParameterizedTest(name = "{0} is handed on as {1}")
     @MethodSource("streamedTypes")
     @DisplayName("Each type the stream reads is handed on as the status the transfer reached")
-    void eachStreamedTypeIsHandedOnAsItsOutcome(String type, TransferStatus outcome) {
+    void eachStreamedTypeIsHandedOnAsItsOutcome(String type, TransferEvent.Outcome outcome) {
         listener.onTransferEvent(record(event(
                 EVENT_ID.toString(), type, data(TRANSFER_ID.toString(), SENDER.toString(), RECIPIENT.toString()))));
 
@@ -174,9 +173,9 @@ class ActivityStreamListenerTest {
 
     static Stream<Arguments> streamedTypes() {
         return Stream.of(
-                Arguments.of("TransferPosted.v1", TransferStatus.POSTED),
-                Arguments.of("TransferBlocked.v1", TransferStatus.BLOCKED),
-                Arguments.of("TransferFailed.v1", TransferStatus.FAILED));
+                Arguments.of("TransferPosted.v1", TransferEvent.Outcome.POSTED),
+                Arguments.of("TransferBlocked.v1", TransferEvent.Outcome.BLOCKED),
+                Arguments.of("TransferFailed.v1", TransferEvent.Outcome.FAILED));
     }
 
     @ParameterizedTest(name = "{0} is ignored")

@@ -1,7 +1,7 @@
 package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
 import dev.treyer.sagapay.orchestrator.application.port.in.OpenActivityStreamUseCase;
-import dev.treyer.sagapay.orchestrator.domain.ActivityEvent;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -30,7 +30,7 @@ final class BufferedSseSink implements OpenActivityStreamUseCase.Sink {
     private final UUID userId;
     private final SseEmitter emitter;
     private final Executor ioExecutor;
-    private final Queue<ActivityEvent> buffer;
+    private final Queue<TransferEvent> buffer;
     private final AtomicBoolean draining = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -42,7 +42,7 @@ final class BufferedSseSink implements OpenActivityStreamUseCase.Sink {
     }
 
     @Override
-    public void push(ActivityEvent event) {
+    public void push(TransferEvent event) {
         if (closed.get()) {
             return;
         }
@@ -67,12 +67,12 @@ final class BufferedSseSink implements OpenActivityStreamUseCase.Sink {
 
     private void drain() {
         try {
-            ActivityEvent event;
+            TransferEvent event;
             while (!closed.get() && (event = buffer.poll()) != null) {
-                // Written as {@code activity-stream.openapi.yaml} has it: the event names are known here only.
+                // Written as {@code activity-stream.openapi.yaml} has it.
                 emitter.send(SseEmitter.event()
                         .id(event.eventId().toString())
-                        .name(nameOf(event))
+                        .name(ActivityStreamEventName.of(event.outcome()).wireName())
                         .data(dataOf(event), MediaType.APPLICATION_JSON));
             }
         } catch (IOException e) {
@@ -97,24 +97,15 @@ final class BufferedSseSink implements OpenActivityStreamUseCase.Sink {
         }
     }
 
-    private static String nameOf(ActivityEvent event) {
-        return switch (event.outcome()) {
-            case POSTED -> "transfer.posted";
-            case BLOCKED -> "transfer.blocked";
-            case FAILED -> "transfer.failed";
-            default -> throw new IllegalStateException("no stream event for " + event.outcome());
-        };
-    }
-
-    private static Map<String, Object> dataOf(ActivityEvent event) {
+    private static Map<String, Object> dataOf(TransferEvent event) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("transferId", event.transferId().toString());
         data.put("senderId", event.senderId().toString());
         data.put("recipientId", event.recipientId().toString());
         data.put("amount", event.amount().toPlainString());
         data.put("currency", event.currency());
-        if (event.cause() != null) {
-            data.put("cause", event.cause().name());
+        if (event.reason() != null) {
+            data.put("cause", event.reason().name());
         }
         return data;
     }

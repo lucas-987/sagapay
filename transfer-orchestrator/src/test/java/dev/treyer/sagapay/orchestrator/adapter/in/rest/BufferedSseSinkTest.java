@@ -1,7 +1,6 @@
 package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
-import dev.treyer.sagapay.orchestrator.domain.ActivityEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,14 +43,18 @@ class BufferedSseSinkTest {
         return new BufferedSseSink(USER, emitter, executor, bufferSize);
     }
 
-    private static List<String> ids(List<ActivityEvent> events) {
+    private static List<String> ids(List<TransferEvent> events) {
         return events.stream().map(e -> e.eventId().toString()).toList();
     }
 
-    private static ActivityEvent event() {
-        return new ActivityEvent(
+    private static TransferEvent event() {
+        return event(TransferEvent.Outcome.POSTED);
+    }
+
+    private static TransferEvent event(TransferEvent.Outcome outcome) {
+        return new TransferEvent(
                 UUID.randomUUID(),
-                TransferStatus.POSTED,
+                outcome,
                 UUID.randomUUID(),
                 USER,
                 UUID.randomUUID(),
@@ -70,7 +73,7 @@ class BufferedSseSinkTest {
     @DisplayName("Events are written in the order they were pushed")
     void eventsAreWrittenInOrder() {
         BufferedSseSink sink = sink(8);
-        List<ActivityEvent> events = List.of(event(), event(), event(), event());
+        List<TransferEvent> events = List.of(event(), event(), event(), event());
 
         events.forEach(sink::push);
 
@@ -101,7 +104,7 @@ class BufferedSseSinkTest {
     void aSlowClientIsDisconnectedOnceItsBufferIsFull() {
         emitter.blocked = new CountDownLatch(1);
         BufferedSseSink sink = sink(2);
-        ActivityEvent first = event();
+        TransferEvent first = event();
 
         // One event in the blocked write, two in the buffer, the fourth finds it full.
         sink.push(first);
@@ -155,7 +158,7 @@ class BufferedSseSinkTest {
     @DisplayName("An event is sent with its id, its name and the fields of the contract")
     void anEventIsSentAsTheContractHasIt() {
         BufferedSseSink sink = sink(8);
-        ActivityEvent event = event();
+        TransferEvent event = event();
 
         sink.push(event);
 
@@ -166,6 +169,25 @@ class BufferedSseSinkTest {
                 .contains("amount=80.0000")
                 .contains("currency=EUR")
                 .doesNotContain("cause");
+    }
+
+    @ParameterizedTest
+    @MethodSource("streamEventNames")
+    @DisplayName("Each outcome is sent under the event name of the contract")
+    void eachOutcomeIsSentUnderItsEventName(TransferEvent.Outcome outcome, String name) {
+        BufferedSseSink sink = sink(8);
+
+        sink.push(event(outcome));
+
+        await().atMost(PATIENCE).until(() -> emitter.sent.size() == 1);
+        assertThat(emitter.sent.get(0)).contains("\nevent:" + name + "\n");
+    }
+
+    static Stream<Arguments> streamEventNames() {
+        return Stream.of(
+                Arguments.of(TransferEvent.Outcome.POSTED, "transfer.posted"),
+                Arguments.of(TransferEvent.Outcome.BLOCKED, "transfer.blocked"),
+                Arguments.of(TransferEvent.Outcome.FAILED, "transfer.failed"));
     }
 
     private static final class RecordingEmitter extends SseEmitter {

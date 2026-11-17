@@ -1,9 +1,7 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
 import dev.treyer.sagapay.orchestrator.application.port.in.OpenActivityStreamUseCase;
-import dev.treyer.sagapay.orchestrator.domain.ActivityEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +25,7 @@ class ActivityStreamServiceTest {
     private static TransferEvent posted(UUID sender, UUID recipient) {
         return new TransferEvent(
                 UUID.randomUUID(),
-                TransferStatus.POSTED,
+                TransferEvent.Outcome.POSTED,
                 UUID.randomUUID(),
                 sender,
                 recipient,
@@ -37,7 +35,7 @@ class ActivityStreamServiceTest {
     }
 
     private static List<UUID> ids(RecordingSink sink) {
-        return sink.received.stream().map(ActivityEvent::eventId).toList();
+        return sink.received.stream().map(TransferEvent::eventId).toList();
     }
 
     @Test
@@ -170,10 +168,10 @@ class ActivityStreamServiceTest {
     }
 
     private static final class RecordingSink implements OpenActivityStreamUseCase.Sink {
-        final List<ActivityEvent> received = new CopyOnWriteArrayList<>();
+        final List<TransferEvent> received = new CopyOnWriteArrayList<>();
 
         @Override
-        public void push(ActivityEvent event) {
+        public void push(TransferEvent event) {
             received.add(event);
         }
     }

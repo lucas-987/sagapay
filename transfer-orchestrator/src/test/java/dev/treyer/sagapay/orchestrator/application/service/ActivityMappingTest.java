@@ -1,9 +1,8 @@
 package dev.treyer.sagapay.orchestrator.application.service;
 
-import dev.treyer.sagapay.orchestrator.domain.ActivityEvent;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent;
+import dev.treyer.sagapay.orchestrator.application.port.in.TransferEvent.Outcome;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
-import dev.treyer.sagapay.orchestrator.domain.TransferEvent;
-import dev.treyer.sagapay.orchestrator.domain.TransferStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,20 +22,20 @@ class ActivityMappingTest {
     private static final UUID RECIPIENT = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final BigDecimal AMOUNT = new BigDecimal("80.0000");
 
-    private static TransferEvent event(TransferStatus outcome, UUID sender, UUID recipient, FailureReason reason) {
+    private static TransferEvent event(Outcome outcome, UUID sender, UUID recipient, FailureReason reason) {
         return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, sender, recipient, AMOUNT, "EUR", reason);
     }
 
-    private static ActivityEvent pushed(TransferStatus outcome, UUID recipient, FailureReason cause) {
-        return new ActivityEvent(EVENT_ID, outcome, TRANSFER_ID, SENDER, recipient, AMOUNT, "EUR", cause);
+    private static TransferEvent pushed(Outcome outcome, UUID recipient, FailureReason cause) {
+        return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, SENDER, recipient, AMOUNT, "EUR", cause);
     }
 
     @ParameterizedTest
     @EnumSource(
-            value = TransferStatus.class,
+            value = Outcome.class,
             names = {"POSTED", "BLOCKED"})
     @DisplayName("A posted or blocked transfer is pushed to its sender and its recipient")
-    void aPostedOrBlockedTransferIsPushedToBothParties(TransferStatus outcome) {
+    void aPostedOrBlockedTransferIsPushedToBothParties(Outcome outcome) {
         List<ActivityMapping.Delivery> deliveries = ActivityMapping.of(event(outcome, SENDER, RECIPIENT, null));
 
         assertThat(deliveries)
@@ -49,49 +48,38 @@ class ActivityMappingTest {
     @DisplayName("A failed transfer is pushed with its cause to the sender and without it to the recipient")
     void aFailedTransferCarriesItsCauseToTheSenderOnly() {
         List<ActivityMapping.Delivery> deliveries =
-                ActivityMapping.of(event(TransferStatus.FAILED, SENDER, RECIPIENT, FailureReason.INSUFFICIENT_FUNDS));
+                ActivityMapping.of(event(Outcome.FAILED, SENDER, RECIPIENT, FailureReason.INSUFFICIENT_FUNDS));
 
         assertThat(deliveries)
                 .containsExactly(
                         new ActivityMapping.Delivery(
-                                SENDER, pushed(TransferStatus.FAILED, RECIPIENT, FailureReason.INSUFFICIENT_FUNDS)),
-                        new ActivityMapping.Delivery(RECIPIENT, pushed(TransferStatus.FAILED, RECIPIENT, null)));
+                                SENDER, pushed(Outcome.FAILED, RECIPIENT, FailureReason.INSUFFICIENT_FUNDS)),
+                        new ActivityMapping.Delivery(RECIPIENT, pushed(Outcome.FAILED, RECIPIENT, null)));
     }
 
     @Test
     @DisplayName("A failure published without a reason is pushed without a cause to both parties")
     void aFailureWithoutAReasonHasNoCause() {
-        List<ActivityMapping.Delivery> deliveries =
-                ActivityMapping.of(event(TransferStatus.FAILED, SENDER, RECIPIENT, null));
+        List<ActivityMapping.Delivery> deliveries = ActivityMapping.of(event(Outcome.FAILED, SENDER, RECIPIENT, null));
 
         assertThat(deliveries)
                 .containsExactly(
-                        new ActivityMapping.Delivery(SENDER, pushed(TransferStatus.FAILED, RECIPIENT, null)),
-                        new ActivityMapping.Delivery(RECIPIENT, pushed(TransferStatus.FAILED, RECIPIENT, null)));
+                        new ActivityMapping.Delivery(SENDER, pushed(Outcome.FAILED, RECIPIENT, null)),
+                        new ActivityMapping.Delivery(RECIPIENT, pushed(Outcome.FAILED, RECIPIENT, null)));
     }
 
     @Test
     @DisplayName("A transfer between a user and themselves is pushed once, with the cause")
     void aTransferToSelfIsPushedOnceWithTheCause() {
-        assertThat(ActivityMapping.of(event(TransferStatus.FAILED, SENDER, SENDER, FailureReason.POST_REJECTED)))
+        assertThat(ActivityMapping.of(event(Outcome.FAILED, SENDER, SENDER, FailureReason.POST_REJECTED)))
                 .containsExactly(new ActivityMapping.Delivery(
-                        SENDER, pushed(TransferStatus.FAILED, SENDER, FailureReason.POST_REJECTED)));
+                        SENDER, pushed(Outcome.FAILED, SENDER, FailureReason.POST_REJECTED)));
     }
 
     @Test
     @DisplayName("A posted transfer between a user and themselves is pushed once")
     void aPostedTransferToSelfIsPushedOnce() {
-        assertThat(ActivityMapping.of(event(TransferStatus.POSTED, SENDER, SENDER, null)))
-                .containsExactly(new ActivityMapping.Delivery(SENDER, pushed(TransferStatus.POSTED, SENDER, null)));
-    }
-
-    @ParameterizedTest(name = "{0} is pushed to nobody")
-    @EnumSource(
-            value = TransferStatus.class,
-            names = {"POSTED", "BLOCKED", "FAILED"},
-            mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("A status with no stream event is pushed to nobody")
-    void aStatusWithNoStreamEventIsIgnored(TransferStatus outcome) {
-        assertThat(ActivityMapping.of(event(outcome, SENDER, RECIPIENT, null))).isEmpty();
+        assertThat(ActivityMapping.of(event(Outcome.POSTED, SENDER, SENDER, null)))
+                .containsExactly(new ActivityMapping.Delivery(SENDER, pushed(Outcome.POSTED, SENDER, null)));
     }
 }

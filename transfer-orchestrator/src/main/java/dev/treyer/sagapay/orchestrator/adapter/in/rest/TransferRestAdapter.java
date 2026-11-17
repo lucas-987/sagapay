@@ -9,7 +9,6 @@ import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
-import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
@@ -101,7 +100,7 @@ public class TransferRestAdapter implements V1Api {
             String direction, dev.treyer.sagapay.transfer.model.TransferStatus status, String cursor, Integer limit) {
         UUID userId = CallerIdentity.requireUserId();
         ListTransfersUseCase.Direction dir = toDirection(direction);
-        TransferCursor after = cursor == null ? null : TransferCursor.decode(cursor);
+        TransferCursor after = cursor == null ? null : TransferCursorCodec.decode(cursor);
 
         dev.treyer.sagapay.orchestrator.domain.TransferStatus domainStatus;
         try {
@@ -119,7 +118,7 @@ public class TransferRestAdapter implements V1Api {
                 page.items().stream().map(item -> toRestTransfer(item, userId)).toList();
         return ResponseEntity.ok(new ListTransfers200Response()
                 .items(items)
-                .nextCursor(page.next() == null ? null : page.next().encode()));
+                .nextCursor(page.next() == null ? null : TransferCursorCodec.encode(page.next())));
     }
 
     @Override

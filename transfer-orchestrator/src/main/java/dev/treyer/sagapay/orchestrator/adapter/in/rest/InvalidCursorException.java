@@ -1,4 +1,4 @@
-package dev.treyer.sagapay.orchestrator.domain;
+package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
 public class InvalidCursorException extends RuntimeException {
 

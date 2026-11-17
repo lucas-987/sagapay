@@ -1,4 +1,4 @@
-package dev.treyer.sagapay.orchestrator.domain;
+package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
 /** Request problems that Spring's binding does not catch, such as a malformed
  * {@code toUserId}. */

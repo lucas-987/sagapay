@@ -24,6 +24,10 @@ public class Reservation {
     @Column(name = "account_id", nullable = false, updatable = false)
     private UUID accountId;
 
+    // Not a foreign key: the recipient's existence is checked when the reservation is posted.
+    @Column(name = "to_account_id", nullable = false, updatable = false)
+    private UUID toAccountId;
+
     // Not a foreign key: transfers live in another service's database.
     @Column(name = "transfer_id", nullable = false, updatable = false, length = 64)
     private String transferId;
@@ -45,9 +49,11 @@ public class Reservation {
 
     /** {@code id} is supplied by the caller: it is the id returned to the client,
      * which must match the stored row. */
-    public Reservation(UUID id, UUID accountId, String transferId, BigDecimal amount, Instant expiresAt) {
+    public Reservation(
+            UUID id, UUID accountId, UUID toAccountId, String transferId, BigDecimal amount, Instant expiresAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.accountId = Objects.requireNonNull(accountId, "accountId");
+        this.toAccountId = Objects.requireNonNull(toAccountId, "toAccountId");
         this.transferId = Objects.requireNonNull(transferId, "transferId");
         this.amount = Objects.requireNonNull(amount, "amount");
         this.status = ReservationStatus.ACTIVE;
@@ -61,6 +67,10 @@ public class Reservation {
 
     public UUID getAccountId() {
         return accountId;
+    }
+
+    public UUID getToAccountId() {
+        return toAccountId;
     }
 
     public String getTransferId() {

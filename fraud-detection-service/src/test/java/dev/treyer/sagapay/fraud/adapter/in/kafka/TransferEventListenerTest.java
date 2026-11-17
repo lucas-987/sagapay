@@ -48,7 +48,7 @@ class TransferEventListenerTest {
     }
 
     @ParameterizedTest(name = "{0} is ignored")
-    @ValueSource(strings = {"TransferInitiated", "TransferFailed", "SomethingNew"})
+    @ValueSource(strings = {"TransferInitiated", "TransferFailed", "TransferBlocked", "SomethingNew"})
     void otherEventTypesAreIgnored(String eventType) {
         listener.onTransferEvent(message(EVENT_ID, data(eventType)));
 

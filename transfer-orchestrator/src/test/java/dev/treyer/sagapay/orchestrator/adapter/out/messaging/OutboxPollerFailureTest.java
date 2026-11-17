@@ -41,8 +41,13 @@ class OutboxPollerFailureTest {
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, String> kafka = mock(KafkaTemplate.class);
 
-    private final OutboxPoller poller =
-            new OutboxPoller(outbox, kafka, JsonMapper.builder().build(), Tracer.NOOP, new OutboxProperties(500, 100));
+    private final OutboxPoller poller = new OutboxPoller(
+            outbox,
+            kafka,
+            JsonMapper.builder().build(),
+            Tracer.NOOP,
+            new OutboxProperties(500, 100),
+            "payments.transfers");
 
     private static final String KEY_1 = "key-1";
     private static final String KEY_2 = "key-2";

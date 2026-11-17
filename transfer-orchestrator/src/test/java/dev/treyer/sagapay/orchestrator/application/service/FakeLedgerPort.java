@@ -18,6 +18,8 @@ class FakeLedgerPort implements LedgerPort {
     private int postTransferCallCount = 0;
     private RuntimeException releaseFailure;
     private final List<UUID> releasedReservations = new ArrayList<>();
+    private UUID reservedRecipient;
+    private UUID postedRecipient;
 
     void willReserve(ReservationResult result) {
         this.reservationResult = result;
@@ -43,6 +45,16 @@ class FakeLedgerPort implements LedgerPort {
         postTransferCallCount = 0;
         releaseFailure = null;
         releasedReservations.clear();
+        reservedRecipient = null;
+        postedRecipient = null;
+    }
+
+    UUID reservedRecipient() {
+        return reservedRecipient;
+    }
+
+    UUID postedRecipient() {
+        return postedRecipient;
     }
 
     /** Reservation ids of every release call, failed ones included. */
@@ -55,7 +67,8 @@ class FakeLedgerPort implements LedgerPort {
     }
 
     @Override
-    public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+    public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
+        reservedRecipient = toAccountId;
         if (reservationFailure != null) {
             throw reservationFailure;
         }
@@ -65,6 +78,7 @@ class FakeLedgerPort implements LedgerPort {
     @Override
     public void postTransfer(String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
         postTransferCallCount++;
+        postedRecipient = toAccountId;
         if (postFailure != null) {
             throw postFailure;
         }

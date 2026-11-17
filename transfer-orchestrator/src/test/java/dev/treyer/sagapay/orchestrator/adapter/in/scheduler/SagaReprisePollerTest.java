@@ -304,7 +304,8 @@ class SagaReprisePollerTest {
         }
 
         @Override
-        public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+        public ReservationResult checkAndReserve(
+                String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
             checkAndReserveCallCount++;
             if (reserveFailure != null) {
                 throw reserveFailure;

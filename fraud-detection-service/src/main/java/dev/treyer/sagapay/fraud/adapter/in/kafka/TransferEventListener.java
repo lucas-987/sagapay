@@ -22,7 +22,7 @@ public class TransferEventListener {
         this.postedTransfers = postedTransfers;
     }
 
-    @KafkaListener(topics = "payments.transfers", groupId = "fraud-screening")
+    @KafkaListener(topics = "${kafka.topics.transfers}", groupId = "fraud-screening")
     public void onTransferEvent(TransferEventMessage message) {
         TransferEventMessage.Data data = message.data();
         if (data == null) {

@@ -22,6 +22,8 @@ message CheckAndReserveRequest {
   string transfer_id = 1;
   string from_account_id = 2;
   sagapay.common.v1.Money amount = 3;
+  // The only recipient the reservation can be posted to.
+  string to_account_id = 4;
 }
 message CheckAndReserveResponse {
   enum Status {

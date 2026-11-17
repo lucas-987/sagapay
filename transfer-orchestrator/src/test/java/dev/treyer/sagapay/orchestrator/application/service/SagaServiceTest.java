@@ -8,6 +8,7 @@ import dev.treyer.sagapay.orchestrator.adapter.out.persistence.TransferRepositor
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.IdempotencyKeyReusedException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -51,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Import({TestcontainersConfiguration.class, SagaServiceTest.FakeLedgerPortConfig.class})
-@SpringBootTest
+@SpringBootTest(properties = {"saga.deadline.sweep-interval-ms=3600000", "saga.reprise.sweep-interval-ms=3600000"})
 @ExtendWith(OutputCaptureExtension.class)
 class SagaServiceTest {
 
@@ -171,6 +172,17 @@ class SagaServiceTest {
     }
 
     @Test
+    void theRecipientOfTheTransferIsReservedAndThenPosted() {
+        Transfer transfer = initiate(UUID.randomUUID());
+        sagaService.advance(transfer.getId());
+        assertThat(fakeLedgerPort.reservedRecipient()).isEqualTo(recipientAccountId);
+
+        sagaService.applyFraudResult(cleared(transfer.getId(), UUID.randomUUID()));
+
+        assertThat(fakeLedgerPort.postedRecipient()).isEqualTo(recipientAccountId);
+    }
+
+    @Test
     @Tag("M3-S02")
     @DisplayName("A cleared transfer is posted once")
     void clearedTransferIsPostedOnce() {
@@ -269,7 +281,8 @@ class SagaServiceTest {
                 {"decision": "FLAGGED", "score": 0.9000, "reasons": ["VELOCITY", "NEW_RECIPIENT"]}"""));
         assertThat(fakeLedgerPort.postTransferCallCount()).isZero();
         assertThat(fakeLedgerPort.releaseCalls()).isEmpty();
-        assertThat(eventTypesFor(transfer.getId())).containsExactly("TransferInitiated", "FundsReserved");
+        assertThat(eventTypesFor(transfer.getId()))
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked");
     }
 
     @Test
@@ -420,6 +433,27 @@ class SagaServiceTest {
         assertThat(second.created()).isFalse();
         assertThat(second.transfer().getId()).isEqualTo(first.transfer().getId());
         assertThat(eventTypesFor(first.transfer().getId())).containsExactly("TransferInitiated");
+    }
+
+    @Test
+    void sameIdempotencyKeyWithADifferentAmountIsRefusedAndWritesNothing() {
+        UUID idempotencyKey = UUID.randomUUID();
+        Transfer first = initiate(idempotencyKey);
+
+        assertThatThrownBy(() -> sagaService.initiateTransfer(
+                        senderId,
+                        senderAccountId,
+                        recipientId,
+                        recipientAccountId,
+                        Money.of("80.01", "EUR"),
+                        idempotencyKey,
+                        null))
+                .isInstanceOf(IdempotencyKeyReusedException.class)
+                .hasMessage("idempotency key " + idempotencyKey + " was already used for a different transfer");
+
+        assertThat(eventTypesFor(first.getId())).containsExactly("TransferInitiated");
+        assertThat(transferRepository.findById(first.getId()).orElseThrow().getAmount())
+                .isEqualByComparingTo("80.00");
     }
 
     @Test
@@ -617,7 +651,7 @@ class SagaServiceTest {
         assertThat(after.getStatus()).isEqualTo(TransferStatus.FAILED);
         assertThat(after.getFailureReason()).isEqualTo(FailureReason.VERIFICATION_EXPIRED);
         assertThat(eventTypesFor(transfer.getId()))
-                .containsExactly("TransferInitiated", "FundsReserved", "TransferFailed");
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked", "TransferFailed");
         assertThat(failedEventReasonFor(transfer.getId())).isEqualTo("VERIFICATION_EXPIRED");
         assertThat(fakeLedgerPort.releaseCalls()).containsExactly(reservationId);
         assertThat(stepsFor(transfer.getId()))
@@ -820,7 +854,7 @@ class SagaServiceTest {
         assertThat(stepsFor(transfer.getId()))
                 .containsExactly("RESERVE OK", "SCREEN RETRY", "SCREEN RETRY", "SCREEN OK", "POST OK");
         assertThat(eventTypesFor(transfer.getId()))
-                .containsExactly("TransferInitiated", "FundsReserved", "TransferPosted");
+                .containsExactly("TransferInitiated", "FundsReserved", "TransferBlocked", "TransferPosted");
     }
 
     @Test

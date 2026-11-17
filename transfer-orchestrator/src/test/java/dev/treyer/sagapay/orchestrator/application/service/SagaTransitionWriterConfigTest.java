@@ -90,6 +90,11 @@ class SagaTransitionWriterConfigTest {
         List<String> reasons = List.of("VELOCITY");
         when(processedEvents.tryMarkProcessed(eventId, "orchestrator-fraud")).thenReturn(true);
         Transfer screening = mock(Transfer.class);
+        when(screening.getId()).thenReturn(transferId);
+        when(screening.getSenderId()).thenReturn(UUID.randomUUID());
+        when(screening.getRecipientId()).thenReturn(UUID.randomUUID());
+        when(screening.getAmount()).thenReturn(BigDecimal.TEN);
+        when(screening.getCurrency()).thenReturn("EUR");
         when(screening.getStatus()).thenReturn(TransferStatus.SCREENING);
         when(screening.getReservationExpiresAt()).thenReturn(Instant.now().plusSeconds(3600));
         when(transfers.findById(transferId)).thenReturn(Optional.of(screening));

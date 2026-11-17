@@ -4,6 +4,9 @@ import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.orchestrator.TestcontainersConfiguration;
+import dev.treyer.sagapay.orchestrator.adapter.out.grpc.FixedLedgerTokenProvider;
+import dev.treyer.sagapay.orchestrator.security.LedgerContainer;
+import dev.treyer.sagapay.orchestrator.security.TestJwtConfiguration;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import org.junit.jupiter.api.AfterAll;
@@ -15,7 +18,6 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -38,8 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * actually moves and the sum of balances is asserted unchanged.
  */
 @Testcontainers
-@Import(TestcontainersConfiguration.class)
-@ActiveProfiles("local-noauth")
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class, FixedLedgerTokenProvider.Configuration.class})
 @TestPropertySource(properties = {"saga.reprise.grace-period-ms=0", "saga.reprise.sweep-interval-ms=1000"})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "ledger.grpc.deadline-ms=5000")
 class TransferOrchestratorE2ETest {
@@ -76,7 +77,7 @@ class TransferOrchestratorE2ETest {
         ledgerChannel = ManagedChannelBuilder.forAddress(LEDGER.getHost(), LEDGER.getMappedPort(9091))
                 .usePlaintext()
                 .build();
-        ledgerStub = LedgerServiceGrpc.newBlockingStub(ledgerChannel);
+        ledgerStub = LedgerServiceGrpc.newBlockingStub(ledgerChannel).withInterceptors(LedgerContainer.serviceToken());
     }
 
     @AfterAll
@@ -126,7 +127,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> created = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""
@@ -147,7 +148,7 @@ class TransferOrchestratorE2ETest {
     }
 
     @Test
-    void replayingTheSameIdempotencyKeyReturns409AndMovesMoneyOnlyOnce() {
+    void replayingTheSameIdempotencyKeyReturnsTheFirstTransferAndMovesMoneyOnlyOnce() {
         UUID senderId = lookupAccountId("wojciech"); // seeded 42000.00 EUR
         UUID recipientId = lookupAccountId("lina"); // seeded 99999.99 EUR
         UUID idempotencyKey = UUID.randomUUID();
@@ -159,7 +160,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> first = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", idempotencyKey.toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(requestBody)
@@ -169,22 +170,17 @@ class TransferOrchestratorE2ETest {
         clearOnceScreening(transferId, senderId);
         waitForStatus(transferId, senderId, "POSTED", Duration.ofSeconds(15));
 
-        try {
-            orchestrator()
-                    .post()
-                    .uri("/v1/transfers")
-                    .header("X-User-Id", senderId.toString())
-                    .header("Idempotency-Key", idempotencyKey.toString())
-                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(Map.class);
-            org.junit.jupiter.api.Assertions.fail("expected a 409 on replay");
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            assertThat(e.getStatusCode().value()).isEqualTo(409);
-            Map<?, ?> body = e.getResponseBodyAs(Map.class);
-            assertThat(body.get("id")).isEqualTo(transferId.toString());
-        }
+        var repeat = orchestrator()
+                .post()
+                .uri("/v1/transfers")
+                .header("Authorization", E2ESupport.bearer(senderId))
+                .header("Idempotency-Key", idempotencyKey.toString())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(requestBody)
+                .retrieve()
+                .toEntity(Map.class);
+        assertThat(repeat.getStatusCode().value()).isEqualTo(202);
+        assertThat(repeat.getBody().get("id")).isEqualTo(transferId.toString());
 
         // Only one 25.00 debit, not two.
         assertThat(senderBefore.subtract(balanceOf(senderId))).isEqualByComparingTo("25.00");
@@ -199,7 +195,7 @@ class TransferOrchestratorE2ETest {
         Map<?, ?> created = orchestrator()
                 .post()
                 .uri("/v1/transfers")
-                .header("X-User-Id", senderId.toString())
+                .header("Authorization", E2ESupport.bearer(senderId))
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body("""
@@ -226,6 +222,7 @@ class TransferOrchestratorE2ETest {
         CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(ledgerTransferId)
                 .setFromAccountId(senderId.toString())
+                .setToAccountId(recipientId.toString())
                 .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder()
                         .setCurrency("EUR")
                         .setAmount("40.00")
@@ -270,6 +267,7 @@ class TransferOrchestratorE2ETest {
         CheckAndReserveResponse reserved = ledgerStub.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(transferId.toString())
                 .setFromAccountId(senderId.toString())
+                .setToAccountId(recipientId.toString())
                 .setAmount(dev.treyer.sagapay.common.v1.Money.newBuilder()
                         .setCurrency("EUR")
                         .setAmount("15.00")

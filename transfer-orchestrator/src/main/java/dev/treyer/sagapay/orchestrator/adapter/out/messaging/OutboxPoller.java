@@ -1,6 +1,7 @@
 package dev.treyer.sagapay.orchestrator.adapter.out.messaging;
 
 import dev.treyer.sagapay.common.event.CloudEvent;
+import dev.treyer.sagapay.common.event.TransferEventType;
 import dev.treyer.sagapay.orchestrator.application.port.out.OutboxRelayPort;
 import dev.treyer.sagapay.orchestrator.config.OutboxProperties;
 import dev.treyer.sagapay.orchestrator.domain.OutboxRow;
@@ -10,6 +11,7 @@ import io.micrometer.tracing.Tracer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,7 +36,6 @@ public class OutboxPoller {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPoller.class);
 
-    private static final String TOPIC = "payments.transfers";
     private static final String SOURCE = "transfer-orchestrator";
     private static final String TRACEPARENT_VERSION = "00";
 
@@ -43,18 +44,21 @@ public class OutboxPoller {
     private final JsonMapper jsonMapper;
     private final Tracer tracer;
     private final int batchSize;
+    private final String topic;
 
     public OutboxPoller(
             OutboxRelayPort outbox,
             KafkaTemplate<String, String> kafkaTemplate,
             JsonMapper jsonMapper,
             Tracer tracer,
-            OutboxProperties properties) {
+            OutboxProperties properties,
+            @Value("${kafka.topics.transfers}") String topic) {
         this.outbox = outbox;
         this.kafkaTemplate = kafkaTemplate;
         this.jsonMapper = jsonMapper;
         this.tracer = tracer;
         this.batchSize = properties.batchSize();
+        this.topic = topic;
     }
 
     @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:500}")
@@ -98,7 +102,7 @@ public class OutboxPoller {
         CloudEvent<JsonNode> event = CloudEvent.of(
                 row.getId(),
                 SOURCE,
-                row.getEventType() + ".v1",
+                TransferEventType.cloudEventType(row.getEventType()),
                 row.getAggregateId().toString(),
                 jsonMapper.readTree(row.getPayload()));
 
@@ -112,7 +116,7 @@ public class OutboxPoller {
             String traceparent = TRACEPARENT_VERSION + "-" + context.traceId() + "-" + context.spanId() + "-" + flags;
 
             ProducerRecord<String, String> record =
-                    new ProducerRecord<>(TOPIC, row.getPartitionKey(), jsonMapper.writeValueAsString(event));
+                    new ProducerRecord<>(topic, row.getPartitionKey(), jsonMapper.writeValueAsString(event));
             record.headers().add("traceparent", traceparent.getBytes(StandardCharsets.UTF_8));
             kafkaTemplate.send(record).join();
         } catch (RuntimeException e) {

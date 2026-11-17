@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: SagaPay Transfer Orchestrator API
+  version: 1.0.0
+  description: >-
+    Creation and tracking of P2P transfers. Orchestrated saga. RFC 9457 errors.
+    Exposed via api-gateway under `/v1`.
+servers:
+  - url: https://api.sagapay.treyer.dev
+security:
+  - oidc: []
+
+paths:
+  /v1/transfers:
+    post:
+      operationId: createTransfer
+      summary: Send money to a user
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTransferRequest' }
+      responses:
+        '202':
+          description: transfer accepted, new or the existing one of a repeated send (reservation in progress or done)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
+        '422':
+          description: 'Refused: IDEMPOTENCY_KEY_REUSED. The ledger is not called before the 202: a refusal of the ledger (insufficient funds, unknown recipient) ends the transfer FAILED with its reason.'
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    get:
+      operationId: listTransfers
+      summary: My transfers
+      parameters:
+        - { name: direction, in: query, schema: { type: string, enum: [SENT, RECEIVED, ALL], default: ALL } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TransferStatus' } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 200 } }
+      responses:
+        '200':
+          description: page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Transfer' } }
+                  nextCursor: { type: string, nullable: true }
+
+  /v1/transfers/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getTransfer
+      summary: Detail + saga timeline
+      responses:
+        '200':
+          description: transfer
+          content: { application/json: { schema: { $ref: '#/components/schemas/TransferDetail' } } }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/transfers/{id}/confirm:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: confirmBlockedTransfer
+      summary: Confirm a BLOCKED transfer after verification (simulated 3-DS-like)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationToken]
+              properties: { verificationToken: { type: string } }
+      responses:
+        '202':
+          description: saga resumes
+          content: { application/json: { schema: { $ref: '#/components/schemas/Transfer' } } }
+        '404': { $ref: '#/components/responses/Problem' }   # TRANSFER_NOT_FOUND
+        '409': { $ref: '#/components/responses/Problem' }   # TRANSFER_NOT_BLOCKED
+        '410': { $ref: '#/components/responses/Problem' }   # VERIFICATION_EXPIRED
+        '422': { $ref: '#/components/responses/Problem' }   # INVALID_VERIFICATION_CODE
+
+  /v1/requests:
+    post:
+      operationId: createPaymentRequest
+      summary: Request money from a contact
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromUserId, amount]
+              properties:
+                fromUserId: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+                note: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: request created (notifies the contact)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { requestId: { type: string }, status: { type: string, enum: [PENDING, PAID, DECLINED, EXPIRED] } }
+
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Problem:
+      description: Error (RFC 9457)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
+
+  schemas:
+    Money:
+      type: object
+      required: [currency, amount]
+      properties:
+        currency: { type: string, examples: [EUR] }
+        amount: { type: string, examples: ["80.00"] }
+    TransferStatus:
+      type: string
+      enum: [INITIATED, RESERVED, SCREENING, CLEARED, POSTED, SETTLED, FAILED, BLOCKED, REVERSED]
+    CreateTransferRequest:
+      type: object
+      required: [toUserId, amount]
+      properties:
+        toUserId:
+          type: string
+          description: the recipient's user id; a client that knows only a handle resolves it first with the ledger's GET /v1/users/lookup
+        amount: { $ref: '#/components/schemas/Money' }
+        note: { type: string, maxLength: 200 }
+    Transfer:
+      type: object
+      required: [id, senderId, amount, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        senderId: { type: string }
+        recipientId: { type: string }
+        recipientDisplayName: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        note: { type: string }
+        status: { $ref: '#/components/schemas/TransferStatus' }
+        failureReason:
+          type: string
+          nullable: true
+          description: 'Code of the failure, given to the sender only: null for the recipient.'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SagaStep:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        step: { type: string, examples: [RESERVE, SCREEN, POST, RELEASE, REVERSE] }
+        outcome: { type: string, examples: [OK, RETRY, FAILED, COMPENSATED] }
+    TransferDetail:
+      allOf:
+        - $ref: '#/components/schemas/Transfer'
+        - type: object
+          properties:
+            steps:
+              type: array
+              description: 'Steps of the saga, given to the sender only: empty for the recipient.'
+              items: { $ref: '#/components/schemas/SagaStep' }
+    Problem:
+      type: object
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string, examples: [IDEMPOTENCY_KEY_REUSED, TRANSFER_NOT_FOUND] }

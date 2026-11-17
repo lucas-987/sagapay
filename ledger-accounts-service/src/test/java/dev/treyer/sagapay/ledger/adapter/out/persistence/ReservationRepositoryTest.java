@@ -51,6 +51,7 @@ class ReservationRepositoryTest {
         return reservations.saveAndFlush(new Reservation(
                 UUID.randomUUID(),
                 accountId,
+                UUID.randomUUID(),
                 transferId,
                 new BigDecimal(amount),
                 Instant.now().plus(5, ChronoUnit.MINUTES)));
@@ -189,5 +190,15 @@ class ReservationRepositoryTest {
     @Test
     void anUnknownStatusIsRefused() {
         assertThatThrownBy(() -> writeStatus("PENDING")).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void theRecipientColumnIsMandatory() {
+        String nullable = jdbcTemplate.queryForObject(
+                "select is_nullable from information_schema.columns "
+                        + "where table_name = 'reservations' and column_name = 'to_account_id'",
+                String.class);
+
+        assertThat(nullable).isEqualTo("NO");
     }
 }

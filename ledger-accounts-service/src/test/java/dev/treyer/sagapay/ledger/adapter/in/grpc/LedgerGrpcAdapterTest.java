@@ -4,6 +4,8 @@ import dev.treyer.sagapay.common.v1.Money;
 import dev.treyer.sagapay.ledger.TestcontainersConfiguration;
 import dev.treyer.sagapay.ledger.adapter.out.persistence.AccountRepository;
 import dev.treyer.sagapay.ledger.domain.Account;
+import dev.treyer.sagapay.ledger.security.TestJwtConfiguration;
+import dev.treyer.sagapay.ledger.security.TestTokens;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveRequest;
 import dev.treyer.sagapay.ledger.v1.CheckAndReserveResponse;
 import dev.treyer.sagapay.ledger.v1.GetBalanceRequest;
@@ -12,15 +14,17 @@ import dev.treyer.sagapay.ledger.v1.LedgerServiceGrpc;
 import dev.treyer.sagapay.ledger.v1.PostTransferRequest;
 import dev.treyer.sagapay.ledger.v1.PostTransferResponse;
 import dev.treyer.sagapay.ledger.v1.ReleaseReservationRequest;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.grpc.test.autoconfigure.AutoConfigureTestGrpcTransport;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.grpc.client.GrpcChannelFactory;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,12 +33,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** {@code local-noauth}: these tests cover the RPCs, not the default lock. */
+/**
+ * The RPCs, called with a valid service token; the lock itself is tested by
+ * {@code GrpcServiceTokenTest}.
+ */
 @SpringBootTest
 @AutoConfigureTestGrpcTransport
-@ActiveProfiles("local-noauth")
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, TestJwtConfiguration.class})
 class LedgerGrpcAdapterTest {
+
+    private static final String RECIPIENT = UUID.randomUUID().toString();
 
     @Autowired
     private GrpcChannelFactory channelFactory;
@@ -46,7 +54,31 @@ class LedgerGrpcAdapterTest {
 
     @BeforeEach
     void setUp() {
-        client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"));
+        client = LedgerServiceGrpc.newBlockingStub(channelFactory.createChannel("test"))
+                .withInterceptors(TestTokens.serviceCredentials());
+        // A reservation needs a recipient that exists.
+        UUID recipient = UUID.fromString(RECIPIENT);
+        if (accounts.findById(recipient).isEmpty()) {
+            accounts.save(new Account(recipient, "test-" + recipient, "Test Recipient", "EUR", BigDecimal.ZERO));
+        }
+    }
+
+    @Test
+    void checkAndReserveUnknownRecipientReturnsNotFound() {
+        UUID accountId = newAccount("100.0000");
+        String unknown = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                        .setTransferId(UUID.randomUUID().toString())
+                        .setFromAccountId(accountId.toString())
+                        .setToAccountId(unknown)
+                        .setAmount(Money.newBuilder()
+                                .setCurrency("EUR")
+                                .setAmount("30.00")
+                                .build())
+                        .build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .hasMessage("NOT_FOUND: unknown account " + unknown);
     }
 
     private UUID newAccount(String balance) {
@@ -92,6 +124,7 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse response = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString())
                 .setFromAccountId(accountId.toString())
+                .setToAccountId(RECIPIENT)
                 .setAmount(
                         Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
@@ -109,6 +142,7 @@ class LedgerGrpcAdapterTest {
         assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(UUID.randomUUID().toString())
                         .setFromAccountId(accountId.toString())
+                        .setToAccountId(RECIPIENT)
                         .setAmount(Money.newBuilder()
                                 .setCurrency("USD")
                                 .setAmount("10.00")
@@ -125,6 +159,7 @@ class LedgerGrpcAdapterTest {
         assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                         .setTransferId(UUID.randomUUID().toString())
                         .setFromAccountId(accountId.toString())
+                        .setToAccountId(RECIPIENT)
                         .setAmount(Money.newBuilder()
                                 .setCurrency("EUR")
                                 .setAmount("10.12345")
@@ -141,6 +176,7 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse response = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString())
                 .setFromAccountId(accountId.toString())
+                .setToAccountId(RECIPIENT)
                 .setAmount(
                         Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
@@ -158,6 +194,7 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse reserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(transferId)
                 .setFromAccountId(from.toString())
+                .setToAccountId(to.toString())
                 .setAmount(amount)
                 .build());
         assertThat(reserve.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
@@ -185,6 +222,7 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse reserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(transferId)
                 .setFromAccountId(accountId.toString())
+                .setToAccountId(RECIPIENT)
                 .setAmount(
                         Money.newBuilder().setCurrency("EUR").setAmount("40.00").build())
                 .build());
@@ -200,9 +238,92 @@ class LedgerGrpcAdapterTest {
         CheckAndReserveResponse secondReserve = client.checkAndReserve(CheckAndReserveRequest.newBuilder()
                 .setTransferId(UUID.randomUUID().toString())
                 .setFromAccountId(accountId.toString())
+                .setToAccountId(RECIPIENT)
                 .setAmount(
                         Money.newBuilder().setCurrency("EUR").setAmount("90.00").build())
                 .build());
         assertThat(secondReserve.getStatus()).isEqualTo(CheckAndReserveResponse.Status.OK);
+    }
+
+    @Test
+    void postTransferToAnotherRecipientThanReservedReturnsNotFound() {
+        UUID from = newAccount("100.0000");
+        UUID reservedTo = newAccount("0.0000");
+        UUID otherTo = newAccount("0.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.newBuilder().setCurrency("EUR").setAmount("30.00").build();
+        client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                .setTransferId(transferId)
+                .setFromAccountId(from.toString())
+                .setToAccountId(reservedTo.toString())
+                .setAmount(amount)
+                .build());
+
+        assertThatThrownBy(() -> client.postTransfer(PostTransferRequest.newBuilder()
+                        .setTransferId(transferId)
+                        .setFromAccountId(from.toString())
+                        .setToAccountId(otherTo.toString())
+                        .setAmount(amount)
+                        .build()))
+                .isInstanceOfSatisfying(StatusRuntimeException.class, e -> {
+                    assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.NOT_FOUND);
+                    assertThat(e.getStatus().getDescription())
+                            .isEqualTo("no ACTIVE reservation for transferId " + transferId + " matching account "
+                                    + from + ", recipient " + otherTo + " and amount 30.0000");
+                });
+
+        assertThat(client.getBalance(GetBalanceRequest.newBuilder()
+                                .setAccountId(from.toString())
+                                .build())
+                        .getBalance()
+                        .getAmount())
+                .isEqualTo("100.0000");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not-a-uuid"})
+    void checkAndReserveWithoutAValidRecipientReturnsInvalidArgument(String recipient) {
+        UUID accountId = newAccount("100.0000");
+
+        assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                        .setTransferId(UUID.randomUUID().toString())
+                        .setFromAccountId(accountId.toString())
+                        .setToAccountId(recipient)
+                        .setAmount(Money.newBuilder()
+                                .setCurrency("EUR")
+                                .setAmount("10.00")
+                                .build())
+                        .build()))
+                .isInstanceOfSatisfying(
+                        StatusRuntimeException.class,
+                        e -> assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
+    }
+
+    @Test
+    void checkAndReserveReplayedWithAnotherRecipientReturnsAlreadyExists() {
+        UUID from = newAccount("100.0000");
+        UUID reservedTo = newAccount("0.0000");
+        UUID otherTo = newAccount("0.0000");
+        String transferId = UUID.randomUUID().toString();
+        Money amount = Money.newBuilder().setCurrency("EUR").setAmount("30.00").build();
+        client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                .setTransferId(transferId)
+                .setFromAccountId(from.toString())
+                .setToAccountId(reservedTo.toString())
+                .setAmount(amount)
+                .build());
+
+        assertThatThrownBy(() -> client.checkAndReserve(CheckAndReserveRequest.newBuilder()
+                        .setTransferId(transferId)
+                        .setFromAccountId(from.toString())
+                        .setToAccountId(otherTo.toString())
+                        .setAmount(amount)
+                        .build()))
+                .isInstanceOfSatisfying(StatusRuntimeException.class, e -> {
+                    assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
+                    assertThat(e.getStatus().getDescription())
+                            .isEqualTo("transferId " + transferId + " already used with different parameters than"
+                                    + " account " + from + " / recipient " + otherTo + " / amount 30.0000");
+                });
     }
 }

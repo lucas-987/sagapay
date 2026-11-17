@@ -7,7 +7,7 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
+import dev.treyer.sagapay.orchestrator.config.ResourceServerSecurityConfig;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
@@ -20,19 +20,23 @@ import dev.treyer.sagapay.orchestrator.domain.VerificationExpiredException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -40,6 +44,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,17 +53,19 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Security is tested separately. A {@link SyncTaskExecutor} runs the background
- * {@code advance()} inline, so the tests can observe it. */
+/** A {@link SyncTaskExecutor} runs the background {@code advance()} inline, so the tests can
+ * observe it. The caller is the subject of the token the request carries. */
 @WebMvcTest(TransferRestAdapter.class)
-@AutoConfigureMockMvc(addFilters = false)
-@Import(TransferRestAdapterTest.SyncExecutorConfig.class)
+@Import({TransferRestAdapterTest.SyncExecutorConfig.class, ResourceServerSecurityConfig.class})
+@ExtendWith(OutputCaptureExtension.class)
 class TransferRestAdapterTest {
 
     private static final String VALID_BODY = """
@@ -66,6 +73,9 @@ class TransferRestAdapterTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private InitiateTransferUseCase initiateTransferUseCase;
@@ -84,9 +94,6 @@ class TransferRestAdapterTest {
 
     @MockitoBean
     private PostClearedTransferUseCase postClearedTransferUseCase;
-
-    @MockitoBean
-    private ResolveRecipientUseCase resolveRecipientUseCase;
 
     private static Transfer newTransfer(UUID senderId, UUID recipientId) {
         return new Transfer(
@@ -118,7 +125,7 @@ class TransferRestAdapterTest {
                 .thenReturn(new InitiateTransferUseCase.Result(transfer, true));
 
         mockMvc.perform(post("/v1/transfers")
-                        .header("X-User-Id", senderId)
+                        .with(token(senderId))
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(recipientId)))
@@ -130,7 +137,7 @@ class TransferRestAdapterTest {
     }
 
     @Test
-    void createTransferReturns409AndDoesNotDispatchAdvanceOnReplay() throws Exception {
+    void createTransferReturns202AndDoesNotDispatchAdvanceOnRepeat() throws Exception {
         UUID senderId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
@@ -145,11 +152,11 @@ class TransferRestAdapterTest {
                 .thenReturn(new InitiateTransferUseCase.Result(transfer, false));
 
         mockMvc.perform(post("/v1/transfers")
-                        .header("X-User-Id", senderId)
+                        .with(token(senderId))
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(recipientId)))
-                .andExpect(status().isConflict())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
 
         verify(advanceSagaUseCase, never()).advance(any());
@@ -158,20 +165,121 @@ class TransferRestAdapterTest {
     @Test
     void createTransferWithoutIdempotencyKeyReturns400() throws Exception {
         mockMvc.perform(post("/v1/transfers")
-                        .header("X-User-Id", UUID.randomUUID())
+                        .with(token(UUID.randomUUID()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(UUID.randomUUID())))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    void createTransferWithoutUserIdHeaderReturns400WithMalformedRequestCode() throws Exception {
+    void createTransferNamingTheRecipientByHandleOnlyReturns400AndCreatesNothing() throws Exception {
         mockMvc.perform(post("/v1/transfers")
+                        .with(token(UUID.randomUUID()))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"toHandle": "@ines", "amount": {"currency": "EUR", "amount": "80.00"}}"""))
+                .andExpect(status().isBadRequest());
+
+        verify(initiateTransferUseCase, never()).initiateTransfer(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    private static RequestPostProcessor token(UUID subject) {
+        return jwt().jwt(jwt -> jwt.subject(subject.toString()));
+    }
+
+    @Test
+    void createTransferTakesTheSenderFromTheTokenWhateverTheHeaderClaims() throws Exception {
+        UUID senderId = UUID.randomUUID();
+        UUID recipientId = UUID.randomUUID();
+        Transfer transfer = newTransfer(senderId, recipientId);
+        when(initiateTransferUseCase.initiateTransfer(
+                        eq(senderId),
+                        eq(senderId),
+                        eq(recipientId),
+                        eq(recipientId),
+                        any(Money.class),
+                        any(UUID.class),
+                        eq("pizza")))
+                .thenReturn(new InitiateTransferUseCase.Result(transfer, true));
+
+        mockMvc.perform(post("/v1/transfers")
+                        .with(token(senderId))
+                        .header("X-User-Id", UUID.randomUUID())
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY.formatted(recipientId)))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void createTransferWithoutATokenReturns401AndCreatesNothing() throws Exception {
+        mockMvc.perform(post("/v1/transfers")
+                        .header("X-User-Id", UUID.randomUUID())
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY.formatted(UUID.randomUUID())))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(status().isUnauthorized());
+
+        verify(initiateTransferUseCase, never()).initiateTransfer(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createTransferWithATokenWhoseSubjectIsNotAUuidReturns401AndCreatesNothing(CapturedOutput output)
+            throws Exception {
+        mockMvc.perform(post("/v1/transfers")
+                        .with(jwt().jwt(jwt -> jwt.subject("not-a-uuid")))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY.formatted(UUID.randomUUID())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(content().string(""));
+
+        verify(initiateTransferUseCase, never()).initiateTransfer(any(), any(), any(), any(), any(), any(), any());
+        assertThat(output.getOut()).contains("\"message\":\"request refused, caller not identified\"");
+    }
+
+    @Test
+    void createTransferWithATokenWithoutSubjectReturns401AndCreatesNothing() throws Exception {
+        mockMvc.perform(post("/v1/transfers")
+                        .with(jwt().jwt(jwt -> jwt.claim("scope", "any").claims(claims -> claims.remove("sub"))))
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY.formatted(UUID.randomUUID())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(content().string(""));
+
+        verify(initiateTransferUseCase, never()).initiateTransfer(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void getTransferWithATokenOfNeitherPartyReturns404() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        UUID stranger = UUID.randomUUID();
+        when(getTransferUseCase.getTransfer(transferId, stranger)).thenThrow(new TransferNotFoundException(transferId));
+
+        mockMvc.perform(get("/v1/transfers/{id}", transferId).with(token(stranger)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
+    }
+
+    @Test
+    void confirmWithATokenOfTheRecipientReturns404AndPostsNothing() throws Exception {
+        UUID transferId = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        when(confirmTransferUseCase.confirmTransfer(transferId, recipient, "tok"))
+                .thenThrow(new TransferNotFoundException(transferId));
+
+        mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
+                        .with(token(recipient))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CONFIRM_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
+
+        verify(postClearedTransferUseCase, never()).postCleared(any());
     }
 
     private static final String CONFIRM_BODY = """
@@ -181,7 +289,7 @@ class TransferRestAdapterTest {
 
     private org.springframework.test.web.servlet.ResultActions confirm(UUID transferId) throws Exception {
         return mockMvc.perform(post("/v1/transfers/{id}/confirm", transferId)
-                .header("X-User-Id", CALLER_ID.toString())
+                .with(token(CALLER_ID))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(CONFIRM_BODY));
     }
@@ -203,6 +311,19 @@ class TransferRestAdapterTest {
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
 
         verify(postClearedTransferUseCase).postCleared(transfer.getId());
+    }
+
+    @Test
+    void confirmAnswersTheSenderWithTheCauseOfTheTransfer() throws Exception {
+        Transfer transfer = newTransfer(CALLER_ID, UUID.randomUUID());
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                transfer, "failureReason", dev.treyer.sagapay.orchestrator.domain.FailureReason.VERIFICATION_EXPIRED);
+        when(confirmTransferUseCase.confirmTransfer(transfer.getId(), CALLER_ID, "tok"))
+                .thenReturn(transfer);
+
+        confirm(transfer.getId())
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.failureReason").value("VERIFICATION_EXPIRED"));
     }
 
     @Test
@@ -302,31 +423,33 @@ class TransferRestAdapterTest {
     }
 
     @Test
-    void getTransferWithoutUserIdHeaderReturns400() throws Exception {
-        mockMvc.perform(get("/v1/transfers/{id}", UUID.randomUUID()))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    void getTransferWithoutATokenReturns401() throws Exception {
+        mockMvc.perform(get("/v1/transfers/{id}", UUID.randomUUID())).andExpect(status().isUnauthorized());
 
         verify(getTransferUseCase, never()).getTransfer(any(), any());
     }
 
     @Test
-    void confirmWithoutUserIdHeaderReturns400AndConfirmsNothing() throws Exception {
+    void confirmWithoutATokenReturns401AndConfirmsNothing() throws Exception {
         mockMvc.perform(post("/v1/transfers/{id}/confirm", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(CONFIRM_BODY))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+                .andExpect(status().isUnauthorized());
 
         verify(confirmTransferUseCase, never()).confirmTransfer(any(), any(), any());
+    }
+
+    @Test
+    void listTransfersWithoutATokenReturns401() throws Exception {
+        mockMvc.perform(get("/v1/transfers")).andExpect(status().isUnauthorized());
+
+        verify(listTransfersUseCase, never()).listTransfers(any(), any(), any(), any(), anyInt());
     }
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 201})
     void listTransfersRefusesALimitOutOfBounds(int limit) throws Exception {
-        mockMvc.perform(get("/v1/transfers")
-                        .header("X-User-Id", CALLER_ID.toString())
-                        .param("limit", String.valueOf(limit)))
+        mockMvc.perform(get("/v1/transfers").with(token(CALLER_ID)).param("limit", String.valueOf(limit)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
@@ -339,17 +462,13 @@ class TransferRestAdapterTest {
         when(listTransfersUseCase.listTransfers(any(), any(), any(), any(), eq(limit)))
                 .thenReturn(new ListTransfersUseCase.Page(List.of(), null));
 
-        mockMvc.perform(get("/v1/transfers")
-                        .header("X-User-Id", CALLER_ID.toString())
-                        .param("limit", String.valueOf(limit)))
+        mockMvc.perform(get("/v1/transfers").with(token(CALLER_ID)).param("limit", String.valueOf(limit)))
                 .andExpect(status().isOk());
     }
 
     @Test
     void listTransfersRefusesAnUnknownDirection() throws Exception {
-        mockMvc.perform(get("/v1/transfers")
-                        .header("X-User-Id", CALLER_ID.toString())
-                        .param("direction", "foo"))
+        mockMvc.perform(get("/v1/transfers").with(token(CALLER_ID)).param("direction", "foo"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
     }
@@ -360,7 +479,7 @@ class TransferRestAdapterTest {
         when(getTransferUseCase.getTransfer(transferId, CALLER_ID))
                 .thenThrow(new TransferNotFoundException(transferId));
 
-        mockMvc.perform(get("/v1/transfers/{id}", transferId).header("X-User-Id", CALLER_ID.toString()))
+        mockMvc.perform(get("/v1/transfers/{id}", transferId).with(token(CALLER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
     }
@@ -373,7 +492,7 @@ class TransferRestAdapterTest {
         when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of()));
 
-        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).header("X-User-Id", CALLER_ID.toString()))
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
     }
@@ -392,12 +511,17 @@ class TransferRestAdapterTest {
                 SagaStepOutcome.RETRY,
                 "{\"decision\":\"FLAGGED\",\"score\":0.9,\"reasons\":[\"NEW_RECIPIENT\"]}",
                 Instant.now());
+        // The use case gives the steps to the sender only.
         when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(flagged, List.of(screen)));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        flagged, party == Party.SENDER ? List.of(screen) : List.of()));
 
-        mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).header("X-User-Id", CALLER_ID.toString()))
+        mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps[0].step").value("SCREEN"))
+                .andExpect(
+                        party == Party.SENDER
+                                ? jsonPath("$.steps[0].step").value("SCREEN")
+                                : jsonPath("$.steps").isEmpty())
                 .andExpect(jsonPath("$.fraud").doesNotExist())
                 .andExpect(jsonPath("$.steps[0].detail").doesNotExist())
                 .andExpect(content().string(not(containsString("NEW_RECIPIENT"))))
@@ -414,7 +538,7 @@ class TransferRestAdapterTest {
         UUID id = UUID.randomUUID();
         when(getTransferUseCase.getTransfer(id, CALLER_ID)).thenThrow(new IllegalStateException("secret internals"));
 
-        mockMvc.perform(get("/v1/transfers/{id}", id).header("X-User-Id", CALLER_ID.toString()))
+        mockMvc.perform(get("/v1/transfers/{id}", id).with(token(CALLER_ID)))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
@@ -424,7 +548,7 @@ class TransferRestAdapterTest {
     @Test
     void aMissingRequiredHeaderStaysA400() throws Exception {
         mockMvc.perform(post("/v1/transfers")
-                        .header("X-User-Id", CALLER_ID.toString())
+                        .with(token(CALLER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "10.00"}}

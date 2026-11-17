@@ -5,8 +5,6 @@ import dev.treyer.sagapay.common.error.Problems;
 import dev.treyer.sagapay.ledger.domain.CurrencyMismatchException;
 import dev.treyer.sagapay.ledger.domain.IdempotencyConflictException;
 import dev.treyer.sagapay.ledger.domain.InvalidAmountException;
-import dev.treyer.sagapay.ledger.domain.InvalidCursorException;
-import dev.treyer.sagapay.ledger.domain.MalformedRequestException;
 import dev.treyer.sagapay.ledger.domain.NoMatchingReservationException;
 import dev.treyer.sagapay.ledger.domain.UnknownHandleException;
 import org.springframework.http.HttpStatus;
@@ -31,13 +29,6 @@ public class LedgerRestExceptionHandler {
     @ExceptionHandler(InvalidAmountException.class)
     public ProblemDetail handleInvalidAmount(InvalidAmountException e) {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.INVALID_AMOUNT, e.getMessage());
-    }
-
-    /** Unreachable from REST, where Spring MVC binding parses the input; mirrors the
-     * gRPC advice. */
-    @ExceptionHandler(MalformedRequestException.class)
-    public ProblemDetail handleMalformedRequest(MalformedRequestException e) {
-        return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.MALFORMED_REQUEST, e.getMessage());
     }
 
     @ExceptionHandler(NoMatchingReservationException.class)

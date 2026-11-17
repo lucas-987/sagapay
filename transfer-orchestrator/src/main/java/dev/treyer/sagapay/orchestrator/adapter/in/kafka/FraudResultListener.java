@@ -18,7 +18,7 @@ public class FraudResultListener {
         this.jsonMapper = jsonMapper;
     }
 
-    @KafkaListener(topics = "payments.fraud.results", groupId = "orchestrator-fraud")
+    @KafkaListener(topics = "${kafka.topics.fraud-results}", groupId = "orchestrator-fraud")
     public void onFraudResult(String value) {
         applyFraudResult.applyFraudResult(parse(value));
     }

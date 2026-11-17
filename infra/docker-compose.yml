@@ -27,10 +27,13 @@ services:
         condition: service_healthy
     ports:
       - "8081:8081"
-      - "9091:9091"
     environment:
-      # `local` seeds the sample accounts; `local-noauth` opens REST and gRPC until auth lands.
-      SPRING_PROFILES_ACTIVE: local,local-noauth
+      # `local` seeds the sample accounts. REST takes a token of the realm and serves its owner's
+      # wallet; gRPC admits only the orchestrator's token. Both are checked against the keys and
+      # issuer below. The gRPC port is not published: only the services of this network reach it.
+      SPRING_PROFILES_ACTIVE: local
+      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       # Same DB as the postgres service above, addressed by its network hostname.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc
       SPRING_DATASOURCE_USERNAME: ${LEDGER_APP_USERNAME:-ledger_app}
@@ -121,7 +124,16 @@ services:
     ports:
       - "8082:8082"
     environment:
-      SPRING_PROFILES_ACTIVE: local,local-noauth
+      SPRING_PROFILES_ACTIVE: local
+      # The address Keycloak's tokens name as issuer, which the stack resolves from every container.
+      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
+      # The orchestrator's own credential for the ledger; no fallback, it does not start without them.
+      # The secret and the bearer tokens travel over plain HTTP and gRPC here, which only a local
+      # stack allows: anywhere else both need TLS.
+      OAUTH2_TOKEN_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/token
+      ORCHESTRATOR_CLIENT_ID: ${ORCHESTRATOR_CLIENT_ID}
+      ORCHESTRATOR_CLIENT_SECRET: ${ORCHESTRATOR_CLIENT_SECRET:?set ORCHESTRATOR_CLIENT_SECRET in .env}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-orchestrator:5432/orchestrator_svc
       SPRING_DATASOURCE_USERNAME: ${ORCHESTRATOR_APP_USERNAME:-orchestrator_app}
       SPRING_DATASOURCE_PASSWORD: ${ORCHESTRATOR_APP_PASSWORD}
@@ -132,7 +144,6 @@ services:
       SPRING_FLYWAY_PLACEHOLDERS_ORCHESTRATORAPPPASSWORD: ${ORCHESTRATOR_APP_PASSWORD}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_GRPC_CLIENT_CHANNEL_LEDGER_TARGET: static://ledger-accounts-service:9091
-      LEDGER_REST_BASE_URL: http://ledger-accounts-service:8081
       # The deadline also covers connecting: the first call on a cold channel needs more than the 500 ms default.
       LEDGER_GRPC_DEADLINE_MS: ${LEDGER_GRPC_DEADLINE_MS:-5000}
       SAGAPAY_FRAUD_VERIFICATION_CODE: ${SAGAPAY_FRAUD_VERIFICATION_CODE}
@@ -191,6 +202,75 @@ services:
       SPRING_FLYWAY_PLACEHOLDERS_FRAUDAPPPASSWORD: ${FRAUD_APP_PASSWORD}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  # The public entry. It keeps no state: no store of its own, only the identity provider's keys to
+  # validate tokens and the two services it routes to.
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: api-gateway/Dockerfile
+      args:
+        MAVEN_MIRROR_URL: ${MAVEN_MIRROR_URL:-}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      transfer-orchestrator:
+        condition: service_started
+      ledger-accounts-service:
+        condition: service_started
+    ports:
+      # The host side can move when another program holds 8080 on the machine; the gateway always
+      # listens on 8080 inside the network.
+      - "${GATEWAY_HOST_PORT:-8080}:8080"
+    environment:
+      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
+      ORCHESTRATOR_URI: http://transfer-orchestrator:8082
+      LEDGER_URI: http://ledger-accounts-service:8081
+    healthcheck:
+      # The runtime image has no curl; BusyBox's wget reads the health answer.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  # The identity provider. Local only: start-dev, an embedded database and plain HTTP.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    # The sample users' passwords, which the realm file refers to by name. The path can be
+    # overridden so that a test brings its own file.
+    env_file:
+      - ${KEYCLOAK_ENV_FILE:-./keycloak.env}
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Read by the realm import as the secret of the orchestrator's client.
+      ORCHESTRATOR_CLIENT_SECRET: ${ORCHESTRATOR_CLIENT_SECRET:?set ORCHESTRATOR_CLIENT_SECRET in .env}
+      # One fixed public address, so a token carries the same issuer whether it was fetched
+      # from the host (localhost:8180) or from inside the network (keycloak:8180). The port is
+      # the same inside and outside for that reason.
+      KC_HOSTNAME: http://keycloak:8180
+      KC_HTTP_PORT: 8180
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "8180:8180"
+    healthcheck:
+      # The image has no curl: read the readiness answer from the management port over bash's
+      # /dev/tcp.
+      test:
+        - CMD-SHELL
+        - |
+          exec 3<>/dev/tcp/localhost/9000
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          grep -q '"status": "UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
 volumes:
   pgdata:

@@ -186,7 +186,8 @@ class FraudResultsConsumerTest {
         private final List<String> postedTransferIds = new CopyOnWriteArrayList<>();
 
         @Override
-        public ReservationResult checkAndReserve(String transferId, UUID fromAccountId, Money amount) {
+        public ReservationResult checkAndReserve(
+                String transferId, UUID fromAccountId, UUID toAccountId, Money amount) {
             throw new UnsupportedOperationException();
         }
 

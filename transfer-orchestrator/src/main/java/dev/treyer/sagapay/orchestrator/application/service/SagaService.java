@@ -19,6 +19,7 @@ import dev.treyer.sagapay.orchestrator.application.port.out.TransferPort;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.FraudDecision;
 import dev.treyer.sagapay.orchestrator.domain.FraudResult;
+import dev.treyer.sagapay.orchestrator.domain.IdempotencyKeyReusedException;
 import dev.treyer.sagapay.orchestrator.domain.InvalidVerificationCodeException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerRejectedException;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
@@ -26,6 +27,7 @@ import dev.treyer.sagapay.orchestrator.domain.ReservationResult;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepName;
 import dev.treyer.sagapay.orchestrator.domain.SagaStepOutcome;
+import dev.treyer.sagapay.orchestrator.domain.SenderOnlyDetails;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
 import dev.treyer.sagapay.orchestrator.domain.TransferNotBlockedException;
@@ -144,6 +146,15 @@ public class SagaService
                 .orElseThrow(() -> new IllegalStateException(
                         "transfer row vanished for sender " + senderId + " / idempotency key " + idempotencyKey));
 
+        if (inserted == 0 && !transfer.isSameRequest(recipientId, amount, note)) {
+            log.info(
+                    "idempotency key reused for a different transfer",
+                    kv("transfer.id", transfer.getId()),
+                    kv("sender.id", senderId),
+                    kv("idempotency.key", idempotencyKey));
+            throw new IdempotencyKeyReusedException(idempotencyKey);
+        }
+
         if (inserted == 1) {
             outbox.save(OutboxEvents.forTransfer(
                     jsonMapper, transfer, TransferEventType.TRANSFER_INITIATED, clock.instant()));
@@ -165,6 +176,7 @@ public class SagaService
             result = ledger.checkAndReserve(
                     transferId.toString(),
                     transfer.getSenderAccountId(),
+                    transfer.getRecipientAccountId(),
                     Money.of(transfer.getAmount(), transfer.getCurrency()));
         } catch (LedgerRejectedException e) {
             if (writer.tryApplyRejected(
@@ -392,7 +404,9 @@ public class SagaService
                 .findById(transferId)
                 .filter(found -> userId.equals(found.getSenderId()) || userId.equals(found.getRecipientId()))
                 .orElseThrow(() -> new TransferNotFoundException(transferId));
-        return new TransferWithSteps(transfer, sagaSteps.findByTransferId(transferId));
+        return new TransferWithSteps(
+                transfer,
+                SenderOnlyDetails.steps(sagaSteps.findByTransferId(transferId), transfer.getSenderId(), userId));
     }
 
     @Override

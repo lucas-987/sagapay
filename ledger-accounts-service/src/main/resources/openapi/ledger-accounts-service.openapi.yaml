@@ -1,0 +1,102 @@
+openapi: 3.1.0
+info:
+  title: SagaPay Ledger / Accounts API (read-only REST surface)
+  version: 1.0.0
+  description: >-
+    Wallet reads (balance, available, postings). Money mutations go
+    EXCLUSIVELY through gRPC (ledger.proto), never REST.
+servers:
+  - url: https://api.sagapay.treyer.dev
+security:
+  - oidc: []
+
+paths:
+  /v1/wallet:
+    get:
+      operationId: getWallet
+      summary: My balance
+      description: >-
+        The wallet of the caller: the account is the subject of the bearer token,
+        and a request cannot name another one.
+      responses:
+        '200':
+          description: balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountId: { type: string }
+                  currency: { type: string }
+                  balance: { $ref: '#/components/schemas/Money' }
+                  available: { $ref: '#/components/schemas/Money' }
+                  held: { $ref: '#/components/schemas/Money' }
+
+  /v1/wallet/postings:
+    get:
+      operationId: listPostings
+      summary: My ledger postings (append-only, cursor pagination)
+      description: >-
+        The postings of the caller's own account, taken from the subject of the
+        bearer token, as on GET /v1/wallet.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 500 } }
+      responses:
+        '200':
+          description: page of postings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Posting' }
+                  nextCursor: { type: string, nullable: true }
+
+  /v1/users/lookup:
+    get:
+      operationId: lookupAccount
+      summary: Resolve a handle to an account (recipient preview before a transfer)
+      description: >-
+        Simplified subset of user-profile-service's lookupRecipient (see
+        contracts/openapi-reference/user-profile-service.openapi.yaml), served by
+        ledger-accounts-service because accounts already carry a handle and a
+        display name. Exact handle match only; never returns balance or currency.
+      parameters:
+        - name: handle
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: account resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountId: { type: string }
+                  displayName: { type: string }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
+  schemas:
+    Money:
+      type: object
+      properties: { currency: { type: string }, amount: { type: string } }
+    Posting:
+      type: object
+      properties:
+        id: { type: string }
+        entryGroup: { type: string }
+        leg: { type: string, enum: [DEBIT, CREDIT] }
+        reason: { type: string, examples: [RESERVE_HOLD, RELEASE_HOLD, TRANSFER_SETTLE, TRANSFER_REVERSE] }
+        amount: { $ref: '#/components/schemas/Money' }
+        refTransferId: { type: string }
+        createdAt: { type: string, format: date-time }

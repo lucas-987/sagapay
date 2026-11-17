@@ -18,10 +18,12 @@ public interface ReservationPort {
             String transferId, UUID reservationId, ReservationStatus fromStatus, ReservationStatus toStatus);
 
     /** Makes a debit conditional on a matching reservation, not just on the balance.
-     * @return 0 when no active, unexpired reservation matches exactly. */
+     * @return 0 when no active, unexpired reservation matches the transfer, both
+     * accounts and the amount exactly. */
     int consumeIfMatching(
             String transferId,
             UUID accountId,
+            UUID toAccountId,
             BigDecimal amount,
             ReservationStatus fromStatus,
             ReservationStatus toStatus);

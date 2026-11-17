@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: P2 Notification Service API
+  title: SagaPay Notification Service API
   version: 1.0.0
   description: Notification preferences + history. Sending is event-driven + RabbitMQ.
 servers:
-  - url: https://api.sagapay.example.com
+  - url: https://api.sagapay.treyer.dev
 security:
   - oidc: [profile:read]
 
@@ -53,7 +53,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
   schemas:
     Preferences:
       type: object

@@ -7,10 +7,8 @@ import dev.treyer.sagapay.orchestrator.application.port.in.GetTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.InitiateTransferUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ListTransfersUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.PostClearedTransferUseCase;
-import dev.treyer.sagapay.orchestrator.application.port.in.ResolveRecipientUseCase;
 import dev.treyer.sagapay.orchestrator.domain.FailureReason;
 import dev.treyer.sagapay.orchestrator.domain.LedgerUnavailableException;
-import dev.treyer.sagapay.orchestrator.domain.MalformedRequestException;
 import dev.treyer.sagapay.orchestrator.domain.SagaStep;
 import dev.treyer.sagapay.orchestrator.domain.Transfer;
 import dev.treyer.sagapay.orchestrator.domain.TransferCursor;
@@ -22,11 +20,8 @@ import dev.treyer.sagapay.transfer.model.TransferDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.ZoneOffset;
 import java.util.List;
@@ -37,15 +32,13 @@ import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
  * {@code POST /v1/requests} keeps the generated 501: money requests are out of the
- * MVP. {@code X-User-Id} stands in for the token subject until authentication is
- * wired. A user id is also its account id: the ledger has no separate user entity.
+ * MVP. The caller is the subject of the validated token. A user id is also its account id:
+ * the ledger has no separate user entity.
  */
 @RestController
 public class TransferRestAdapter implements V1Api {
 
     private static final Logger log = LoggerFactory.getLogger(TransferRestAdapter.class);
-
-    private static final String USER_ID_HEADER = "X-User-Id";
 
     private final InitiateTransferUseCase initiateTransferUseCase;
     private final AdvanceSagaUseCase advanceSagaUseCase;
@@ -53,7 +46,6 @@ public class TransferRestAdapter implements V1Api {
     private final GetTransferUseCase getTransferUseCase;
     private final ConfirmTransferUseCase confirmTransferUseCase;
     private final PostClearedTransferUseCase postClearedTransferUseCase;
-    private final ResolveRecipientUseCase resolveRecipientUseCase;
     private final Executor executor;
 
     public TransferRestAdapter(
@@ -63,7 +55,6 @@ public class TransferRestAdapter implements V1Api {
             GetTransferUseCase getTransferUseCase,
             ConfirmTransferUseCase confirmTransferUseCase,
             PostClearedTransferUseCase postClearedTransferUseCase,
-            ResolveRecipientUseCase resolveRecipientUseCase,
             @Qualifier("applicationTaskExecutor") Executor applicationTaskExecutor) {
         this.initiateTransferUseCase = initiateTransferUseCase;
         this.advanceSagaUseCase = advanceSagaUseCase;
@@ -71,15 +62,14 @@ public class TransferRestAdapter implements V1Api {
         this.getTransferUseCase = getTransferUseCase;
         this.confirmTransferUseCase = confirmTransferUseCase;
         this.postClearedTransferUseCase = postClearedTransferUseCase;
-        this.resolveRecipientUseCase = resolveRecipientUseCase;
         this.executor = applicationTaskExecutor;
     }
 
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> createTransfer(
             UUID idempotencyKey, CreateTransferRequest request) {
-        UUID senderId = requireUserId();
-        UUID recipientId = resolveRecipient(request);
+        UUID senderId = CallerIdentity.requireUserId();
+        UUID recipientId = toRecipientId(request.getToUserId());
         Money amount = toMoney(request.getAmount());
 
         InitiateTransferUseCase.Result result = initiateTransferUseCase.initiateTransfer(
@@ -102,16 +92,15 @@ public class TransferRestAdapter implements V1Api {
             });
         }
 
-        HttpStatus status = result.created() ? HttpStatus.ACCEPTED : HttpStatus.CONFLICT;
-        return ResponseEntity.status(status).body(toRestTransfer(result.transfer()));
+        return ResponseEntity.accepted().body(toRestTransfer(result.transfer(), senderId));
     }
 
     @Override
     public ResponseEntity<ListTransfers200Response> listTransfers(
             String direction, dev.treyer.sagapay.transfer.model.TransferStatus status, String cursor, Integer limit) {
-        UUID userId = requireUserId();
+        UUID userId = CallerIdentity.requireUserId();
         ListTransfersUseCase.Direction dir = toDirection(direction);
-        TransferCursor after = cursor == null ? null : TransferCursor.decode(cursor);
+        TransferCursor after = cursor == null ? null : TransferCursorCodec.decode(cursor);
 
         dev.treyer.sagapay.orchestrator.domain.TransferStatus domainStatus;
         try {
@@ -126,15 +115,16 @@ public class TransferRestAdapter implements V1Api {
 
         ListTransfersUseCase.Page page = listTransfersUseCase.listTransfers(userId, dir, domainStatus, after, limit);
         List<dev.treyer.sagapay.transfer.model.Transfer> items =
-                page.items().stream().map(this::toRestTransfer).toList();
+                page.items().stream().map(item -> toRestTransfer(item, userId)).toList();
         return ResponseEntity.ok(new ListTransfers200Response()
                 .items(items)
-                .nextCursor(page.next() == null ? null : page.next().encode()));
+                .nextCursor(page.next() == null ? null : TransferCursorCodec.encode(page.next())));
     }
 
     @Override
     public ResponseEntity<TransferDetail> getTransfer(UUID id) {
-        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, requireUserId());
+        UUID userId = CallerIdentity.requireUserId();
+        GetTransferUseCase.TransferWithSteps result = getTransferUseCase.getTransfer(id, userId);
         Transfer transfer = result.transfer();
 
         TransferDetail detail = new TransferDetail(
@@ -145,7 +135,7 @@ public class TransferRestAdapter implements V1Api {
                         transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
-                .failureReason(toRestFailureReason(transfer))
+                .failureReason(toRestFailureReason(transfer, userId))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
                 .steps(result.steps().stream().map(this::toRestStep).toList());
         return ResponseEntity.ok(detail);
@@ -154,7 +144,8 @@ public class TransferRestAdapter implements V1Api {
     @Override
     public ResponseEntity<dev.treyer.sagapay.transfer.model.Transfer> confirmBlockedTransfer(
             UUID id, ConfirmBlockedTransferRequest request) {
-        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, requireUserId(), request.getVerificationToken());
+        UUID senderId = CallerIdentity.requireUserId();
+        Transfer transfer = confirmTransferUseCase.confirmTransfer(id, senderId, request.getVerificationToken());
         // The 202 means the transfer will be posted: it is CLEARED already, and the
         // reprise poller posts it if this task is lost.
         executor.execute(() -> {
@@ -164,23 +155,7 @@ public class TransferRestAdapter implements V1Api {
                 log.warn("ledger unavailable, cleared transfer left for the reprise poller", kv("transfer.id", id), e);
             }
         });
-        return ResponseEntity.accepted().body(toRestTransfer(transfer));
-    }
-
-    private UUID requireUserId() {
-        // V1Api.getRequest() is an extension point that returns empty by default.
-        ServletRequestAttributes attributes =
-                (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
-        // Local stand-in for the token subject, until M4 wires real authentication.
-        String value = attributes.getRequest().getHeader(USER_ID_HEADER);
-        if (value == null) {
-            throw new MalformedRequestException("missing " + USER_ID_HEADER + " header");
-        }
-        try {
-            return UUID.fromString(value);
-        } catch (IllegalArgumentException e) {
-            throw new MalformedRequestException(USER_ID_HEADER, value, e);
-        }
+        return ResponseEntity.accepted().body(toRestTransfer(transfer, senderId));
     }
 
     private static ListTransfersUseCase.Direction toDirection(String direction) {
@@ -191,18 +166,12 @@ public class TransferRestAdapter implements V1Api {
         }
     }
 
-    private UUID resolveRecipient(CreateTransferRequest request) {
-        if (request.getToUserId() != null) {
-            try {
-                return UUID.fromString(request.getToUserId());
-            } catch (IllegalArgumentException e) {
-                throw new MalformedRequestException("toUserId", request.getToUserId(), e);
-            }
+    private static UUID toRecipientId(String toUserId) {
+        try {
+            return UUID.fromString(toUserId);
+        } catch (IllegalArgumentException e) {
+            throw new MalformedRequestException("toUserId", toUserId, e);
         }
-        if (request.getToHandle() != null) {
-            return resolveRecipientUseCase.resolveByHandle(request.getToHandle());
-        }
-        throw new MalformedRequestException("must provide either toUserId or toHandle");
     }
 
     private static Money toMoney(dev.treyer.sagapay.transfer.model.Money money) {
@@ -218,8 +187,8 @@ public class TransferRestAdapter implements V1Api {
                 transfer.getCurrency(), transfer.getAmount().toPlainString());
     }
 
-    private static String toRestFailureReason(Transfer transfer) {
-        FailureReason reason = transfer.getFailureReason();
+    private static String toRestFailureReason(Transfer transfer, UUID userId) {
+        FailureReason reason = transfer.failureReasonFor(userId);
         return reason == null ? null : reason.name();
     }
 
@@ -228,7 +197,7 @@ public class TransferRestAdapter implements V1Api {
                 transfer.getStatus().name());
     }
 
-    private dev.treyer.sagapay.transfer.model.Transfer toRestTransfer(Transfer transfer) {
+    private dev.treyer.sagapay.transfer.model.Transfer toRestTransfer(Transfer transfer, UUID userId) {
         return new dev.treyer.sagapay.transfer.model.Transfer(
                         transfer.getId(),
                         transfer.getSenderId().toString(),
@@ -237,7 +206,7 @@ public class TransferRestAdapter implements V1Api {
                         transfer.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .recipientId(transfer.getRecipientId().toString())
                 .note(transfer.getNote())
-                .failureReason(toRestFailureReason(transfer))
+                .failureReason(toRestFailureReason(transfer, userId))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC));
     }
 

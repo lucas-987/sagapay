@@ -40,7 +40,7 @@ import javax.sql.DataSource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@SpringBootTest(properties = "outbox.poll-interval-ms=3600000")
 class OutboxPollerTest {
 
     @Autowired
@@ -75,6 +75,17 @@ class OutboxPollerTest {
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         consumer = new KafkaConsumer<>(props);
         consumer.subscribe(List.of("payments.transfers"));
+        awaitAssignment();
+    }
+
+    /** Joining a group on a fresh broker can take longer than the polling window of a test: the
+     * test starts once the consumer is assigned, so that the window only waits for the records. */
+    private void awaitAssignment() {
+        long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+        while (consumer.assignment().isEmpty() && System.nanoTime() < deadline) {
+            consumer.poll(Duration.ofMillis(100));
+        }
+        assertThat(consumer.assignment()).isNotEmpty();
     }
 
     @AfterEach

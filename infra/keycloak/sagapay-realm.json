@@ -1,0 +1,124 @@
+{
+  "realm": "sagapay",
+  "enabled": true,
+  "sslRequired": "none",
+  "users": [
+    {
+      "id": "00000000-0000-4000-a000-000000000013",
+      "username": "marco",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Marco",
+      "lastName": "Bianchi",
+      "email": "marco@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${MARCO_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000009",
+      "username": "ines",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Inès",
+      "lastName": "Moreau",
+      "email": "ines@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${INES_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000008",
+      "username": "hugo",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Hugo",
+      "lastName": "Leroy",
+      "email": "hugo@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${HUGO_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "sagapay-cli",
+      "name": "Command-line token client",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "transfer-orchestrator",
+      "name": "Transfer orchestrator",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${ORCHESTRATOR_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "ledger:write"
+      ],
+      "optionalClientScopes": [],
+      "attributes": {
+        "access.token.lifespan": "300"
+      }
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "ledger:write",
+      "description": "Reserve, post and release money through the ledger's gRPC API",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "ledger-accounts-service-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "ledger-accounts-service",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "lightweight.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

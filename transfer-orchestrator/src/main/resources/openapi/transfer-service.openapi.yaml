@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
-  title: P2 Transfer Orchestrator API
+  title: SagaPay Transfer Orchestrator API
   version: 1.0.0
   description: >-
     Creation and tracking of P2P transfers. Orchestrated saga. RFC 9457 errors.
     Exposed via api-gateway under `/v1`.
 servers:
-  - url: https://api.sagapay.example.com
+  - url: https://api.sagapay.treyer.dev
 security:
   - oidc: []
 
@@ -129,7 +129,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
 
   schemas:
     Money:

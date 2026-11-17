@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: P2 Activity Stream API
+  title: SagaPay Activity Stream API
   version: 1.0.0
   description: >-
     Server-sent events pushed to a signed-in user about the transfers they send or receive.
@@ -10,7 +10,7 @@ info:
     carries the fraud decision, score or reasons. The stream replays nothing: it declares no
     `Last-Event-ID` header.
 servers:
-  - url: https://api.sagapay.example.com
+  - url: https://api.sagapay.treyer.dev
 security:
   - bearer: []
 

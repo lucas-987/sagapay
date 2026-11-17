@@ -1,6 +1,6 @@
 asyncapi: 3.0.0
 info:
-  title: P2 Kafka events
+  title: SagaPay Kafka events
   version: 1.0.0
   description: >-
     Kafka is the only asynchronous channel of v0.1. Values are JSON in a CloudEvents envelope,

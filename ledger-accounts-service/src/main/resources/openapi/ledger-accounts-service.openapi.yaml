@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
-  title: P2 Ledger / Accounts API (read-only REST surface)
+  title: SagaPay Ledger / Accounts API (read-only REST surface)
   version: 1.0.0
   description: >-
     Wallet reads (balance, available, postings). Money mutations go
     EXCLUSIVELY through gRPC (ledger.proto), never REST.
 servers:
-  - url: https://api.sagapay.example.com
+  - url: https://api.sagapay.treyer.dev
 security:
   - oidc: []
 
@@ -85,7 +85,7 @@ components:
   securitySchemes:
     oidc:
       type: openIdConnect
-      openIdConnectUrl: https://keycloak.sagapay.example.com/realms/sagapay/.well-known/openid-configuration
+      openIdConnectUrl: https://keycloak.sagapay.treyer.dev/realms/sagapay/.well-known/openid-configuration
   schemas:
     Money:
       type: object

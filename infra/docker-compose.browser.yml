@@ -9,12 +9,18 @@ services:
     ports: !reset []
   transfer-orchestrator:
     ports: !reset []
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
   postgres-fraud:
     ports: !reset []
   redis:
     ports: !reset []
   fraud-detection-service:
     ports: !reset []
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
   api-gateway:
     ports: !reset []
     networks:

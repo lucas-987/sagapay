@@ -1000,6 +1000,40 @@ class SagaServiceTest {
     }
 
     @Test
+    @DisplayName("The sender of a blocked transfer reads its confirmation deadline")
+    void theSenderOfABlockedTransferReadsItsConfirmationDeadline() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .confirmationDeadline())
+                .isEqualTo(latestScreenDeadline(transfer.getId()));
+    }
+
+    @Test
+    @DisplayName("The recipient of a blocked transfer reads no confirmation deadline")
+    void theRecipientOfABlockedTransferReadsNoConfirmationDeadline() {
+        Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);
+
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getRecipientId())
+                        .confirmationDeadline())
+                .isNull();
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"POSTED", "FAILED_EXPIRED", "FAILED_INSUFFICIENT_FUNDS", "SCREENING"})
+    @DisplayName("The sender of a transfer that is not blocked reads no confirmation deadline")
+    void theSenderOfATransferNotBlockedReadsNoConfirmationDeadline(String state) {
+        Transfer transfer = transferInState(state);
+
+        assertThat(sagaService
+                        .getTransfer(transfer.getId(), transfer.getSenderId())
+                        .confirmationDeadline())
+                .isNull();
+    }
+
+    @Test
     @Tag("M3-S48")
     void aThirdPartyIsToldTheTransferDoesNotExist() {
         Transfer transfer = blockedTransferWithDeadline(UUID.randomUUID(), 3600);

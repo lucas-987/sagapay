@@ -23,6 +23,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -137,6 +139,7 @@ public class TransferRestAdapter implements V1Api {
                 .note(transfer.getNote())
                 .failureReason(toRestFailureReason(transfer, userId))
                 .updatedAt(transfer.getUpdatedAt().atOffset(ZoneOffset.UTC))
+                .confirmationDeadline(toRestInstant(result.confirmationDeadline()))
                 .steps(result.steps().stream().map(this::toRestStep).toList());
         return ResponseEntity.ok(detail);
     }
@@ -185,6 +188,10 @@ public class TransferRestAdapter implements V1Api {
     private static dev.treyer.sagapay.transfer.model.Money toRestMoney(Transfer transfer) {
         return new dev.treyer.sagapay.transfer.model.Money(
                 transfer.getCurrency(), transfer.getAmount().toPlainString());
+    }
+
+    private static OffsetDateTime toRestInstant(Instant instant) {
+        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
     }
 
     private static String toRestFailureReason(Transfer transfer, UUID userId) {

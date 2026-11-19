@@ -180,6 +180,11 @@ components:
               type: array
               description: 'Steps of the saga, given to the sender only: empty for the recipient.'
               items: { $ref: '#/components/schemas/SagaStep' }
+            confirmationDeadline:
+              type: string
+              format: date-time
+              nullable: true
+              description: 'Instant by which the sender must confirm, given to the sender while the transfer is BLOCKED: null otherwise and for the recipient.'
     Problem:
       type: object
       properties:

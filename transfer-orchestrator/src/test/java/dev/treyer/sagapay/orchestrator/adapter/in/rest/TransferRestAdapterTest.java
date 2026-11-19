@@ -47,6 +47,7 @@ import java.util.concurrent.Executor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -490,11 +491,36 @@ class TransferRestAdapterTest {
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
         when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of()));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
 
         mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("The detail of a blocked transfer shows its confirmation deadline as an instant")
+    void getTransferShowsTheConfirmationDeadline() throws Exception {
+        Transfer transfer = newTransfer(CALLER_ID, UUID.randomUUID());
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        transfer, List.of(), Instant.parse("2026-11-01T10:02:00.123456Z")));
+
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationDeadline").value("2026-11-01T10:02:00.123456Z"));
+    }
+
+    @Test
+    @DisplayName("The detail of a transfer with no confirmation deadline shows none")
+    void getTransferShowsNoConfirmationDeadlineWhenThereIsNone() throws Exception {
+        Transfer transfer = newTransfer(UUID.randomUUID(), CALLER_ID);
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
+
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationDeadline").value(nullValue()));
     }
 
     @ParameterizedTest
@@ -514,7 +540,7 @@ class TransferRestAdapterTest {
         // The use case gives the steps to the sender only.
         when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(
-                        flagged, party == Party.SENDER ? List.of(screen) : List.of()));
+                        flagged, party == Party.SENDER ? List.of(screen) : List.of(), null));
 
         mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())

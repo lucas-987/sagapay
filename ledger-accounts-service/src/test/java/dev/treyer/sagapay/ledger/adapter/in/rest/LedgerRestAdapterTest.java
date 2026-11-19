@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -179,6 +180,7 @@ class LedgerRestAdapterTest {
 
         mockMvc.perform(get("/v1/users/lookup").param("handle", "nobody"))
                 .andExpect(status().isNotFound())
+                .andExpect(content().contentType("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
     }
 }

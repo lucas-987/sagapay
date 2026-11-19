@@ -9,6 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,11 +24,16 @@ class ActivityMappingTest {
     private static final BigDecimal AMOUNT = new BigDecimal("80.0000");
 
     private static TransferEvent event(Outcome outcome, UUID sender, UUID recipient, FailureReason reason) {
-        return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, sender, recipient, AMOUNT, "EUR", reason);
+        return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, sender, recipient, AMOUNT, "EUR", reason, null);
     }
 
     private static TransferEvent pushed(Outcome outcome, UUID recipient, FailureReason cause) {
-        return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, SENDER, recipient, AMOUNT, "EUR", cause);
+        return new TransferEvent(EVENT_ID, outcome, TRANSFER_ID, SENDER, recipient, AMOUNT, "EUR", cause, null);
+    }
+
+    private static TransferEvent blockedWithDeadline(UUID sender, UUID recipient, Instant deadline) {
+        return new TransferEvent(
+                EVENT_ID, Outcome.BLOCKED, TRANSFER_ID, sender, recipient, AMOUNT, "EUR", null, deadline);
     }
 
     @ParameterizedTest
@@ -81,5 +87,26 @@ class ActivityMappingTest {
     void aPostedTransferToSelfIsPushedOnce() {
         assertThat(ActivityMapping.of(event(Outcome.POSTED, SENDER, SENDER, null)))
                 .containsExactly(new ActivityMapping.Delivery(SENDER, pushed(Outcome.POSTED, SENDER, null)));
+    }
+
+    @Test
+    @DisplayName(
+            "A blocked transfer is pushed with its confirmation deadline to the sender and without it to the recipient")
+    void aBlockedTransferCarriesItsDeadlineToTheSenderOnly() {
+        Instant deadline = Instant.parse("2026-11-01T10:02:00.123456Z");
+
+        assertThat(ActivityMapping.of(blockedWithDeadline(SENDER, RECIPIENT, deadline)))
+                .containsExactly(
+                        new ActivityMapping.Delivery(SENDER, blockedWithDeadline(SENDER, RECIPIENT, deadline)),
+                        new ActivityMapping.Delivery(RECIPIENT, pushed(Outcome.BLOCKED, RECIPIENT, null)));
+    }
+
+    @Test
+    @DisplayName("A blocked transfer between a user and themselves is pushed once, with its confirmation deadline")
+    void aBlockedTransferToSelfIsPushedOnceWithItsDeadline() {
+        Instant deadline = Instant.parse("2026-11-01T10:02:00Z");
+
+        assertThat(ActivityMapping.of(blockedWithDeadline(SENDER, SENDER, deadline)))
+                .containsExactly(new ActivityMapping.Delivery(SENDER, blockedWithDeadline(SENDER, SENDER, deadline)));
     }
 }

@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -137,6 +138,57 @@ class ActivityStreamListenerTest {
                 .formatted(TRANSFER_ID, SENDER, RECIPIENT, reason);
     }
 
+    private static String blockedData(String deadlineField) {
+        return "{\"transferId\":\"%s\",\"senderId\":\"%s\",\"recipientId\":\"%s\",\"amount\":\"80.0000\",\"currency\":\"EUR\",\"eventType\":\"TransferBlocked\"%s}"
+                .formatted(TRANSFER_ID, SENDER, RECIPIENT, deadlineField);
+    }
+
+    private static TransferEvent blocked(Instant deadline) {
+        return new TransferEvent(
+                EVENT_ID,
+                TransferEvent.Outcome.BLOCKED,
+                TRANSFER_ID,
+                SENDER,
+                RECIPIENT,
+                new BigDecimal("80.0000"),
+                "EUR",
+                null,
+                deadline);
+    }
+
+    @Test
+    @DisplayName("A blocked transfer event is handed on with its confirmation deadline")
+    void aBlockedEventIsHandedOnWithItsDeadline() {
+        listener.onTransferEvent(record(event(
+                EVENT_ID.toString(),
+                "TransferBlocked.v1",
+                blockedData(",\"confirmationDeadline\":\"2026-11-01T10:02:00.123456Z\""))));
+
+        assertThat(relayed).containsExactly(blocked(Instant.parse("2026-11-01T10:02:00.123456Z")));
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
+    @DisplayName("A blocked transfer event without a confirmation deadline is handed on without one, with no warning")
+    void aBlockedEventWithoutADeadlineIsHandedOnWithoutOne() {
+        listener.onTransferEvent(record(event(EVENT_ID.toString(), "TransferBlocked.v1", blockedData(""))));
+
+        assertThat(relayed).containsExactly(blocked(null));
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
+    @DisplayName("A blocked transfer event whose confirmation deadline is not an instant is skipped with a warning")
+    void aBlockedEventWithAnUnreadableDeadlineIsSkipped() {
+        listener.onTransferEvent(record(event(
+                EVENT_ID.toString(), "TransferBlocked.v1", blockedData(",\"confirmationDeadline\":\"tomorrow\""))));
+
+        assertThat(relayed).isEmpty();
+        assertThat(logs.list).hasSize(1);
+        assertThat(logs.list.get(0).getLevel()).isEqualTo(Level.WARN);
+        assertThat(logs.list.get(0).getMessage()).isEqualTo("activity stream skipped a record");
+    }
+
     @Test
     @DisplayName("A failed transfer event is handed on with its outcome, its parties, its amount and its reason")
     void aReadableEventIsHandedOn() {
@@ -152,7 +204,8 @@ class ActivityStreamListenerTest {
                         RECIPIENT,
                         new BigDecimal("80.0000"),
                         "EUR",
-                        FailureReason.INSUFFICIENT_FUNDS));
+                        FailureReason.INSUFFICIENT_FUNDS,
+                        null));
         assertThat(relayed.get(0).amount().toPlainString()).isEqualTo("80.0000");
         assertThat(logs.list).isEmpty();
     }

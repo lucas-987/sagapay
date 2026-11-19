@@ -91,7 +91,8 @@ public class ActivityStreamListener {
                 data.recipientId(),
                 amount,
                 data.currency(),
-                reason));
+                reason,
+                data.confirmationDeadline()));
     }
 
     /** A null cause is ignored by the logger. */

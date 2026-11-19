@@ -75,13 +75,13 @@ class ActivityStreamContractTest {
                         "transfer.posted",
                         List.of("transferId", "senderId", "recipientId", "amount", "currency"),
                         "transfer.blocked",
-                        List.of("transferId", "senderId", "recipientId", "amount", "currency"),
+                        List.of("transferId", "senderId", "recipientId", "amount", "currency", "confirmationDeadline"),
                         "transfer.failed",
                         List.of("transferId", "senderId", "recipientId", "amount", "currency", "cause")));
     }
 
     @Test
-    void everyDataFieldIsRequiredExceptTheCauseOfTheFailedEvent() {
+    void everyDataFieldIsRequiredExceptTheCauseOfTheFailedEventAndTheDeadlineOfTheBlockedEvent() {
         List<String> required = List.of("transferId", "senderId", "recipientId", "amount", "currency");
 
         assertThat(dataSchemaOf("transfer.posted").get("required")).isEqualTo(required);
@@ -121,6 +121,16 @@ class ActivityStreamContractTest {
         Map<String, Object> cause = map(map(dataSchemaOf("transfer.failed"), "properties"), "cause");
 
         assertThat((String) cause.get("description")).contains("Sent to the sender only and absent for the recipient");
+    }
+
+    @Test
+    void declaresTheConfirmationDeadlineAsAnInstantForTheSenderOnly() {
+        Map<String, Object> deadline = map(map(dataSchemaOf("transfer.blocked"), "properties"), "confirmationDeadline");
+
+        assertThat(deadline.get("type")).isEqualTo("string");
+        assertThat(deadline.get("format")).isEqualTo("date-time");
+        assertThat((String) deadline.get("description"))
+                .contains("Sent to the sender only and absent for the recipient");
     }
 
     @ParameterizedTest(name = "no schema has a {0} field")

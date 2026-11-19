@@ -1,0 +1,45 @@
+services:
+  postgres:
+    ports: !reset []
+  ledger-accounts-service:
+    ports: !reset []
+  postgres-orchestrator:
+    ports: !reset []
+  kafka:
+    ports: !reset []
+  transfer-orchestrator:
+    ports: !reset []
+  postgres-fraud:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  fraud-detection-service:
+    ports: !reset []
+  api-gateway:
+    ports: !reset []
+    networks:
+      - default
+      - browser
+  keycloak:
+    ports: !override
+      - "127.0.0.1:8180:8180"
+  frontend:
+    build:
+      context: ${SAGAPAY_FRONTEND_DIR:?set SAGAPAY_FRONTEND_DIR to the frontend checkout}
+      args:
+        HTTPS_PROXY: ${SAGAPAY_BUILD_HTTPS_PROXY:-}
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8088:8080"
+    networks:
+      - browser
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  browser:

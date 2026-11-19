@@ -121,6 +121,28 @@ whichever address the token was fetched from, so a browser follows Keycloak's li
 to its hosts file. The services check that issuer and keep fetching keys and service tokens at
 `http://keycloak:8180`.
 
+## Running the browser stack
+
+Set up `.env` and `infra/keycloak.env` as above. From the backend checkout, use Docker
+Compose 2.24.4 or later and point `SAGAPAY_FRONTEND_DIR` at an absolute path to the
+[frontend checkout](https://github.com/lucas-987/sagapay-frontend). For sibling checkouts:
+
+```bash
+export SAGAPAY_FRONTEND_DIR="$(realpath ../sagapay-frontend)"
+docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.browser.yml up --build --wait
+```
+
+Open `http://localhost:8088`. The frontend serves the built SPA and forwards same-origin
+`/v1` requests to the gateway on a shared network. Only the SPA on port 8088 and Keycloak
+on port 8180 have host bindings, both on `127.0.0.1`. Set `SAGAPAY_BUILD_HTTPS_PROXY`
+if the frontend image build needs an HTTPS proxy.
+
+Use the same two Compose files and environment to stop the stack:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.browser.yml down
+```
+
 ## Signing in from a browser
 
 The public client `sagapay-frontend` signs customers in with the authorization code flow and PKCE

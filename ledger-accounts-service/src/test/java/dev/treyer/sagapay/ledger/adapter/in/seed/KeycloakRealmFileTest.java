@@ -43,7 +43,9 @@ class KeycloakRealmFileTest {
                 .isEqualTo(Map.of(
                         "marco", "00000000-0000-4000-a000-000000000013",
                         "ines", "00000000-0000-4000-a000-000000000009",
-                        "hugo", "00000000-0000-4000-a000-000000000008"));
+                        "hugo", "00000000-0000-4000-a000-000000000008",
+                        "julien", "00000000-0000-4000-a000-000000000010",
+                        "gina", "00000000-0000-4000-a000-000000000007"));
     }
 
     @Test
@@ -59,7 +61,7 @@ class KeycloakRealmFileTest {
                 .map(user -> user.get("credentials").get(0).get("value").asString())
                 .toList();
 
-        assertThat(passwords).hasSize(3).allMatch(value -> value.matches("\\$\\{[A-Z_]+}"));
+        assertThat(passwords).hasSize(5).allMatch(value -> value.matches("\\$\\{[A-Z_]+}"));
         assertThat(passwords)
                 .extracting(value -> value.substring(2, value.length() - 1))
                 .containsExactlyInAnyOrderElementsOf(declared);
@@ -106,12 +108,12 @@ class KeycloakRealmFileTest {
     }
 
     @Test
-    @DisplayName("The realm has the command-line client and the orchestrator's client, nothing else")
-    void theRealmHasTheCommandLineClientAndTheOrchestratorsClientNothingElse() {
+    @DisplayName("The realm has the command-line, browser and orchestrator clients, nothing else")
+    void theRealmHasTheCommandLineBrowserAndOrchestratorClientsNothingElse() {
         assertThat(realm().get("clients")
                         .valueStream()
                         .map(client -> client.get("clientId").asString()))
-                .containsExactlyInAnyOrder("sagapay-cli", "transfer-orchestrator");
+                .containsExactlyInAnyOrder("sagapay-cli", "sagapay-frontend", "transfer-orchestrator");
     }
 
     @Test
@@ -169,5 +171,52 @@ class KeycloakRealmFileTest {
         assertThat(strings(client("sagapay-cli").get("optionalClientScopes"))).doesNotContain("ledger:write");
         assertThat(strings(realm().get("defaultDefaultClientScopes"))).doesNotContain("ledger:write");
         assertThat(strings(realm().get("optionalDefaultClientScopes"))).doesNotContain("ledger:write");
+    }
+
+    @Test
+    @DisplayName("The browser client is public, standard flow only")
+    void theBrowserClientIsPublicStandardFlowOnly() {
+        JsonNode client = client("sagapay-frontend");
+
+        assertThat(client.get("publicClient").asBoolean()).isTrue();
+        assertThat(client.get("standardFlowEnabled").asBoolean()).isTrue();
+        assertThat(client.get("implicitFlowEnabled").asBoolean()).isFalse();
+        assertThat(client.get("directAccessGrantsEnabled").asBoolean()).isFalse();
+        assertThat(client.get("serviceAccountsEnabled").asBoolean()).isFalse();
+    }
+
+    @Test
+    @DisplayName("The browser client requires PKCE with the S256 method")
+    void theBrowserClientRequiresPkceS256() {
+        assertThat(client("sagapay-frontend")
+                        .get("attributes")
+                        .get("pkce.code.challenge.method")
+                        .asString())
+                .isEqualTo("S256");
+    }
+
+    @Test
+    @DisplayName("The browser client registers the exact callback, logout and origin of the built SPA and Vite")
+    void theBrowserClientRegistersTheExactUrisOfTheBuiltSpaAndVite() {
+        JsonNode client = client("sagapay-frontend");
+
+        assertThat(strings(client.get("redirectUris")))
+                .containsExactly("http://localhost:8088/auth/callback", "http://localhost:5173/auth/callback");
+        assertThat(client.get("attributes").get("post.logout.redirect.uris").asString())
+                .isEqualTo("http://localhost:8088/##http://localhost:5173/");
+        assertThat(strings(client.get("webOrigins"))).containsExactly("http://localhost:8088", "http://localhost:5173");
+    }
+
+    @Test
+    @DisplayName("The browser client maps the subject itself and holds no ledger scope")
+    void theBrowserClientMapsTheSubjectItselfAndHoldsNoLedgerScope() {
+        JsonNode client = client("sagapay-frontend");
+
+        assertThat(client.get("protocolMappers")
+                        .valueStream()
+                        .map(mapper -> mapper.get("protocolMapper").asString()))
+                .containsExactly("oidc-sub-mapper");
+        assertThat(strings(client.get("defaultClientScopes"))).doesNotContain("ledger:write");
+        assertThat(strings(client.get("optionalClientScopes"))).doesNotContain("ledger:write");
     }
 }

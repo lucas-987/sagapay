@@ -50,6 +50,38 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000010",
+      "username": "julien",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Julien",
+      "lastName": "Simon",
+      "email": "julien@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${JULIEN_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000007",
+      "username": "gina",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Gina",
+      "lastName": "Rossi",
+      "email": "gina@sagapay.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${GINA_PASSWORD}",
+          "temporary": false
+        }
+      ]
     }
   ],
   "clients": [
@@ -62,6 +94,40 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "sagapay-frontend",
+      "name": "Browser client",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8088/auth/callback",
+        "http://localhost:5173/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8088",
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8088/##http://localhost:5173/"
+      },
       "protocolMappers": [
         {
           "name": "sub",

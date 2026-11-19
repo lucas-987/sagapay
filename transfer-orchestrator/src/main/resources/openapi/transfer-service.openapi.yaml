@@ -155,7 +155,6 @@ components:
         id: { type: string, format: uuid }
         senderId: { type: string }
         recipientId: { type: string }
-        recipientDisplayName: { type: string }
         amount: { $ref: '#/components/schemas/Money' }
         note: { type: string }
         status: { $ref: '#/components/schemas/TransferStatus' }

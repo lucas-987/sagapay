@@ -49,6 +49,22 @@ class TransferServiceContractTest {
     }
 
     @Test
+    void aTransferDeclaresItsPartiesByIdAndNoDisplayName() {
+        assertThat(new java.util.ArrayList<Object>(
+                        ((Map<?, ?>) schema("Transfer").get("properties")).keySet()))
+                .containsExactly(
+                        "id",
+                        "senderId",
+                        "recipientId",
+                        "amount",
+                        "note",
+                        "status",
+                        "failureReason",
+                        "createdAt",
+                        "updatedAt");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void theConfirmationDeadlineIsANullableInstantGivenToTheSenderWhileBlocked() {
         Map<String, Object> detailOwnProperties =

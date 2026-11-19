@@ -103,10 +103,11 @@ fail while it is unset, `down`, `ps` and `logs` included, so keep it in `.env`):
 
 ## Getting a token
 
-Compose also starts Keycloak on port 8180 with the `sagapay` realm. Its users `marco`, `ines`
-and `hugo` have the passwords you set in `infra/keycloak.env` (`MARCO_PASSWORD`, `INES_PASSWORD`
-and `HUGO_PASSWORD`), and each one's id is the id of the sample account with the same handle. The public client `sagapay-cli` allows getting a token from the command
-line:
+Compose also starts Keycloak on port 8180 with the `sagapay` realm. Its users `marco`, `ines`,
+`hugo`, `julien` and `gina` have the passwords you set in `infra/keycloak.env` (`MARCO_PASSWORD`,
+`INES_PASSWORD`, `HUGO_PASSWORD`, `JULIEN_PASSWORD` and `GINA_PASSWORD`), and each one's id is the
+id of the sample account with the same handle. `julien` and `gina` are the identities of browser
+sign-in. The public client `sagapay-cli` allows getting a token from the command line:
 
 ```bash
 set -a; . infra/keycloak.env; set +a    # exports MARCO_PASSWORD
@@ -115,9 +116,17 @@ curl -s http://localhost:8180/realms/sagapay/protocol/openid-connect/token \
   | jq -r .access_token
 ```
 
-The token's `sub` is `marco`'s account id and its issuer is `http://keycloak:8180/realms/sagapay`
-whichever address the token was fetched from. A browser that must follow a Keycloak link needs
-`127.0.0.1 keycloak` in its hosts file.
+The token's `sub` is `marco`'s account id and its issuer is `http://localhost:8180/realms/sagapay`
+whichever address the token was fetched from, so a browser follows Keycloak's links with no change
+to its hosts file. The services check that issuer and keep fetching keys and service tokens at
+`http://keycloak:8180`.
+
+## Signing in from a browser
+
+The public client `sagapay-frontend` signs customers in with the authorization code flow and PKCE
+(S256 required). It accepts the callback `/auth/callback` and the logout return to `/` on the built
+SPA (`http://localhost:8088`) and on Vite's dev server (`http://localhost:5173`), and no other
+redirect address. Sign in as `julien` or `gina` with the passwords of `infra/keycloak.env`.
 
 ## Trying the fraud flow
 

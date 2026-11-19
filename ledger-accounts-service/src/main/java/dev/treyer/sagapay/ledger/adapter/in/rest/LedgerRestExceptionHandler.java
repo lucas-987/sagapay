@@ -46,6 +46,11 @@ public class LedgerRestExceptionHandler {
         return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.INVALID_CURSOR, e.getMessage());
     }
 
+    @ExceptionHandler(InvalidAccountIdsException.class)
+    public ProblemDetail handleInvalidAccountIds(InvalidAccountIdsException e) {
+        return Problems.of(HttpStatus.BAD_REQUEST, AppErrorCode.INVALID_ACCOUNT_IDS, e.getMessage());
+    }
+
     @ExceptionHandler(UnknownHandleException.class)
     public ProblemDetail handleUnknownHandle(UnknownHandleException e) {
         return Problems.of(HttpStatus.NOT_FOUND, AppErrorCode.RECIPIENT_NOT_FOUND, e.getMessage());

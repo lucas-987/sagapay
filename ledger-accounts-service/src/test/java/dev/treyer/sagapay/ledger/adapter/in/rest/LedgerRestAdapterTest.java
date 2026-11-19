@@ -3,6 +3,7 @@ package dev.treyer.sagapay.ledger.adapter.in.rest;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.ledger.application.port.in.GetWalletUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.ListPostingsUseCase;
+import dev.treyer.sagapay.ledger.application.port.in.LookupAccountNamesUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.LookupAccountUseCase;
 import dev.treyer.sagapay.ledger.domain.AccountLookup;
 import dev.treyer.sagapay.ledger.domain.Posting;
@@ -21,17 +22,23 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -55,6 +62,9 @@ class LedgerRestAdapterTest {
 
     @MockitoBean
     private LookupAccountUseCase lookupAccountUseCase;
+
+    @MockitoBean
+    private LookupAccountNamesUseCase lookupAccountNamesUseCase;
 
     // The filters are off, so the token's authentication is set the way the resource-server filter would.
     private static UUID signedInAsNewAccount() {
@@ -182,5 +192,105 @@ class LedgerRestAdapterTest {
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("RECIPIENT_NOT_FOUND"));
+    }
+
+    @Test
+    void namesAnswersOneItemWithOnlyTheAccountIdAndTheDisplayNamePerKnownId() throws Exception {
+        UUID alice = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+        when(lookupAccountNamesUseCase.lookupNames(Set.of(alice, bob)))
+                .thenReturn(List.of(new AccountLookup(alice, "Alice Martin"), new AccountLookup(bob, "Bob Durand")));
+
+        mockMvc.perform(get("/v1/users/names").param("ids", alice.toString(), bob.toString()))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                                {"items": [
+                                  {"accountId": "%s", "displayName": "Alice Martin"},
+                                  {"accountId": "%s", "displayName": "Bob Durand"}
+                                ]}""".formatted(alice, bob), JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void namesAsksTheUseCaseOnceForAnIdGivenTwice() throws Exception {
+        UUID alice = UUID.randomUUID();
+        when(lookupAccountNamesUseCase.lookupNames(Set.of(alice))).thenReturn(List.of());
+
+        mockMvc.perform(get("/v1/users/names").param("ids", alice.toString(), alice.toString()))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"items\": []}", JsonCompareMode.STRICT));
+
+        verify(lookupAccountNamesUseCase).lookupNames(Set.of(alice));
+    }
+
+    @Test
+    void namesAcceptsExactlyFiftyIds() throws Exception {
+        String[] ids =
+                Stream.generate(UUID::randomUUID).limit(50).map(UUID::toString).toArray(String[]::new);
+        when(lookupAccountNamesUseCase.lookupNames(anySet())).thenReturn(List.of());
+
+        mockMvc.perform(get("/v1/users/names").param("ids", ids)).andExpect(status().isOk());
+    }
+
+    @Test
+    void namesRefusesFiftyOneIds() throws Exception {
+        String[] ids =
+                Stream.generate(UUID::randomUUID).limit(51).map(UUID::toString).toArray(String[]::new);
+
+        mockMvc.perform(get("/v1/users/names").param("ids", ids))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must hold between 1 and 50 account ids"));
+        verifyNoInteractions(lookupAccountNamesUseCase);
+    }
+
+    @Test
+    void namesRefusesFiftyOneIdsEvenWhenRepeated() throws Exception {
+        String id = UUID.randomUUID().toString();
+        String[] ids = Stream.generate(() -> id).limit(51).toArray(String[]::new);
+
+        mockMvc.perform(get("/v1/users/names").param("ids", ids))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must hold between 1 and 50 account ids"));
+    }
+
+    @Test
+    void namesRefusesARequestWithoutIds() throws Exception {
+        mockMvc.perform(get("/v1/users/names"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must hold between 1 and 50 account ids"));
+        verifyNoInteractions(lookupAccountNamesUseCase);
+    }
+
+    @Test
+    void namesRefusesAnEmptyIdsValue() throws Exception {
+        mockMvc.perform(get("/v1/users/names").param("ids", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must hold between 1 and 50 account ids"));
+        verifyNoInteractions(lookupAccountNamesUseCase);
+    }
+
+    @Test
+    void namesRefusesAMalformedIdAmongValidOnes() throws Exception {
+        mockMvc.perform(get("/v1/users/names").param("ids", UUID.randomUUID().toString(), "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must all be UUIDs"));
+        verifyNoInteractions(lookupAccountNamesUseCase);
+    }
+
+    @Test
+    void namesRefusesAnIdThatTheJdkReadsButIsNotCanonical() throws Exception {
+        mockMvc.perform(get("/v1/users/names").param("ids", "1-1-1-1-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_IDS"))
+                .andExpect(jsonPath("$.detail").value("ids must all be UUIDs"));
+        verifyNoInteractions(lookupAccountNamesUseCase);
     }
 }

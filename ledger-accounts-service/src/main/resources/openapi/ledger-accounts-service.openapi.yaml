@@ -86,6 +86,45 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /v1/users/names:
+    get:
+      operationId: lookupAccountNames
+      summary: Display names of accounts, by id (counterparty names of a list)
+      description: >-
+        Answers the display name of each known account among at most 50 ids, in one
+        request, for any signed-in user: the token's subject is not used. One item per
+        known id, each id once even when repeated, in no guaranteed order; an unknown id
+        is left out. Nothing else about an account is returned. At least one id and at
+        most 50 are required, each a UUID, otherwise 400 with code INVALID_ACCOUNT_IDS.
+      parameters:
+        - name: ids
+          in: query
+          description: Account ids, the parameter repeated once per id (at most 50).
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+      responses:
+        '200':
+          description: names of the known accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccountName' }
+        '400':
+          description: no id, more than 50 ids, or an id that is not a UUID (code INVALID_ACCOUNT_IDS)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: no token, or a token the realm does not accept
+
 components:
   securitySchemes:
     oidc:
@@ -102,6 +141,12 @@ components:
         detail: { type: string }
         instance: { type: string }
         code: { type: string }
+    AccountName:
+      type: object
+      required: [accountId, displayName]
+      properties:
+        accountId: { type: string, format: uuid }
+        displayName: { type: string }
     Money:
       type: object
       properties: { currency: { type: string }, amount: { type: string } }

@@ -102,7 +102,11 @@ class RestTokenAuthenticationTest {
                 "a token whose key id the realm does not publish",
                 TestTokens.token().subject(account).keyId("unknown-key").build());
         tokens.put("a malformed token", "not-a-token");
-        return Stream.of("/v1/wallet", "/v1/wallet/postings", "/v1/users/lookup?handle=nobody")
+        return Stream.of(
+                        "/v1/wallet",
+                        "/v1/wallet/postings",
+                        "/v1/users/lookup?handle=nobody",
+                        "/v1/users/names?ids=" + UUID.randomUUID())
                 .flatMap(path ->
                         tokens.entrySet().stream().map(token -> Arguments.of(path, token.getKey(), token.getValue())));
     }
@@ -132,6 +136,18 @@ class RestTokenAuthenticationTest {
                         .get("accountId")
                         .asString())
                 .isEqualTo(account.getId().toString());
+    }
+
+    @Test
+    void aSignedInUserReadsNamesWhateverItsAccount() throws Exception {
+        Account account = accounts.create(
+                new Account(UUID.randomUUID(), "named-" + UUID.randomUUID(), "Named", "EUR", new BigDecimal("1.00")));
+
+        HttpResponse<String> response = get("/v1/users/names?ids=" + account.getId(), tokenOf(UUID.randomUUID()));
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(JsonMapper.builder().build().readTree(response.body()).toString())
+                .isEqualTo("{\"items\":[{\"accountId\":\"%s\",\"displayName\":\"Named\"}]}".formatted(account.getId()));
     }
 
     static Stream<String> subjectsThatAreNotAnAccount() {

@@ -5,6 +5,8 @@ import dev.treyer.sagapay.ledger.domain.Account;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +27,11 @@ class AccountPersistenceAdapter implements AccountPort {
     @Override
     public Optional<Account> findById(UUID id) {
         return repository.findById(id);
+    }
+
+    @Override
+    public List<Account> findAllById(Collection<UUID> ids) {
+        return repository.findAllById(ids);
     }
 
     @Override

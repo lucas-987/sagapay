@@ -6,6 +6,7 @@ import dev.treyer.sagapay.ledger.application.port.in.ExpireReservationsUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.GetBalanceUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.GetWalletUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.ListPostingsUseCase;
+import dev.treyer.sagapay.ledger.application.port.in.LookupAccountNamesUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.LookupAccountUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.PostTransferUseCase;
 import dev.treyer.sagapay.ledger.application.port.in.ReleaseReservationUseCase;
@@ -41,6 +42,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -55,6 +57,7 @@ public class LedgerService
                 GetWalletUseCase,
                 ListPostingsUseCase,
                 LookupAccountUseCase,
+                LookupAccountNamesUseCase,
                 ExpireReservationsUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(LedgerService.class);
@@ -271,6 +274,14 @@ public class LedgerService
     public AccountLookup lookupByHandle(String handle) {
         Account account = accounts.findByHandle(handle).orElseThrow(() -> new UnknownHandleException(handle));
         return new AccountLookup(account.getId(), account.getDisplayName());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AccountLookup> lookupNames(Set<UUID> accountIds) {
+        return accounts.findAllById(accountIds).stream()
+                .map(account -> new AccountLookup(account.getId(), account.getDisplayName()))
+                .toList();
     }
 
     private Account requireAccount(UUID accountId) {

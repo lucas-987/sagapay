@@ -3,6 +3,8 @@ package dev.treyer.sagapay.ledger.application.port.out;
 import dev.treyer.sagapay.ledger.domain.Account;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,6 +13,9 @@ public interface AccountPort {
     Optional<Account> findByIdForUpdate(UUID id);
 
     Optional<Account> findById(UUID id);
+
+    /** One query; an unknown id gives no entry. */
+    List<Account> findAllById(Collection<UUID> ids);
 
     Optional<Account> findByHandle(String handle);
 

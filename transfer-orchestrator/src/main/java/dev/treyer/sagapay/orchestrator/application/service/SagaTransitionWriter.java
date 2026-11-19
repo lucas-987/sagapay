@@ -19,6 +19,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -111,9 +112,9 @@ class SagaTransitionWriter {
     }
 
     /** Same rule as {@link #tryApplyCleared}. A transfer moved to {@code BLOCKED} also gets its
-     * {@code TransferBlocked} event, which carries neither the score nor the reasons. The
-     * reservation stays held, so the ledger is not called, unless it would expire before the
-     * sender can answer: see {@link FlagOutcome#EXPIRED}. */
+     * {@code TransferBlocked} event, which carries the confirmation deadline and neither the score
+     * nor the reasons. The reservation stays held, so the ledger is not called, unless it would
+     * expire before the sender can answer: see {@link FlagOutcome#EXPIRED}. */
     @Transactional
     FlagOutcome tryApplyFlagged(FraudResult result) {
         if (!processedEvents.tryMarkProcessed(result.eventId(), FRAUD_CONSUMER)) {
@@ -124,8 +125,11 @@ class SagaTransitionWriter {
             return FlagOutcome.SKIPPED;
         }
         Instant now = clock.instant();
-        Instant windowEnd = now.plusMillis(confirmationWindowMs);
-        Instant latestDeadline = transfer.getReservationExpiresAt().minusMillis(reservationMarginMs);
+        // The column keeps microseconds: the event must carry the value the step reads back.
+        Instant windowEnd = now.plusMillis(confirmationWindowMs).truncatedTo(ChronoUnit.MICROS);
+        Instant latestDeadline = transfer.getReservationExpiresAt()
+                .minusMillis(reservationMarginMs)
+                .truncatedTo(ChronoUnit.MICROS);
         Instant deadline = windowEnd.isBefore(latestDeadline) ? windowEnd : latestDeadline;
         if (!deadline.isAfter(now)) {
             return tryExpireFlagged(transfer, result, now);
@@ -136,7 +140,7 @@ class SagaTransitionWriter {
         }
         sagaSteps.save(new SagaStep(
                 result.transferId(), SagaStepName.SCREEN, SagaStepOutcome.RETRY, fraudDetail(result), deadline, now));
-        outbox.save(OutboxEvents.forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_BLOCKED, now));
+        outbox.save(OutboxEvents.forBlockedTransfer(jsonMapper, transfer, deadline, now));
         return deadline.equals(windowEnd) ? FlagOutcome.BLOCKED : FlagOutcome.BLOCKED_SHORTENED;
     }
 

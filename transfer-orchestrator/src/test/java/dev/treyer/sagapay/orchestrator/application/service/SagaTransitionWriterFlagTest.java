@@ -118,6 +118,68 @@ class SagaTransitionWriterFlagTest {
         assertThat(savedSteps(1).get(0).getDeadline()).isEqualTo(expiresAt.minusMillis(MARGIN_MS));
     }
 
+    /** The writer at a clock reading {@code now}, which the stubs of {@link #setUp} do not cover. */
+    private SagaTransitionWriter writerAt(Instant now) {
+        when(transfers.transitionToBlocked(transferId, SCORE, REASONS, now)).thenReturn(1);
+        return new SagaTransitionWriter(
+                transfers,
+                sagaSteps,
+                outbox,
+                processedEvents,
+                new JsonMapper(),
+                Clock.fixed(now, ZoneOffset.UTC),
+                new SagaSettings(5000, 10000, WINDOW_MS, MARGIN_MS, 100, 100));
+    }
+
+    private Instant savedBlockedDeadline() {
+        ArgumentCaptor<OutboxRow> saved = ArgumentCaptor.forClass(OutboxRow.class);
+        verify(outbox).save(saved.capture());
+        return Instant.parse(new JsonMapper()
+                .readTree(saved.getValue().getPayload())
+                .get("confirmationDeadline")
+                .asString());
+    }
+
+    @Test
+    @DisplayName("The window end is cut to microseconds, and the event carries the step's deadline")
+    void theWindowEndIsCutToMicrosecondsAndTheEventCarriesIt() {
+        screening(NOW.plusSeconds(600));
+        Instant now = NOW.plusNanos(123_456_789);
+
+        assertThat(writerAt(now).tryApplyFlagged(flagged)).isEqualTo(FlagOutcome.BLOCKED);
+
+        Instant expected = NOW.plusMillis(WINDOW_MS).plusNanos(123_456_000);
+        assertThat(savedSteps(1).get(0).getDeadline()).isEqualTo(expected);
+        assertThat(savedBlockedDeadline()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("The reservation limit is cut to microseconds, and the event carries the step's deadline")
+    void theReservationLimitIsCutToMicrosecondsAndTheEventCarriesIt() {
+        screening(NOW.plusSeconds(60).plusNanos(999));
+
+        assertThat(writer.tryApplyFlagged(flagged)).isEqualTo(FlagOutcome.BLOCKED_SHORTENED);
+
+        Instant expected = NOW.plusSeconds(55);
+        assertThat(savedSteps(1).get(0).getDeadline()).isEqualTo(expected);
+        assertThat(savedBlockedDeadline()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("A window and a reservation limit that differ only below a microsecond leave the window whole")
+    void aLimitDifferingFromTheWindowBelowAMicrosecondLeavesTheWindowWhole() {
+        Instant now = NOW.plusNanos(1_900);
+        Instant windowEnd = now.plusMillis(WINDOW_MS);
+        // Before the cut the limit (1 100 ns past the second) is earlier than the window end (1 900 ns).
+        screening(NOW.plusMillis(WINDOW_MS + MARGIN_MS).plusNanos(1_100));
+
+        assertThat(writerAt(now).tryApplyFlagged(flagged)).isEqualTo(FlagOutcome.BLOCKED);
+
+        assertThat(windowEnd).isEqualTo(NOW.plusMillis(WINDOW_MS).plusNanos(1_900));
+        assertThat(savedSteps(1).get(0).getDeadline())
+                .isEqualTo(NOW.plusMillis(WINDOW_MS).plusNanos(1_000));
+    }
+
     @Test
     @Tag("M3-S51")
     @DisplayName("A reservation leaving no time to confirm fails the transfer and releases it")

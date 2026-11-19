@@ -169,6 +169,25 @@ class SagaServiceConfirmTest {
     }
 
     @Test
+    void theSenderOfABlockedTransferWithoutAnOpenWindowStepReadsNoDeadline() {
+        when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blockedTransfer()));
+        when(sagaSteps.findByTransferId(TRANSFER_ID)).thenReturn(List.of());
+
+        assertThat(service.getTransfer(TRANSFER_ID, SENDER_ID).confirmationDeadline())
+                .isNull();
+    }
+
+    @Test
+    void theRecipientOfABlockedTransferWithoutAnOpenWindowStepReadsNoDeadlineAndNoError() {
+        Transfer blocked = blockedTransfer();
+        when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blocked));
+        when(sagaSteps.findByTransferId(TRANSFER_ID)).thenReturn(List.of());
+
+        assertThat(service.getTransfer(TRANSFER_ID, blocked.getRecipientId()).confirmationDeadline())
+                .isNull();
+    }
+
+    @Test
     void theWindowIsTheLatestRetryScreenStepWhateverOtherStepsFollowIt() {
         Transfer blocked = blockedTransfer();
         when(transfers.findById(TRANSFER_ID)).thenReturn(Optional.of(blocked));

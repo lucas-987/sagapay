@@ -48,6 +48,41 @@ class TransferServiceContractTest {
                 .isEqualTo("Steps of the saga, given to the sender only: empty for the recipient.");
     }
 
+    @Test
+    void aTransferDeclaresItsPartiesByIdAndNoDisplayName() {
+        assertThat(new java.util.ArrayList<Object>(
+                        ((Map<?, ?>) schema("Transfer").get("properties")).keySet()))
+                .containsExactly(
+                        "id",
+                        "senderId",
+                        "recipientId",
+                        "amount",
+                        "note",
+                        "status",
+                        "failureReason",
+                        "createdAt",
+                        "updatedAt");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theConfirmationDeadlineIsANullableInstantGivenToTheSenderWhileBlocked() {
+        Map<String, Object> detailOwnProperties =
+                ((List<Map<String, Object>>) schema("TransferDetail").get("allOf")).get(1);
+
+        assertThat(property(detailOwnProperties, "confirmationDeadline"))
+                .isEqualTo(Map.of(
+                        "type",
+                        "string",
+                        "format",
+                        "date-time",
+                        "nullable",
+                        true,
+                        "description",
+                        "Instant by which the sender must confirm, given to the sender while the transfer is"
+                                + " BLOCKED: null otherwise and for the recipient."));
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, Object> schema(String name) {
         Map<String, Object> components = (Map<String, Object>) load().get("components");

@@ -22,9 +22,10 @@ paths:
       description: >-
         Long-lived `text/event-stream` response. Each event is pushed to the sender and to the
         recipient of the transfer, and the SSE `id` is the id of the Kafka event (CloudEvent)
-        it comes from. The `cause` of `transfer.failed` is sent to the sender only. Comment
-        lines (`: open` when the stream opens, then `: ping` at a fixed interval) keep an idle
-        connection open through proxies; clients ignore them.
+        it comes from. The `cause` of `transfer.failed` and the `confirmationDeadline` of
+        `transfer.blocked` are sent to the sender only. Comment lines (`: open` when the stream
+        opens, then `: ping` at a fixed interval) keep an idle connection open through proxies;
+        clients ignore them.
       responses:
         '200':
           description: stream open
@@ -90,6 +91,13 @@ components:
         recipientId: { type: string, format: uuid }
         amount: { type: string, description: Decimal string, example: '25.00' }
         currency: { type: string, example: EUR }
+        confirmationDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Instant by which the sender must confirm. Sent to the sender only and absent for the
+            recipient. Also absent for a transfer blocked before the field existed: the sender
+            reads it from the transfer's detail.
     TransferFailedData:
       type: object
       required: [transferId, senderId, recipientId, amount, currency]

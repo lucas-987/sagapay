@@ -1,5 +1,6 @@
 package dev.treyer.sagapay.orchestrator.adapter.in.rest;
 
+import com.jayway.jsonpath.JsonPath;
 import dev.treyer.sagapay.common.domain.Money;
 import dev.treyer.sagapay.orchestrator.application.port.in.AdvanceSagaUseCase;
 import dev.treyer.sagapay.orchestrator.application.port.in.ConfirmTransferUseCase;
@@ -41,12 +42,14 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,6 +70,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({TransferRestAdapterTest.SyncExecutorConfig.class, ResourceServerSecurityConfig.class})
 @ExtendWith(OutputCaptureExtension.class)
 class TransferRestAdapterTest {
+
+    private static final String[] KEYS_OF_TRANSFER = {
+        "id", "senderId", "recipientId", "amount", "note", "status", "failureReason", "createdAt", "updatedAt"
+    };
+    private static final String[] KEYS_OF_DETAIL = {
+        "id",
+        "senderId",
+        "recipientId",
+        "amount",
+        "note",
+        "status",
+        "failureReason",
+        "createdAt",
+        "updatedAt",
+        "steps",
+        "confirmationDeadline"
+    };
 
     private static final String VALID_BODY = """
             {"toUserId": "%s", "amount": {"currency": "EUR", "amount": "80.00"}, "note": "pizza"}""";
@@ -490,11 +510,65 @@ class TransferRestAdapterTest {
         UUID recipientId = UUID.randomUUID();
         Transfer transfer = newTransfer(senderId, recipientId);
         when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
-                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of()));
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
 
         mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(transfer.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("The detail of a blocked transfer shows its confirmation deadline as an instant")
+    void getTransferShowsTheConfirmationDeadline() throws Exception {
+        Transfer transfer = newTransfer(CALLER_ID, UUID.randomUUID());
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(
+                        transfer, List.of(), Instant.parse("2026-11-01T10:02:00.123456Z")));
+
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationDeadline").value("2026-11-01T10:02:00.123456Z"));
+    }
+
+    @Test
+    @DisplayName("The detail of a transfer with no confirmation deadline shows none")
+    void getTransferShowsNoConfirmationDeadlineWhenThereIsNone() throws Exception {
+        Transfer transfer = newTransfer(UUID.randomUUID(), CALLER_ID);
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
+
+        mockMvc.perform(get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmationDeadline").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("The detail and the list give the sender and the recipient ids and no display name")
+    void detailAndListGiveBothIdsAndNoDisplayName() throws Exception {
+        UUID recipientId = UUID.randomUUID();
+        Transfer transfer = newTransfer(CALLER_ID, recipientId);
+        when(getTransferUseCase.getTransfer(transfer.getId(), CALLER_ID))
+                .thenReturn(new GetTransferUseCase.TransferWithSteps(transfer, List.of(), null));
+        when(listTransfersUseCase.listTransfers(any(), any(), any(), any(), anyInt()))
+                .thenReturn(new ListTransfersUseCase.Page(List.of(transfer), null));
+
+        String detail = mockMvc.perform(
+                        get("/v1/transfers/{id}", transfer.getId()).with(token(CALLER_ID)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String list = mockMvc.perform(get("/v1/transfers").with(token(CALLER_ID)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(JsonPath.<String>read(detail, "$.senderId")).isEqualTo(CALLER_ID.toString());
+        assertThat(JsonPath.<String>read(detail, "$.recipientId")).isEqualTo(recipientId.toString());
+        assertThat(JsonPath.<Map<String, Object>>read(detail, "$").keySet()).containsExactlyInAnyOrder(KEYS_OF_DETAIL);
+        assertThat(JsonPath.<String>read(list, "$.items[0].senderId")).isEqualTo(CALLER_ID.toString());
+        assertThat(JsonPath.<String>read(list, "$.items[0].recipientId")).isEqualTo(recipientId.toString());
+        assertThat(JsonPath.<Map<String, Object>>read(list, "$.items[0]").keySet())
+                .containsExactlyInAnyOrder(KEYS_OF_TRANSFER);
     }
 
     @ParameterizedTest
@@ -514,7 +588,7 @@ class TransferRestAdapterTest {
         // The use case gives the steps to the sender only.
         when(getTransferUseCase.getTransfer(flagged.getId(), CALLER_ID))
                 .thenReturn(new GetTransferUseCase.TransferWithSteps(
-                        flagged, party == Party.SENDER ? List.of(screen) : List.of()));
+                        flagged, party == Party.SENDER ? List.of(screen) : List.of(), null));
 
         mockMvc.perform(get("/v1/transfers/{id}", flagged.getId()).with(token(CALLER_ID)))
                 .andExpect(status().isOk())

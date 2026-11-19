@@ -145,6 +145,9 @@ final class BufferedSseSink implements OpenActivityStreamUseCase.Sink {
         if (event.reason() != null) {
             data.put("cause", event.reason().name());
         }
+        if (event.confirmationDeadline() != null) {
+            data.put("confirmationDeadline", event.confirmationDeadline().toString());
+        }
         return data;
     }
 }

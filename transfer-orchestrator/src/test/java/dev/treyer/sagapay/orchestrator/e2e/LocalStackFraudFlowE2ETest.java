@@ -32,7 +32,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -499,10 +501,21 @@ class LocalStackFraudFlowE2ETest {
                 HttpClient.newHttpClient(), baseUrlOf("api-gateway", GATEWAY_PORT), senderToken)) {
             warmUp(stream, senderToken, warmUpRecipientId);
 
+            Instant beforeSend = Instant.now();
             UUID transferId = send(gateway, senderToken, recipientId, "500.00");
 
             Map<String, Object> data = transferData(transferId, senderToken, recipientId, "500.0000");
-            assertThat(eventOf(stream.take(1).get(0))).isEqualTo(Map.of("name", "transfer.blocked", "data", data));
+            // The deadline depends on the clock: the other fields are compared whole.
+            ActivityStreamSupport.Event blocked = stream.take(1).get(0);
+            Map<Object, Object> blockedData = new HashMap<>(blocked.data());
+            Object deadline = blockedData.remove("confirmationDeadline");
+            assertThat(blocked.name()).isEqualTo("transfer.blocked");
+            assertThat(blockedData).isEqualTo(data);
+            // The window of this stack is 10 s (SAGA_CONFIRMATION_WINDOW_MS): the deadline lies
+            // between the send and the receipt of the event plus that window.
+            assertThat(Instant.parse((String) deadline))
+                    .isAfter(beforeSend)
+                    .isBeforeOrEqualTo(Instant.now().plusSeconds(10));
             assertThatThrownBy(() -> confirm(gateway, transferId, senderToken, "not-the-code"))
                     .isInstanceOfSatisfying(HttpClientErrorException.class, e -> {
                         assertThat(e.getStatusCode().value()).isEqualTo(422);

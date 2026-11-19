@@ -25,6 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -101,6 +102,14 @@ class TransferBlockedOutboxTest {
                 eventType);
     }
 
+    private Instant openScreenDeadline(UUID transferId) {
+        return jdbc.queryForObject(
+                        "select deadline from saga_steps where transfer_id = ? and step = 'SCREEN' and outcome = 'RETRY' order by id desc limit 1",
+                        java.sql.Timestamp.class,
+                        transferId)
+                .toInstant();
+    }
+
     private void assertOneBlockedRowFor(UUID id) {
         List<Map<String, Object>> rows = outboxRows(id, BLOCKED_EVENT);
 
@@ -109,7 +118,7 @@ class TransferBlockedOutboxTest {
         assertThat(jsonMapper.readTree((String) rows.getFirst().get("payload")))
                 .isEqualTo(jsonMapper.readTree("""
                         {"transferId":"%s","senderId":"%s","recipientId":"%s","amount":"80.0000",\
-                        "currency":"EUR","eventType":"TransferBlocked"}""".formatted(id, sender, recipient)));
+                        "currency":"EUR","eventType":"TransferBlocked","confirmationDeadline":"%s"}""".formatted(id, sender, recipient, openScreenDeadline(id))));
     }
 
     @Test
@@ -126,11 +135,13 @@ class TransferBlockedOutboxTest {
     @Test
     @DisplayName("A flagged transfer blocked with a shortened window writes one TransferBlocked row")
     void aShortenedBlockWritesOneRow() {
-        UUID id = screening(Instant.now().plusSeconds(60));
+        Instant reservationExpiresAt = Instant.now().plusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        UUID id = screening(reservationExpiresAt);
 
         assertThat(writer.tryApplyFlagged(flagged(id))).isEqualTo(FlagOutcome.BLOCKED_SHORTENED);
 
         assertThat(statusOf(id)).isEqualTo(TransferStatus.BLOCKED);
+        assertThat(openScreenDeadline(id)).isEqualTo(reservationExpiresAt.minusMillis(5000));
         assertOneBlockedRowFor(id);
     }
 

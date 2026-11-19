@@ -92,14 +92,17 @@ components:
     TransferBlocked:
       name: TransferBlocked
       title: TransferBlocked
-      summary: The fraud screening held the transfer and it waits for the sender's confirmation. Carries no fraud decision, score or reason.
+      summary: >-
+        The fraud screening held the transfer and it waits for the sender's confirmation.
+        Carries no fraud decision, score or reason. A record written before
+        `confirmationDeadline` existed lacks it.
       contentType: application/json
       payload:
         allOf:
           - $ref: '#/components/schemas/CloudEvent'
           - properties:
               type: { const: TransferBlocked.v1 }
-              data: { $ref: '#/components/schemas/TransferEventData' }
+              data: { $ref: '#/components/schemas/TransferBlockedData' }
     TransferFailed:
       name: TransferFailed
       title: TransferFailed
@@ -157,6 +160,17 @@ components:
         recipientId: { type: string, format: uuid }
         amount: { type: string, description: Decimal string, example: '25.00' }
         currency: { type: string, example: EUR }
+    TransferBlockedData:
+      allOf:
+        - $ref: '#/components/schemas/TransferEventData'
+        - type: object
+          properties:
+            confirmationDeadline:
+              type: string
+              format: date-time
+              description: >-
+                Absolute instant by which the sender must confirm: the deadline of the open
+                confirmation step, shortened when the ledger's reservation expires sooner.
     TransferFailedData:
       allOf:
         - $ref: '#/components/schemas/TransferEventData'

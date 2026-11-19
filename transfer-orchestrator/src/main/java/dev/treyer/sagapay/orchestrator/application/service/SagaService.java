@@ -46,6 +46,7 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -404,9 +405,25 @@ public class SagaService
                 .findById(transferId)
                 .filter(found -> userId.equals(found.getSenderId()) || userId.equals(found.getRecipientId()))
                 .orElseThrow(() -> new TransferNotFoundException(transferId));
+        List<SagaStep> steps = sagaSteps.findByTransferId(transferId);
         return new TransferWithSteps(
                 transfer,
-                SenderOnlyDetails.steps(sagaSteps.findByTransferId(transferId), transfer.getSenderId(), userId));
+                SenderOnlyDetails.steps(steps, transfer.getSenderId(), userId),
+                deadlineShownTo(transfer, steps, userId));
+    }
+
+    /** Only the sender of a blocked transfer is shown its deadline. A blocked transfer with no open
+     * window step is a broken invariant, but the read still answers, without the optional value. */
+    private static Instant deadlineShownTo(Transfer transfer, List<SagaStep> steps, UUID userId) {
+        if (transfer.getStatus() != TransferStatus.BLOCKED
+                || !transfer.getSenderId().equals(userId)) {
+            return null;
+        }
+        Optional<Instant> deadline = openConfirmationWindow(steps);
+        if (deadline.isEmpty()) {
+            log.warn("blocked transfer has no open confirmation window", kv("transfer.id", transfer.getId()));
+        }
+        return deadline.orElse(null);
     }
 
     @Override
@@ -454,13 +471,22 @@ public class SagaService
         if (transfer.getStatus() != TransferStatus.BLOCKED) {
             return false;
         }
-        Instant deadline = sagaSteps.findByTransferId(transfer.getId()).stream()
-                .filter(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.RETRY)
-                .reduce((first, second) -> second)
-                .map(SagaStep::getDeadline)
+        return openConfirmationDeadline(transfer, sagaSteps.findByTransferId(transfer.getId()))
+                .isBefore(clock.instant());
+    }
+
+    private static Instant openConfirmationDeadline(Transfer transfer, List<SagaStep> steps) {
+        return openConfirmationWindow(steps)
                 .orElseThrow(() -> new IllegalStateException(
                         "blocked transfer " + transfer.getId() + " has no open confirmation window"));
-        return deadline.isBefore(clock.instant());
+    }
+
+    /** The latest open SCREEN step of a blocked transfer holds the confirmation deadline. */
+    private static Optional<Instant> openConfirmationWindow(List<SagaStep> steps) {
+        return steps.stream()
+                .filter(step -> step.getStep() == SagaStepName.SCREEN && step.getOutcome() == SagaStepOutcome.RETRY)
+                .reduce((first, second) -> second)
+                .map(SagaStep::getDeadline);
     }
 
     private Transfer requireTransfer(UUID transferId) {

@@ -31,6 +31,7 @@ class ActivityStreamServiceTest {
                 recipient,
                 new BigDecimal("80.0000"),
                 "EUR",
+                null,
                 null);
     }
 

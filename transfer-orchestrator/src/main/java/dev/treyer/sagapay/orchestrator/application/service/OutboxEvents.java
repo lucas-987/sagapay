@@ -16,17 +16,28 @@ final class OutboxEvents {
     private OutboxEvents() {}
 
     static OutboxRow forTransfer(JsonMapper jsonMapper, Transfer transfer, TransferEventType eventType, Instant now) {
-        return forTransfer(jsonMapper, transfer, eventType, null, now);
+        return forTransfer(jsonMapper, transfer, eventType, null, null, now);
+    }
+
+    /** Carries the deadline of the confirmation step written in the same transaction. */
+    static OutboxRow forBlockedTransfer(
+            JsonMapper jsonMapper, Transfer transfer, Instant confirmationDeadline, Instant now) {
+        return forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_BLOCKED, null, confirmationDeadline, now);
     }
 
     /** Carries the same code as {@code transfers.failure_reason}, so consumers
      * can tell why without calling back the orchestrator. */
     static OutboxRow forFailedTransfer(JsonMapper jsonMapper, Transfer transfer, FailureReason reason, Instant now) {
-        return forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_FAILED, reason, now);
+        return forTransfer(jsonMapper, transfer, TransferEventType.TRANSFER_FAILED, reason, null, now);
     }
 
     private static OutboxRow forTransfer(
-            JsonMapper jsonMapper, Transfer transfer, TransferEventType eventType, FailureReason reason, Instant now) {
+            JsonMapper jsonMapper,
+            Transfer transfer,
+            TransferEventType eventType,
+            FailureReason reason,
+            Instant confirmationDeadline,
+            Instant now) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("transferId", transfer.getId().toString());
         payload.put("senderId", transfer.getSenderId().toString());
@@ -36,6 +47,9 @@ final class OutboxEvents {
         payload.put("eventType", eventType.wireName());
         if (reason != null) {
             payload.put("reason", reason.name());
+        }
+        if (confirmationDeadline != null) {
+            payload.put("confirmationDeadline", confirmationDeadline.toString());
         }
         return new OutboxRow(
                 UUID.randomUUID(),

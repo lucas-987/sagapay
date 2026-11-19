@@ -55,13 +55,48 @@ public final class ActivityStreamSupport {
             UUID senderId,
             UUID recipientId,
             String reason) {
+        publishWithField(
+                kafka,
+                eventId,
+                type,
+                transferId,
+                senderId,
+                recipientId,
+                reason == null ? "" : ",\"reason\":\"" + reason + "\"");
+    }
+
+    /** A {@code TransferBlocked} as the outbox gives it since it carries the confirmation deadline. */
+    public static void publishBlocked(
+            KafkaTemplate<String, String> kafka,
+            UUID eventId,
+            UUID transferId,
+            UUID senderId,
+            UUID recipientId,
+            String confirmationDeadline) {
+        publishWithField(
+                kafka,
+                eventId,
+                "TransferBlocked.v1",
+                transferId,
+                senderId,
+                recipientId,
+                ",\"confirmationDeadline\":\"" + confirmationDeadline + "\"");
+    }
+
+    private static void publishWithField(
+            KafkaTemplate<String, String> kafka,
+            UUID eventId,
+            String type,
+            UUID transferId,
+            UUID senderId,
+            UUID recipientId,
+            String extraField) {
         String eventType = type.substring(0, type.indexOf('.'));
-        String reasonField = reason == null ? "" : ",\"reason\":\"" + reason + "\"";
         String value =
                 """
                 {"id":"%s","source":"transfer-orchestrator","type":"%s","time":"2026-11-01T10:00:00Z",\
                 "subject":"%s","traceparent":null,"data":{"transferId":"%s","senderId":"%s",\
-                "recipientId":"%s","amount":"80.0000","currency":"EUR","eventType":"%s"%s}}""".formatted(eventId, type, transferId, transferId, senderId, recipientId, eventType, reasonField);
+                "recipientId":"%s","amount":"80.0000","currency":"EUR","eventType":"%s"%s}}""".formatted(eventId, type, transferId, transferId, senderId, recipientId, eventType, extraField);
         kafka.send(new ProducerRecord<>("payments.transfers", senderId.toString(), value))
                 .join();
     }
@@ -79,6 +114,13 @@ public final class ActivityStreamSupport {
     public static Map<String, Object> dataWithCause(UUID transferId, UUID senderId, UUID recipientId, String cause) {
         Map<String, Object> data = new java.util.HashMap<>(data(transferId, senderId, recipientId));
         data.put("cause", cause);
+        return data;
+    }
+
+    public static Map<String, Object> dataWithDeadline(
+            UUID transferId, UUID senderId, UUID recipientId, String confirmationDeadline) {
+        Map<String, Object> data = new java.util.HashMap<>(data(transferId, senderId, recipientId));
+        data.put("confirmationDeadline", confirmationDeadline);
         return data;
     }
 

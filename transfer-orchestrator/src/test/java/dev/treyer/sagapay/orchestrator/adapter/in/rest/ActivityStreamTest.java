@@ -130,9 +130,8 @@ class ActivityStreamTest {
 
     @ParameterizedTest
     @EnumSource(Party.class)
-    @Tag("M4-S19")
-    @DisplayName("A blocked transfer is shown without its screening outcome")
-    void aBlockedTransferIsShownWithoutItsScreeningOutcome(Party party) throws Exception {
+    @DisplayName("A blocked transfer recorded before the deadline existed is shown with no deadline")
+    void aLegacyBlockedTransferIsShownWithoutDeadline(Party party) throws Exception {
         UUID sender = UUID.randomUUID();
         UUID recipient = UUID.randomUUID();
         UUID transfer = UUID.randomUUID();
@@ -142,6 +141,30 @@ class ActivityStreamTest {
 
             assertThat(stream.take(1))
                     .containsExactly(event(eventId, "transfer.blocked", data(transfer, sender, recipient)));
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Party.class)
+    @Tag("M4-S19")
+    @DisplayName("A blocked transfer is shown without its screening outcome")
+    void aBlockedTransferCarriesItsDeadlineToTheSenderOnly(Party party) throws Exception {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        UUID transfer = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        try (ActivityStreamSupport.Stream stream = open(of(party, sender, recipient))) {
+            ActivityStreamSupport.publishBlocked(
+                    kafka, eventId, transfer, sender, recipient, "2026-11-01T10:02:00.123456Z");
+
+            assertThat(stream.take(1))
+                    .containsExactly(event(
+                            eventId,
+                            "transfer.blocked",
+                            party == Party.SENDER
+                                    ? ActivityStreamSupport.dataWithDeadline(
+                                            transfer, sender, recipient, "2026-11-01T10:02:00.123456Z")
+                                    : data(transfer, sender, recipient)));
         }
     }
 

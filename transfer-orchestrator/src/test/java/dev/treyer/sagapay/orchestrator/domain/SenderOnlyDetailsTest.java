@@ -3,6 +3,7 @@ package dev.treyer.sagapay.orchestrator.domain;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +20,22 @@ class SenderOnlyDetailsTest {
         assertThat(SenderOnlyDetails.failureReason(FailureReason.INSUFFICIENT_FUNDS, SENDER, SENDER))
                 .isEqualTo(FailureReason.INSUFFICIENT_FUNDS);
         assertThat(SenderOnlyDetails.steps(List.of("RESERVE"), SENDER, SENDER)).containsExactly("RESERVE");
+    }
+
+    @Test
+    @DisplayName("The sender is shown the confirmation deadline")
+    void theSenderIsShownTheDeadline() {
+        Instant deadline = Instant.parse("2026-11-01T10:02:00Z");
+
+        assertThat(SenderOnlyDetails.confirmationDeadline(deadline, SENDER, SENDER))
+                .isEqualTo(deadline);
+    }
+
+    @Test
+    @DisplayName("Anyone but the sender is shown no confirmation deadline")
+    void anyoneButTheSenderIsShownNoDeadline() {
+        assertThat(SenderOnlyDetails.confirmationDeadline(Instant.parse("2026-11-01T10:02:00Z"), SENDER, RECIPIENT))
+                .isNull();
     }
 
     @Test

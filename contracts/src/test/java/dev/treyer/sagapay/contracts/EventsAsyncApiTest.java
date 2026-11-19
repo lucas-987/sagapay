@@ -55,9 +55,28 @@ class EventsAsyncApiTest {
     }
 
     @Test
-    void transferBlockedHoldsTheSharedPayloadOfTheTopic() {
+    void transferBlockedAddsTheConfirmationDeadlineToTheSharedPayload() {
         assertThat(dataFields("TransferBlocked"))
-                .containsExactly("eventType", "transferId", "senderId", "recipientId", "amount", "currency");
+                .containsExactly(
+                        "eventType",
+                        "transferId",
+                        "senderId",
+                        "recipientId",
+                        "amount",
+                        "currency",
+                        "confirmationDeadline");
+    }
+
+    @Test
+    void theConfirmationDeadlineIsAnOptionalInstant() {
+        Map<String, Object> extension =
+                castMap(((List<?>) schema("TransferBlockedData").get("allOf")).get(1));
+
+        assertThat(extension.get("required")).isNull();
+        assertThat(map(map(extension, "properties"), "confirmationDeadline").get("type"))
+                .isEqualTo("string");
+        assertThat(map(map(extension, "properties"), "confirmationDeadline").get("format"))
+                .isEqualTo("date-time");
     }
 
     @Test
@@ -101,7 +120,7 @@ class EventsAsyncApiTest {
         "TransferInitiated, TransferEventData",
         "FundsReserved, TransferEventData",
         "TransferPosted, TransferEventData",
-        "TransferBlocked, TransferEventData",
+        "TransferBlocked, TransferBlockedData",
         "TransferFailed, TransferFailedData",
         "TransferCleared, FraudResultData",
         "TransferFlagged, FraudResultData"

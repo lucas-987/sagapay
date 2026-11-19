@@ -32,7 +32,7 @@ services:
       # wallet; gRPC admits only the orchestrator's token. Both are checked against the keys and
       # issuer below. The gRPC port is not published: only the services of this network reach it.
       SPRING_PROFILES_ACTIVE: local
-      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_ISSUER_URI: http://localhost:8180/realms/sagapay
       OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       # Same DB as the postgres service above, addressed by its network hostname.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledger_svc
@@ -125,8 +125,9 @@ services:
       - "8082:8082"
     environment:
       SPRING_PROFILES_ACTIVE: local
-      # The address Keycloak's tokens name as issuer, which the stack resolves from every container.
-      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      # The issuer a token names is the browser's address; keys and service tokens stay on the
+      # internal address, which every container resolves.
+      OAUTH2_ISSUER_URI: http://localhost:8180/realms/sagapay
       OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       # The orchestrator's own credential for the ledger; no fallback, it does not start without them.
       # The secret and the bearer tokens travel over plain HTTP and gRPC here, which only a local
@@ -223,7 +224,7 @@ services:
       # listens on 8080 inside the network.
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     environment:
-      OAUTH2_ISSUER_URI: http://keycloak:8180/realms/sagapay
+      OAUTH2_ISSUER_URI: http://localhost:8180/realms/sagapay
       OAUTH2_JWK_SET_URI: http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs
       ORCHESTRATOR_URI: http://transfer-orchestrator:8082
       LEDGER_URI: http://ledger-accounts-service:8081
@@ -239,7 +240,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.4
     command: ["start-dev", "--import-realm"]
-    # The sample users' passwords, which the realm file refers to by name. The path can be
+    # The sample and browser users' passwords, which the realm file refers to by name. The path can be
     # overridden so that a test brings its own file.
     env_file:
       - ${KEYCLOAK_ENV_FILE:-./keycloak.env}
@@ -248,10 +249,9 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       # Read by the realm import as the secret of the orchestrator's client.
       ORCHESTRATOR_CLIENT_SECRET: ${ORCHESTRATOR_CLIENT_SECRET:?set ORCHESTRATOR_CLIENT_SECRET in .env}
-      # One fixed public address, so a token carries the same issuer whether it was fetched
-      # from the host (localhost:8180) or from inside the network (keycloak:8180). The port is
-      # the same inside and outside for that reason.
-      KC_HOSTNAME: http://keycloak:8180
+      # One fixed public address, the one a browser reaches, so a token carries the same issuer
+      # whether it was fetched from the host or from inside the network (keycloak:8180).
+      KC_HOSTNAME: http://localhost:8180
       KC_HTTP_PORT: 8180
       KC_HEALTH_ENABLED: "true"
     volumes:

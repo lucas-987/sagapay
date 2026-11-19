@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.HttpClientErrorException;
@@ -21,12 +22,18 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.net.ServerSocket;
+import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -54,7 +61,8 @@ class LocalStackFraudFlowE2ETest {
     private static final int ORCHESTRATOR_PORT = 8082;
     private static final int FRAUD_PORT = 8083;
     private static final int KEYCLOAK_PORT = 8180;
-    private static final String ISSUER = "http://keycloak:8180/realms/sagapay";
+    private static final String PKCE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+    private static final String ISSUER = "http://localhost:8180/realms/sagapay";
 
     private static ComposeContainer stack;
     private static RestClient gateway;
@@ -115,7 +123,9 @@ class LocalStackFraudFlowE2ETest {
         try {
             Path file = Files.createTempFile("keycloak", ".env");
             file.toFile().deleteOnExit();
-            return Files.writeString(file, "MARCO_PASSWORD=marco\nINES_PASSWORD=ines\nHUGO_PASSWORD=hugo\n");
+            return Files.writeString(
+                    file,
+                    "MARCO_PASSWORD=marco\nINES_PASSWORD=ines\nHUGO_PASSWORD=hugo\nJULIEN_PASSWORD=julien\nGINA_PASSWORD=gina\n");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -218,8 +228,8 @@ class LocalStackFraudFlowE2ETest {
     }
 
     @Test
-    @DisplayName("The issuer is the same from the host and from inside the network")
-    void issuerIsTheSameFromTheHostAndFromInsideTheNetwork() throws Exception {
+    @DisplayName("The issuer is the browser issuer from the host and from inside the network")
+    void issuerIsTheBrowserIssuerFromTheHostAndFromInsideTheNetwork() throws Exception {
         String fromHost = (String) keycloak.get()
                 .uri("/realms/sagapay/.well-known/openid-configuration")
                 .retrieve()
@@ -240,6 +250,113 @@ class LocalStackFraudFlowE2ETest {
         assertThat(fromHost).isEqualTo(ISSUER);
         assertThat(fromInside).isEqualTo(ISSUER);
         assertThat(claimsOf(tokenFor("marco")).get("iss")).isEqualTo(ISSUER);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"julien, 00000000-0000-4000-a000-000000000010", "gina, 00000000-0000-4000-a000-000000000007"})
+    @DisplayName("A browser identity's token has its seeded account's id as subject and reads that wallet")
+    void browserIdentityTokenHasItsSeededAccountsIdAsSubjectAndReadsThatWallet(String handle, String accountId) {
+        String token = tokenFor(handle);
+
+        Map<?, ?> wallet = gateway.get()
+                .uri("/v1/wallet")
+                .headers(headers -> headers.setBearerAuth(token))
+                .retrieve()
+                .body(Map.class);
+
+        assertThat(claimsOf(token).get("sub")).isEqualTo(accountId);
+        assertThat(claimsOf(token).get("iss")).isEqualTo(ISSUER);
+        assertThat(wallet.get("accountId")).isEqualTo(accountId);
+    }
+
+    @Test
+    @DisplayName("A token fetched from inside the network carries the browser issuer and the ledger accepts it")
+    void tokenFetchedFromInsideTheNetworkCarriesTheBrowserIssuerAndTheLedgerAcceptsIt() throws Exception {
+        String answer = stack.getContainerByServiceName("keycloak")
+                .orElseThrow()
+                .execInContainer(
+                        "bash",
+                        "-c",
+                        "body='grant_type=password&client_id=sagapay-cli&username=julien&password=julien';"
+                                + " exec 3<>/dev/tcp/keycloak/8180;"
+                                + " printf 'POST /realms/sagapay/protocol/openid-connect/token HTTP/1.0\\r\\n"
+                                + "Host: keycloak:8180\\r\\nContent-Type: application/x-www-form-urlencoded\\r\\n"
+                                + "Content-Length: %s\\r\\n\\r\\n%s' ${#body} \"$body\" >&3;"
+                                + " cat <&3")
+                .getStdout();
+        String token = answer.replaceAll("(?s).*\"access_token\":\"([^\"]*)\".*", "$1");
+
+        Map<?, ?> wallet = ledger.get()
+                .uri("/v1/wallet")
+                .headers(headers -> headers.setBearerAuth(token))
+                .retrieve()
+                .body(Map.class);
+
+        assertThat(claimsOf(token).get("iss")).isEqualTo(ISSUER);
+        assertThat(wallet.get("accountId")).isEqualTo("00000000-0000-4000-a000-000000000010");
+    }
+
+    private static HttpResponse<String> authorizationRequest(String redirectUri, String pkceParameters)
+            throws Exception {
+        String query = "client_id=sagapay-frontend&response_type=code&scope=openid&redirect_uri="
+                + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8) + pkceParameters;
+        return HttpClient.newHttpClient()
+                .send(
+                        HttpRequest.newBuilder(URI.create(baseUrlOf("keycloak", KEYCLOAK_PORT)
+                                        + "/realms/sagapay/protocol/openid-connect/auth?" + query))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    @DisplayName("An authorization request with a redirect URI that is not registered is refused")
+    void authorizationRequestWithAnUnregisteredRedirectUriIsRefused() throws Exception {
+        HttpResponse<String> response = authorizationRequest(
+                "http://localhost:9999/auth/callback",
+                "&code_challenge=" + PKCE_CHALLENGE + "&code_challenge_method=S256");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        // The body is a Keycloak-generated HTML page with no stable marker beyond its text: the
+        // substring names the refusal reason, the exact 400 status above tells refusal from redirect.
+        assertThat(response.body()).contains("Invalid parameter: redirect_uri");
+    }
+
+    @Test
+    @DisplayName("An authorization request without a PKCE challenge is sent back with an error")
+    void authorizationRequestWithoutAPkceChallengeIsSentBackWithAnError() throws Exception {
+        HttpResponse<String> response = authorizationRequest("http://localhost:8088/auth/callback", "");
+
+        assertThat(response.statusCode()).isEqualTo(302);
+        assertThat(response.headers().firstValue("Location").orElseThrow())
+                .isEqualTo("http://localhost:8088/auth/callback?error=invalid_request"
+                        + "&error_description=Missing+parameter%3A+code_challenge_method"
+                        + "&iss=http%3A%2F%2Flocalhost%3A8180%2Frealms%2Fsagapay");
+    }
+
+    @Test
+    @DisplayName("The running browser client is public, standard flow only, with PKCE S256 required")
+    void runningBrowserClientIsPublicStandardFlowOnlyWithPkceS256Required() {
+        Map<?, ?> admin = keycloak.post()
+                .uri("/realms/master/protocol/openid-connect/token")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body("grant_type=password&client_id=admin-cli&username=admin&password=compose-keycloak-password")
+                .retrieve()
+                .body(Map.class);
+
+        List<?> clients = keycloak.get()
+                .uri("/admin/realms/sagapay/clients?clientId=sagapay-frontend")
+                .headers(headers -> headers.setBearerAuth((String) admin.get("access_token")))
+                .retrieve()
+                .body(List.class);
+        Map<?, ?> client = (Map<?, ?>) clients.get(0);
+
+        assertThat(client.get("publicClient")).isEqualTo(true);
+        assertThat(client.get("standardFlowEnabled")).isEqualTo(true);
+        assertThat(client.get("implicitFlowEnabled")).isEqualTo(false);
+        assertThat(client.get("directAccessGrantsEnabled")).isEqualTo(false);
+        assertThat(client.get("serviceAccountsEnabled")).isEqualTo(false);
+        assertThat(((Map<?, ?>) client.get("attributes")).get("pkce.code.challenge.method"))
+                .isEqualTo("S256");
     }
 
     @Test

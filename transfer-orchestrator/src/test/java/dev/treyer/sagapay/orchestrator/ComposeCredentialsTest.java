@@ -1,6 +1,8 @@
 package dev.treyer.sagapay.orchestrator;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
@@ -25,6 +27,10 @@ class ComposeCredentialsTest {
 
     private static final Path ENV_EXAMPLE_FILE =
             Paths.get(System.getProperty("user.dir")).getParent().resolve(".env.example");
+
+    private static final String BROWSER_ISSUER = "http://localhost:8180/realms/sagapay";
+
+    private static final String INTERNAL_JWKS = "http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs";
 
     private static final String SECRET_REQUIRED =
             "${ORCHESTRATOR_CLIENT_SECRET:?set ORCHESTRATOR_CLIENT_SECRET in .env}";
@@ -66,12 +72,21 @@ class ComposeCredentialsTest {
         Map<String, Object> ledger = environmentOf("ledger-accounts-service");
         Map<String, Object> orchestrator = environmentOf("transfer-orchestrator");
 
-        assertThat(ledger)
-                .containsEntry("OAUTH2_ISSUER_URI", "http://keycloak:8180/realms/sagapay")
-                .containsEntry(
-                        "OAUTH2_JWK_SET_URI", "http://keycloak:8180/realms/sagapay/protocol/openid-connect/certs");
         assertThat(ledger.get("OAUTH2_ISSUER_URI")).isEqualTo(orchestrator.get("OAUTH2_ISSUER_URI"));
         assertThat(ledger.get("OAUTH2_JWK_SET_URI")).isEqualTo(orchestrator.get("OAUTH2_JWK_SET_URI"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"api-gateway", "ledger-accounts-service", "transfer-orchestrator"})
+    void everyServiceChecksTheBrowserIssuerAndFetchesKeysAtTheInternalAddress(String service) throws IOException {
+        assertThat(environmentOf(service))
+                .containsEntry("OAUTH2_ISSUER_URI", BROWSER_ISSUER)
+                .containsEntry("OAUTH2_JWK_SET_URI", INTERNAL_JWKS);
+    }
+
+    @Test
+    void keycloakNamesTheBrowserIssuerAsItsHostname() throws IOException {
+        assertThat(environmentOf("keycloak")).containsEntry("KC_HOSTNAME", "http://localhost:8180");
     }
 
     @Test
